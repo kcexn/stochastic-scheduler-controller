@@ -1,0 +1,11 @@
+boost/
+controller/main
+controller/*.o
+.devcontainer/
+.vscode/
+lighttpd/
+nginx/
+package.json
+package-lock.json
+test.txt
+node_modules/
