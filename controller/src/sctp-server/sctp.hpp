@@ -3,6 +3,7 @@
 
 #include <boost/asio/detail/config.hpp>
 #include <boost/asio/basic_seq_packet_socket.hpp>
+#include <boost/asio/basic_socket_acceptor.hpp>
 #include <boost/asio/detail/socket_types.hpp>
 #include <boost/asio/ip/basic_endpoint.hpp>
 #include <boost/asio/ip/basic_resolver.hpp>
@@ -11,6 +12,7 @@ class sctp
 {
 public:
   typedef boost::asio::ip::basic_endpoint<sctp> endpoint;
+
   static sctp v4() BOOST_ASIO_NOEXCEPT
   {
     return sctp(BOOST_ASIO_OS_DEF(AF_INET));
@@ -41,10 +43,10 @@ public:
     return family_;
   }
 
-  /// The UDP socket type.
+  /// The SCTP socket type.
   typedef boost::asio::basic_seq_packet_socket<sctp> socket;
 
-  /// The UDP resolver type.
+  /// The SCTP resolver type.
   typedef boost::asio::ip::basic_resolver<sctp> resolver;
 
   /// Compare two protocols for equality.
@@ -58,6 +60,7 @@ public:
   {
     return p1.family_ != p2.family_;
   }
+
 private:
   // Construct with a specific family.
   explicit sctp(int protocol_family) BOOST_ASIO_NOEXCEPT
@@ -67,5 +70,4 @@ private:
 
   int family_;
 };
-
 #endif //BOOST_ASIO_IP_SCTP_HPP
