@@ -6,12 +6,22 @@ LD_FLAGS = -l boost_system -l boost_date_time -l boost_thread -l boost_chrono
 SRC_DIR = ./src
 
 OBJECTS = sctp-server.o
+DEBUG_OBJECTS = debug-sctp-server.o
 
 main: $(SRC_DIR)/controller/main.cpp $(OBJECTS)
 	$(CC) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(OBJECTS) -o main $(LIBRARY_PATH) $(LD_FLAGS)
 
-sctp-server.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp
+sctp-server.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp $(SRC_DIR)/sctp-server/sctp.hpp
 	$(CC) -c $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/sctp-server/sctp-server.cpp
+
+debug-main: $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS)
+	$(CC) -g $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(OBJECTS) -o main $(LIBRARY_PATH) $(LD_FLAGS)
+
+debug-sctp-server.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp $(SRC_DIR)/sctp-server/sctp.hpp
+	$(CC) -g -c $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/sctp-server/sctp-server.cpp
+
+
+
 	
 .PHONY: clean
 clean:
