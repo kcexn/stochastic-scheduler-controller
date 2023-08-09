@@ -43,11 +43,17 @@ public:
   // SCTP control message. man(2) recv.
   typedef struct cmsghdr* message_controls;
 
-  // SCTP Control Message Buffer. man(2) recv.
-  typedef void* cbuf;
-
-  // SCTP Send Ancillary Info.
+  // SCTP Send Ancillary Info. These are defined in /usr/include/linux/sctp.h
   typedef struct sctp_sndinfo sndinfo;
+
+  //SCTP Receive Ancillary Info. These are defined in /usr/include/linux/sctp.h
+  typedef struct sctp_rcvinfo rcvinfo;
+
+  //SCTP Association ID
+  typedef sctp_assoc_t assoc_t;
+
+  //SCTP Stream ID
+  typedef __u16 sid_t;
 
   // SCTP Remote Endpoint.
   // The receive and send info structs are defined in /usr/include/linux/sctp.h

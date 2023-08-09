@@ -11,7 +11,7 @@
 #include "sctp-server.hpp"
 
 //Constructor
-sctp_server::sctp_server(boost::asio::io_context& ioc, short port)
+sctp_server::server::server(boost::asio::io_context& ioc, short port)
     : socket_(ioc, sctp::endpoint(sctp::v4(), port))
 {
     // Initialize SCTP message buffers.
@@ -25,22 +25,25 @@ sctp_server::sctp_server(boost::asio::io_context& ioc, short port)
     //to escape to the native socket handle and call listen manually.
     int sockfd = socket_.native_handle();
     if (setsockopt(sockfd, IPPROTO_SCTP, SCTP_RECVRCVINFO, &sctp_recvrcvinfo, sizeof(sctp_recvrcvinfo)) == -1){
-        int errsv = errno;
-        std::cout << "setsockopt SCTP_RECVRCVINFO, failed with errno: " << std::to_string(errsv) << std::endl;
+        perror("setsockopt SCTP_RECVRCVINFO failed.");
     }
     if (setsockopt(sockfd, IPPROTO_SCTP, SCTP_RECVNXTINFO, &sctp_recvnxtinfo, sizeof(sctp_recvnxtinfo)) == -1){
-        int errsv = errno;
-        std::cout << "setsockopt SCTP_RECVNXTINFO, failed with errno: " << std::to_string(errsv) << std::endl;
+        perror("setsockopt SCTP_RECVNXTINFO failed.");
+    }
+    if (setsockopt(sockfd, IPPROTO_SCTP, SCTP_RECONFIG_SUPPORTED, &sctp_future_assoc, sizeof(sctp_future_assoc)) == -1){
+        perror("setsockopt SCTP_RECONFIG_SUPPORTED failed.");
+    }
+    if (setsockopt(sockfd, IPPROTO_SCTP, SCTP_ENABLE_STREAM_RESET, &sctp_reset_future_streams, sizeof(sctp_reset_future_streams)) == -1){
+        perror("setsockopt SCTP_ENABLE_STREAM_RESET failed.");
     }
     if( listen(sockfd, 128) == -1){
         int errsv = errno;
-        std::cout << "Listen failed with errno: " << std::to_string(errsv) << std::endl;
+        std::cerr << "Listen failed with errno: " << std::to_string(errsv) << std::endl;
     }
-    do_read();
 }
 
 //Destructor
-sctp_server::~sctp_server(){
+sctp_server::server::~server(){
     // Free SCTP server buffers.
     for(int i=0; i<num_bufs; ++i){
         free(bufs[i].iov_base);
@@ -48,7 +51,7 @@ sctp_server::~sctp_server(){
 }
 
 
-void sctp_server::do_read(){
+sctp::sctp_message sctp_server::server::do_read(){
     //SCTP provides additional message metadata in the msghdr struct that is returned with recvmsg().
     //This struct is important for retrieving SCTP transport layer information such as:
     //Association ID, Stream ID, and the Stream Sequence Number. Boost.Asio does not 
@@ -56,12 +59,9 @@ void sctp_server::do_read(){
     //we must escape to the native socket handle again. See man(7) sctp, man(3) cmsg, man(2) recvmsg, man(2) readv.
     int sockfd = socket_.native_handle();
 
-    struct sockaddr_in sin;
-
     //Initialize an SCTP Control Message Buffer.
-    sctp::cbuf cbuf = malloc(cbuflen);
-
-    //All Properties in the struct need to be properly initialized before recvmsg will work for SCTP.
+    char cbuf[cbuflen] = {};
+    struct sockaddr_in sin;
 
     //Initialize a message envelope
     sctp::envelope msg = {
@@ -80,10 +80,10 @@ void sctp_server::do_read(){
     } else {
         boost::asio::const_buffer payload(bufs[0].iov_base, length);
 
-        struct sctp_rcvinfo rcvinfo;
+        struct sctp_rcvinfo rcvinfo = {};
         for( sctp::message_controls cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg) ){
             if (cmsg->cmsg_level == IPPROTO_SCTP && cmsg->cmsg_type == SCTP_RCVINFO){
-                memcpy(&rcvinfo, CMSG_DATA(cmsg), sizeof(rcvinfo));
+                std::memcpy(&rcvinfo, CMSG_DATA(cmsg), sizeof(rcvinfo));
                 break;
             }
         }
@@ -95,51 +95,33 @@ void sctp_server::do_read(){
         );
         sctp::endpoint endpt( addr, port );
 
-        //Construct the SCTP Remote Endpoint.
-        sctp::sctp_rmt_endpt rmt_endpt = {
-            .endpt = endpt,
-            .rcvinfo = rcvinfo
-        };
-
         //Construct the SCTP Received Message.
         sctp::sctp_message rcv_msg = {
-            .rmt_endpt = rmt_endpt,
+            .rmt_endpt = {
+                .endpt = endpt,
+                .rcvinfo = rcvinfo
+            },
             .payload = payload
         };
 
+        sctp_server::sctp_stream strm(rcv_msg.rmt_endpt.rcvinfo.rcv_assoc_id, rcv_msg.rmt_endpt.rcvinfo.rcv_sid);
+        if (!sctp_server::server::is_existing_stream(strm)){
+            stream_table.push_back(std::move(strm));
+        }
+                
         std::cout.write(static_cast<const char*>(rcv_msg.payload.data()), length) << std::flush;
         std::cout << rcv_msg.rmt_endpt.endpt << std::endl;
         std::cout << std::to_string(rcv_msg.rmt_endpt.rcvinfo.rcv_assoc_id) << std::endl;
         std::cout << std::to_string(rcv_msg.rmt_endpt.rcvinfo.rcv_flags) << std::endl;
 
-        //Echo Server.
-        sctp::sndinfo sndinfo = {
-            .snd_sid = 0,
-            .snd_flags = 0,
-            .snd_ppid = 0,
-            .snd_context = 0,
-            .snd_assoc_id = rmt_endpt.rcvinfo.rcv_assoc_id
-        };
-
-        sctp::sctp_rmt_endpt dst_endpt = {
-            .endpt = rmt_endpt.endpt,
-            .sndinfo = sndinfo
-        };
-
-
-        sctp::sctp_message snd_msg = {
-            .rmt_endpt = dst_endpt,
-            .payload = payload
-        };
-
-        do_write(snd_msg);
         //Route and Handle the Incoming Messages.
+        rcvdmsg = std::move(rcv_msg);
+        return rcvdmsg;
     }
-    free(cbuf);
-    do_read();
+    throw "recvmsg has thrown an error.";
 }
 
-void sctp_server::do_write(const sctp::sctp_message& msg){
+void sctp_server::server::do_write(const sctp::sctp_message& msg){
     //SCTP provides additional message metadata in the msghdr struct that is returned with recvmsg().
     //This struct is important for retrieving SCTP transport layer information such as:
     //Association ID, Stream ID, and the Stream Sequence Number. Boost.Asio does not 
@@ -184,4 +166,13 @@ void sctp_server::do_write(const sctp::sctp_message& msg){
     if(sendmsg(sockfd, &sndmsg, 0) == -1){
         perror("send message failed.");
     }
+}
+
+bool sctp_server::server::is_existing_stream(const sctp_server::sctp_stream& other_strm){
+    for (auto strm: stream_table){
+        if (strm == other_strm){
+            return true;
+        }
+    }
+    return false;
 }
