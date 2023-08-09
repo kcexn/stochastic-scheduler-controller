@@ -21,7 +21,7 @@ OBJECTS = echo.o sctp-server.o
 $(TARGET): $(SRC_DIR)/controller/main.cpp $(OBJECTS)
 	$(CC) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(OBJECTS) -o $(TARGET) $(LIBRARY_PATH) $(LD_FLAGS)
 
-echo.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp
+echo.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp sctp-server.o
 	$(CC) -c $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp
 
 sctp-server.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp $(SRC_DIR)/sctp-server/sctp.hpp
@@ -33,7 +33,7 @@ debug: $(DEBUG_TARGET)
 $(DEBUG_TARGET): $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS)
 	$(CC) $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS) -o $(DEBUG_TARGET) $(LIBRARY_PATH) $(LD_FLAGS)	
 
-echo-dbg.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp
+echo-dbg.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp sctp-server-dbg.o
 	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp -o echo-dbg.o
 
 sctp-server-dbg.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp $(SRC_DIR)/sctp-server/sctp.hpp

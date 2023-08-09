@@ -176,3 +176,10 @@ bool sctp_server::server::is_existing_stream(const sctp_server::sctp_stream& oth
     }
     return false;
 }
+
+void sctp_server::server::async_read(std::function<void(const boost::system::error_code& ec)>&& f){
+    socket_.async_wait(
+        sctp::socket::wait_read,
+        f
+    );
+}

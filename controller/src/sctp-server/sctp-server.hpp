@@ -2,6 +2,7 @@
 #define SCTP_SERVER_HPP
 
 #include <boost/asio.hpp>
+#include <boost/asio/deferred.hpp>
 #include <sys/uio.h>
 
 #include "sctp.hpp"
@@ -24,6 +25,9 @@ namespace sctp_server{
         server(boost::asio::io_context& ioc, short port);
         ~server();
         sctp::sctp_message do_read();
+
+        void async_read(std::function<void(const boost::system::error_code& ec)>&& f);
+
         void do_write(const sctp::sctp_message& msg);
     private:
         enum { 

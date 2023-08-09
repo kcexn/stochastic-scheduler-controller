@@ -22,7 +22,7 @@ echo::app::app(boost::asio::io_context& ioc, short port)
                     .rmt_endpt = dst_endpt,
                     .payload = rcvdmsg.payload
                 };
-                s_.do_write(snd_msg);      
+                s_.do_write(snd_msg);    
             }
         }
       )
@@ -31,8 +31,18 @@ echo::app::app(boost::asio::io_context& ioc, short port)
 }
 
 void echo::app::loop(){
-    while(true){
-        sctp::sctp_message rcvdmsg = s_.do_read();
-        echo_(rcvdmsg);
-    }
+    // while(true){
+    //     sctp::sctp_message rcvdmsg = s_.do_read();
+    //     echo_(rcvdmsg);
+    // }
+
+    s_.async_read(
+        [&](const boost::system::error_code& ec){
+            if(!ec){
+                sctp::sctp_message rcvdmsg = s_.do_read();
+                echo_(rcvdmsg);
+            }
+            loop();
+        }
+    );
 }
