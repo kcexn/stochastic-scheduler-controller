@@ -1,11 +1,12 @@
 #ifndef SCTP_SERVER_HPP
 #define SCTP_SERVER_HPP
+#include <thread>
 
 #include <boost/asio.hpp>
-#include <boost/asio/deferred.hpp>
 #include <sys/uio.h>
 
 #include "sctp.hpp"
+#include "uuid.hpp"
 
 namespace sctp_server{
 
@@ -14,9 +15,24 @@ namespace sctp_server{
     public:
         sctp_stream(const sctp::assoc_t& assoc_id, const sctp::sid_t& sid): assoc_id_{assoc_id},sid_{sid} {}
         inline bool operator==(const sctp_stream& other) { return (assoc_id_ == other.assoc_id_ && sid_ == other.sid_); }
+        void set_tid(std::thread::id t_id) {
+            tid_ = {
+                .id_ = t_id,
+                .tid_set_ = true
+            };
+        }
     private:
         sctp::assoc_t assoc_id_;
         sctp::sid_t sid_;
+        uuid::uuid uuid_ = {};
+
+        // TIDs should be considered opaque blocks of memory (not portable) and so
+        // equality checks should be made ONLY if we are sure that the tid
+        // has been set.
+        struct tid_t {
+            std::thread::id id_;
+            bool tid_set_ = false;
+        } tid_;
     };
 
     class server
@@ -40,11 +56,6 @@ namespace sctp_server{
 
         //Received message.
         sctp::sctp_message rcvdmsg;
-
-        //Stream Table
-        std::vector<sctp_stream> stream_table;
-        //Check if sid is in stream table;
-        bool is_existing_stream(const sctp_stream& stream);
         
         // read flags.
         int sctp_recvrcvinfo = 1;

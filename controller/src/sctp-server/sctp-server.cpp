@@ -1,4 +1,7 @@
+#ifdef DEBUG
 #include <iostream>
+#endif
+
 #include <boost/asio.hpp>
 #include <sys/socket.h>
 #include <sys/uio.h>
@@ -104,15 +107,16 @@ sctp::sctp_message sctp_server::server::do_read(){
             .payload = payload
         };
 
-        sctp_server::sctp_stream strm(rcv_msg.rmt_endpt.rcvinfo.rcv_assoc_id, rcv_msg.rmt_endpt.rcvinfo.rcv_sid);
-        if (!sctp_server::server::is_existing_stream(strm)){
-            stream_table.push_back(std::move(strm));
-        }
-                
+        // sctp_server::sctp_stream strm(rcv_msg.rmt_endpt.rcvinfo.rcv_assoc_id, rcv_msg.rmt_endpt.rcvinfo.rcv_sid);
+        // if (!sctp_server::server::is_existing_stream(strm)){
+        //     stream_table.push_back(std::move(strm));
+        // }
+        #ifdef DEBUG
         std::cout.write(static_cast<const char*>(rcv_msg.payload.data()), length) << std::flush;
         std::cout << rcv_msg.rmt_endpt.endpt << std::endl;
         std::cout << std::to_string(rcv_msg.rmt_endpt.rcvinfo.rcv_assoc_id) << std::endl;
         std::cout << std::to_string(rcv_msg.rmt_endpt.rcvinfo.rcv_flags) << std::endl;
+        #endif
 
         //Route and Handle the Incoming Messages.
         rcvdmsg = std::move(rcv_msg);
@@ -166,15 +170,6 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
     if(sendmsg(sockfd, &sndmsg, 0) == -1){
         perror("send message failed.");
     }
-}
-
-bool sctp_server::server::is_existing_stream(const sctp_server::sctp_stream& other_strm){
-    for (auto strm: stream_table){
-        if (strm == other_strm){
-            return true;
-        }
-    }
-    return false;
 }
 
 void sctp_server::server::async_read(std::function<void(const boost::system::error_code& ec)>&& f){

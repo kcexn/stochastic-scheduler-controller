@@ -6,6 +6,6 @@ int main(int argc, char* argv[])
 
     //More than one application can be registered onto the io-context.
     echo::app echo_app(ioc, 5100);
-    ioc.run();
+    // ioc.run();
     return 0;
 }

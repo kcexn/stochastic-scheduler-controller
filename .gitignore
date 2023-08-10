@@ -9,3 +9,4 @@ package.json
 package-lock.json
 test.txt
 node_modules/
+controller/controller*

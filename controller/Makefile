@@ -1,12 +1,15 @@
 CC = g++
 CC_FLAGS = -Wall
-INCLUDE_PATH = -I/workspaces/whisk-controller-dev/boost/boost_1_82_0/ -I/workspaces/whisk-controller-dev/controller/src/sctp-server/ -I/workspaces/whisk-controller-dev/controller/src/echo-app/
+INCLUDE_PATH = -I/workspaces/whisk-controller-dev/boost/boost_1_82_0/ \
+-I/workspaces/whisk-controller-dev/controller/src/echo-app/ \
+-I/workspaces/whisk-controller-dev/controller/src/sctp-server/ \
+-I/workspaces/whisk-controller-dev/controller/src/utils/
 LIBRARY_PATH = -L/usr/local/lib/
 LD_FLAGS = -l boost_system -l boost_date_time -l boost_thread -l boost_chrono -l boost_context
 SRC_DIR = ./src
 
 # DEBUG SETTINGS
-DEBUG_CC_FLAGS = -g
+DEBUG_CC_FLAGS = -g -D DEBUG
 DEBUG_TARGET = controller-dbg
 DEBUG_OBJECTS = echo-dbg.o sctp-server-dbg.o
 
