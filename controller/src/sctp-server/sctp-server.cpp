@@ -2,13 +2,16 @@
 #include <iostream>
 #endif
 
-#include <boost/asio.hpp>
+#include <signal.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/sctp.h>
 #include <errno.h>
+
+#include <boost/asio.hpp>
+
 
 #include "sctp.hpp"
 #include "sctp-server.hpp"
@@ -177,4 +180,11 @@ void sctp_server::server::async_read(std::function<void(const boost::system::err
         sctp::socket::wait_read,
         f
     );
+}
+
+void sctp_server::server::stop(){
+    int sockfd = socket_.native_handle();
+
+    shutdown(sockfd, 2);
+    close(sockfd);
 }

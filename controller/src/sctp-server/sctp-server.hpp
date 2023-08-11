@@ -1,6 +1,7 @@
 #ifndef SCTP_SERVER_HPP
 #define SCTP_SERVER_HPP
 #include <thread>
+#include <optional>
 
 #include <boost/asio.hpp>
 #include <sys/uio.h>
@@ -15,11 +16,18 @@ namespace sctp_server{
     public:
         sctp_stream(const sctp::assoc_t& assoc_id, const sctp::sid_t& sid): assoc_id_{assoc_id},sid_{sid} {}
         inline bool operator==(const sctp_stream& other) { return (assoc_id_ == other.assoc_id_ && sid_ == other.sid_); }
-        void set_tid(std::thread::id t_id) {
+        void set_tid(pthread_t t_id) {
             tid_ = {
                 .id_ = t_id,
                 .tid_set_ = true
             };
+        }
+        pthread_t get_tid(){
+            if(tid_.tid_set_) {
+                return tid_.id_;
+            } else {
+                return 0;
+            }
         }
     private:
         sctp::assoc_t assoc_id_;
@@ -28,9 +36,9 @@ namespace sctp_server{
 
         // TIDs should be considered opaque blocks of memory (not portable) and so
         // equality checks should be made ONLY if we are sure that the tid
-        // has been set.
+        // has been set. Equality checks should only be done with man(3) pthread_equal().
         struct tid_t {
-            std::thread::id id_;
+            pthread_t id_;
             bool tid_set_ = false;
         } tid_;
     };
@@ -41,9 +49,9 @@ namespace sctp_server{
         server(boost::asio::io_context& ioc, short port);
         ~server();
         sctp::sctp_message do_read();
+        void stop();
 
         void async_read(std::function<void(const boost::system::error_code& ec)>&& f);
-
         void do_write(const sctp::sctp_message& msg);
     private:
         enum { 

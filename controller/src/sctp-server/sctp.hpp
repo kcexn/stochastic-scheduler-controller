@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <netinet/sctp.h>
+#include <poll.h>
 
 #include <boost/asio/detail/config.hpp>
 #include <boost/asio/basic_seq_packet_socket.hpp>
@@ -72,11 +73,19 @@ public:
     boost::asio::const_buffer payload;
   } sctp_message;
 
+  // POSIX Poll Interface.
+  // man(2) poll defines the struct
+  //   struct pollfd {
+  //     int   fd;         /* file descriptor */
+  //     short events;     /* requested events */
+  //     short revents;    /* returned events */
+  // };
+  typedef struct pollfd pollfd;
+  
   static sctp v4() BOOST_ASIO_NOEXCEPT
   {
     return sctp(BOOST_ASIO_OS_DEF(AF_INET));
   }
-
 
   /// Construct to represent the IPv6 UDP protocol.
   static sctp v6() BOOST_ASIO_NOEXCEPT

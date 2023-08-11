@@ -19,8 +19,8 @@ namespace echo{
         std::condition_variable mbx_cv;
         std::atomic<bool> msg_flag;
         std::atomic<int> signal = 0;
-        sctp::sctp_message rcvdmsg;
-        sctp::sctp_message sndmsg;
+        sctp::sctp_message rcvdmsg = {};
+        sctp::sctp_message sndmsg = {};
     };
 
     class app: public std::enable_shared_from_this<app>
@@ -53,7 +53,6 @@ namespace echo{
         // Shared Memory Structure to Track Return Values from multiple threads.
         std::vector<std::shared_ptr<MailBox> > results;
         std::vector<sctp_server::sctp_stream> stream_table;
-
         std::vector<std::thread> thread_table;
     };
 }//echo namespace
