@@ -42,6 +42,9 @@ sctp_server::server::server(boost::asio::io_context& ioc, short port)
     if (setsockopt(sockfd, IPPROTO_SCTP, SCTP_ENABLE_STREAM_RESET, &sctp_reset_future_streams, sizeof(sctp_reset_future_streams)) == -1){
         perror("setsockopt SCTP_ENABLE_STREAM_RESET failed.");
     }
+    if (setsockopt(sockfd, IPPROTO_SCTP, SCTP_AUTOCLOSE, &sctp_autoclose, sizeof(sctp_autoclose)) == -1){
+        perror("setsockopt SCTP_ENABLE_STREAM_RESET failed.");
+    }
     if( listen(sockfd, 128) == -1){
         int errsv = errno;
         std::cerr << "Listen failed with errno: " << std::to_string(errsv) << std::endl;
@@ -182,9 +185,68 @@ void sctp_server::server::async_read(std::function<void(const boost::system::err
     );
 }
 
-void sctp_server::server::stop(){
+void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t assoc_id_){
+    // TODO: Strictly speaking, this implementation of SCTP SHUTDOWN should use the 
+    // kernel association address table which can be retrieved with a call to getsockopt,
+    // and not the application address table.
+    //
+    // This is because SCTP keeps track of association availability using SCTP HEARTBEAT messages.
+    // An underlying peer can "move" its IP address with a peer address change update.
+    //
+    // Since the available IP addresses of the association may have changed between the time
+    // a message has arrived, and the time the SHUTDOWN message is sent, the current 
+    // active IP address should be retrieved from the kernel table, rather than from 
+    // the application table.
     int sockfd = socket_.native_handle();
 
-    shutdown(sockfd, 2);
-    close(sockfd);
+    // Construct the sndinfo.
+    sctp::sndinfo shutdown = {
+        .snd_sid = 0,
+        .snd_flags = SCTP_EOF,
+        .snd_ppid = 0,
+        .snd_context = 0,
+        .snd_assoc_id = assoc_id_
+    };
+
+    //Initialize a buffer for ancillary data.
+    char cbuf[CMSG_SPACE(sizeof(sctp::sndinfo))] = {};
+
+    struct in_addr addr_v4 = {};
+    inet_pton(AF_INET, remote.address().to_string().c_str(), &addr_v4);
+
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(remote.port()),
+        .sin_addr = addr_v4
+    };
+
+    //Initialize a message envelope
+    sctp::envelope sndmsg = {
+        .msg_name = &addr,
+        .msg_namelen = sizeof(addr),
+        .msg_iov = NULL,
+        .msg_iovlen = 0,
+        .msg_control = cbuf,
+        .msg_controllen = sizeof(cbuf),
+        .msg_flags=0
+    };
+
+
+    sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
+    if ( snd_cmsg == NULL ){
+        std::cerr << "cmesg buffer error." << std::endl;
+    } else {
+        snd_cmsg->cmsg_level = IPPROTO_SCTP;
+        snd_cmsg->cmsg_type = SCTP_SNDINFO;
+        snd_cmsg->cmsg_len = CMSG_LEN(sizeof(sctp::sndinfo));
+        std::memcpy(CMSG_DATA(snd_cmsg), &shutdown, sizeof(sctp::sndinfo));
+    }
+
+    if(sendmsg(sockfd, &sndmsg, 0) == -1){
+        perror("shutdown failed.");
+    }
+}
+
+void sctp_server::server::stop(){
+    socket_.close();
 }

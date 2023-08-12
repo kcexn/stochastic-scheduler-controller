@@ -15,6 +15,8 @@ namespace sctp_server{
     {
     public:
         sctp_stream(const sctp::assoc_t& assoc_id, const sctp::sid_t& sid): assoc_id_{assoc_id},sid_{sid} {}
+        sctp::assoc_t assoc_id() { return assoc_id_; }
+        sctp::sid_t sid() { return sid_; }
         inline bool operator==(const sctp_stream& other) { return (assoc_id_ == other.assoc_id_ && sid_ == other.sid_); }
         void set_tid(pthread_t t_id) {
             tid_ = {
@@ -49,6 +51,7 @@ namespace sctp_server{
         server(boost::asio::io_context& ioc, short port);
         ~server();
         sctp::sctp_message do_read();
+        void shutdown_read(sctp::endpoint remote, sctp::assoc_t assoc_id_);
         void stop();
 
         void async_read(std::function<void(const boost::system::error_code& ec)>&& f);
@@ -76,6 +79,8 @@ namespace sctp_server{
             .assoc_id = SCTP_FUTURE_ASSOC,
             .assoc_value = SCTP_ENABLE_RESET_STREAM_REQ
         };
+
+        int sctp_autoclose = 60;
 
     //    setsockopt option:
     //    SCTP_RESET_STREAMS

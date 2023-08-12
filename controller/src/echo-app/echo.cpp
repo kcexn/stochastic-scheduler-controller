@@ -28,6 +28,85 @@ echo::app::app(boost::asio::io_context& ioc, short port)
     scheduler_();
 }
 
+void echo::app::reader_thread_fn_(
+    std::shared_ptr<sctp_server::server> s_ptr_,
+    std::shared_ptr<std::mutex> signal_mtx_ptr_,
+    std::shared_ptr<echo::MailBox> read_mbox_ptr,
+    std::shared_ptr<std::atomic<int> > signal_ptr_,
+    std::shared_ptr<std::condition_variable> signal_cv_ptr_
+){
+    #ifdef DEBUG
+    std::cout << "read_thread initialized." << std::endl;
+    #endif
+
+    // Initialize Global Control Information
+    std::unique_lock<std::mutex> lk(*signal_mtx_ptr_, std::defer_lock);
+    #ifdef DEBUG
+    std::cout << "Read Thread Global Controls Initialized." << std::endl;
+    #endif
+
+    // Initialize Message Control Information
+    std::unique_lock<std::mutex> mbox_lk(read_mbox_ptr->mbx_mtx, std::defer_lock);
+    #ifdef DEBUG
+    std::cout << "Message Box Controls Initialized." << std::endl;
+    #endif
+
+    while((read_mbox_ptr->signal.load() & echo::TERMINATE) != echo::TERMINATE){
+        sctp::sctp_message rcvdmsg = s_ptr_->do_read();
+        mbox_lk.lock();
+        read_mbox_ptr->mbx_cv.wait(mbox_lk, [&]{ return (read_mbox_ptr->msg_flag.load() == false || read_mbox_ptr->signal.load() != 0); });
+        read_mbox_ptr->rcvdmsg = rcvdmsg;
+        mbox_lk.unlock();
+        read_mbox_ptr->msg_flag.store(true);
+        signal_ptr_->fetch_or(echo::READ_THREAD, std::memory_order::memory_order_relaxed);
+        signal_cv_ptr_->notify_all();
+    }
+
+    #ifdef DEBUG
+    std::cout << "reader terminated." << std::endl;
+    #endif
+    pthread_exit(0);
+}
+
+void echo::app::writer_thread_fn_(
+    std::shared_ptr<sctp_server::server> s_ptr_,
+    std::shared_ptr<std::mutex> signal_mtx_ptr_,
+    std::shared_ptr<echo::MailBox> write_mbox_ptr,
+    std::shared_ptr<std::atomic<int> > signal_ptr_,
+    std::shared_ptr<std::condition_variable> signal_cv_ptr_
+){
+    #ifdef DEBUG
+    std::cout << "write_thread initialized." << std::endl;
+    #endif
+
+    // Initialize Message Control Information
+    std::unique_lock<std::mutex> mbox_lk(write_mbox_ptr->mbx_mtx, std::defer_lock);
+    #ifdef DEBUG
+    std::cout << "Message Box Controls Initialized." << std::endl;
+    #endif
+
+    while((write_mbox_ptr->signal.load() & echo::TERMINATE) != echo::TERMINATE){
+        mbox_lk.lock();
+        write_mbox_ptr->mbx_cv.wait(mbox_lk, [&]{ return (write_mbox_ptr->msg_flag.load() == true || write_mbox_ptr->signal.load() != 0); });
+        sctp::sctp_message sndmsg = write_mbox_ptr->sndmsg;
+        mbox_lk.unlock();
+        if ( (write_mbox_ptr->signal.load() & echo::TERMINATE) == echo::TERMINATE){
+            // If TERMINATE signal received. Exit.
+            #ifdef DEBUG
+            std::cout << "Writer Thread Closing" << std::endl;
+            #endif
+            pthread_exit(0);
+        }
+        write_mbox_ptr->msg_flag.store(false);
+        s_ptr_->do_write(sndmsg);
+    }
+
+    #ifdef DEBUG
+    std::cout << "Writer Thread Closing" << std::endl;
+    #endif
+    pthread_exit(0);
+}
+
 void echo::app::scheduler_(){
     #ifdef DEBUG
     std::cout << "Scheduler Called!" << std::endl;
@@ -35,48 +114,7 @@ void echo::app::scheduler_(){
 
     std::shared_ptr<echo::MailBox> read_mbox_ptr = std::make_shared<echo::MailBox>();
     std::thread read_thread(
-        [](
-            std::shared_ptr<sctp_server::server> s_ptr_,
-            std::shared_ptr<std::mutex> signal_mtx_ptr_,
-            std::shared_ptr<echo::MailBox> read_mbox_ptr,
-            std::shared_ptr<std::atomic<int> > signal_ptr_,
-            std::shared_ptr<std::condition_variable> signal_cv_ptr_
-        )
-        {
-
-            #ifdef DEBUG
-            std::cout << "read_thread initialized." << std::endl;
-            #endif
-
-            // Binary ID for the read thread.
-            // Initialize Global Control Information
-            const int read_thread_signal = 0x0001;
-            std::unique_lock<std::mutex> lk(*signal_mtx_ptr_, std::defer_lock);
-            #ifdef DEBUG
-            std::cout << "Read Thread Global Controls Initialized." << std::endl;
-            #endif
-
-            // Initialize Message Control Information
-            std::unique_lock<std::mutex> mbox_lk(read_mbox_ptr->mbx_mtx, std::defer_lock);
-            #ifdef DEBUG
-            std::cout << "Message Box Controls Initialized." << std::endl;
-            #endif
-
-            while((read_mbox_ptr->signal.load() & TERMINATE) != TERMINATE){
-                sctp::sctp_message rcvdmsg = s_ptr_->do_read();
-                mbox_lk.lock();
-                read_mbox_ptr->mbx_cv.wait(mbox_lk, [&]{ return (read_mbox_ptr->msg_flag.load() == false || read_mbox_ptr->signal.load() != 0); });
-                read_mbox_ptr->rcvdmsg = rcvdmsg;
-                mbox_lk.unlock();
-                read_mbox_ptr->msg_flag.store(true);
-                signal_ptr_->fetch_or(read_thread_signal, std::memory_order::memory_order_relaxed);
-                signal_cv_ptr_->notify_all();
-            }
-
-            #ifdef DEBUG
-            std::cout << "reader terminated." << std::endl;
-            #endif
-        }, s_ptr_, signal_mtx_ptr_, read_mbox_ptr, signal_ptr_, signal_cv_ptr_
+        &echo::app::reader_thread_fn_, this, s_ptr_, signal_mtx_ptr_, read_mbox_ptr, signal_ptr_, signal_cv_ptr_
     );
     #ifdef DEBUG
     std::cout << "Reader Started." << std::endl;
@@ -84,38 +122,7 @@ void echo::app::scheduler_(){
 
     std::shared_ptr<echo::MailBox> write_mbox_ptr = std::make_shared<echo::MailBox>();
     std::thread writer_thread(
-        [](
-            std::shared_ptr<sctp_server::server> s_ptr_,
-            std::shared_ptr<std::mutex> signal_mtx_ptr_,
-            std::shared_ptr<echo::MailBox> write_mbox_ptr,
-            std::shared_ptr<std::atomic<int> > signal_ptr_,
-            std::shared_ptr<std::condition_variable> signal_cv_ptr_
-        )
-        {
-
-            #ifdef DEBUG
-            std::cout << "write_thread initialized." << std::endl;
-            #endif
-
-            // Initialize Message Control Information
-            std::unique_lock<std::mutex> mbox_lk(write_mbox_ptr->mbx_mtx, std::defer_lock);
-            #ifdef DEBUG
-            std::cout << "Message Box Controls Initialized." << std::endl;
-            #endif
-
-            while((write_mbox_ptr->signal.load() & TERMINATE) != TERMINATE){
-                mbox_lk.lock();
-                write_mbox_ptr->mbx_cv.wait(mbox_lk, [&]{ return (write_mbox_ptr->msg_flag.load() == true || write_mbox_ptr->signal.load() != 0); });
-                sctp::sctp_message sndmsg = write_mbox_ptr->sndmsg;
-                mbox_lk.unlock();
-                write_mbox_ptr->msg_flag.store(false);
-                s_ptr_->do_write(sndmsg);
-            }
-
-            #ifdef DEBUG
-            std::cout << "Writer Thread Closing" << std::endl;
-            #endif
-        }, s_ptr_, signal_mtx_ptr_, write_mbox_ptr, signal_ptr_, signal_cv_ptr_
+        &echo::app::writer_thread_fn_, this, s_ptr_, signal_mtx_ptr_, write_mbox_ptr, signal_ptr_, signal_cv_ptr_
     );
     #ifdef DEBUG
     std::cout << "Writer Thread Started." << std::endl;
@@ -131,7 +138,7 @@ void echo::app::scheduler_(){
 
     while(true){
         #ifdef DEBUG
-        if (++debug_counter > 4){
+        if (++debug_counter > 5){
             break;
         }
         #endif
@@ -141,11 +148,12 @@ void echo::app::scheduler_(){
         lk.unlock();
         // This switch statement acts as a router.
         switch(signal_ptr_->load()){
-            case READ_THREAD:
+            case echo::READ_THREAD:
                 // Read from user.
                 read_mbox_ptr->mbx_mtx.lock();
                 sctp::sctp_message rcvdmsg = read_mbox_ptr->rcvdmsg;
                 read_mbox_ptr->mbx_mtx.unlock();
+
                 // Set Signals
                 signal_ptr_->fetch_and(~0x0001, std::memory_order::memory_order_relaxed);
                 read_mbox_ptr->msg_flag.store(false);
@@ -171,11 +179,44 @@ void echo::app::scheduler_(){
     #endif
 
     // SIGTERM all threads.
+    // Initiate graceful shutdown of SCTP associations.
+    for ( std::shared_ptr<MailBox> result: results ){
+        sctp::endpoint remote = result->rcvdmsg.rmt_endpt.endpt;
+        sctp::assoc_t assoc_id = result->rcvdmsg.rmt_endpt.rcvinfo.rcv_assoc_id;
+        s_ptr_->shutdown_read(remote, assoc_id);
+    }
+
+    // Give the reader an opportunity to clean itself up.
+    read_mbox_ptr->signal.store(echo::TERMINATE);
+    read_mbox_ptr->mbx_cv.notify_all();
+    sched_yield();
+    
+    // Force terminate the read side.
     pthread_cancel(read_thread.native_handle());
-    pthread_cancel(writer_thread.native_handle());
+
+    // Give the worker threads a chance to clean themselves up.
+    for (std::size_t i=0; i < results.size(); ++i){
+        results[i]->signal.store(echo::TERMINATE);
+        results[i]->mbx_cv.notify_all();
+    }
+
+    // Wait a `reasonable' amount of time for worker threads to 
+    // finish their current tasks
+    sleep(1);
+
+    // Force terminate the worker threads.
     for ( sctp_server::sctp_stream stream: stream_table ){
         pthread_cancel(stream.get_tid());
     }
+
+    // Give the write side a chance to clean itself up.
+    s_ptr_->stop();
+    write_mbox_ptr->signal.store(echo::TERMINATE);
+    write_mbox_ptr->mbx_cv.notify_all();
+    sched_yield();
+
+    // Force Terminate the Writing thread.
+    pthread_cancel(writer_thread.native_handle());
 
     read_thread.join();
     writer_thread.join();
@@ -199,7 +240,7 @@ sctp::sctp_message echo::app::echo_(sctp::sctp_message& rcvdmsg){
         if (stream_table[strm_idx] == strm){
             break;
         }
-    } 
+    }
     if (strm_idx == stream_table.size()){
         // stream isn't in the table.
         stream_table.push_back(std::move(strm));
