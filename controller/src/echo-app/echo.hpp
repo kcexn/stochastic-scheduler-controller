@@ -1,14 +1,16 @@
+#ifndef ECHO_APP_HPP
+#define ECHP_APP_HPP
+
 #include <thread>
 #include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
-#include <list>
 
 #include <boost/asio.hpp>
 
-#include "sctp.hpp"
-#include "sctp-server.hpp"
+#include "../sctp-server/sctp.hpp"
+#include "../sctp-server/sctp-server.hpp"
 
 namespace echo{
 
@@ -53,21 +55,6 @@ namespace echo{
         std::shared_ptr<std::atomic<int> > signal_ptr_;
         std::shared_ptr<std::condition_variable> signal_cv_ptr_;
 
-        // Application Components
-        void reader_thread_fn_(
-            std::shared_ptr<sctp_server::server> s_ptr_,
-            std::shared_ptr<std::mutex> signal_mtx_ptr_,
-            std::shared_ptr<echo::MailBox> read_mbox_ptr,
-            std::shared_ptr<std::atomic<int> > signal_ptr_,
-            std::shared_ptr<std::condition_variable> signal_cv_ptr_
-        );
-        void writer_thread_fn_(
-            std::shared_ptr<sctp_server::server> s_ptr_,
-            std::shared_ptr<std::mutex> signal_mtx_ptr_,
-            std::shared_ptr<echo::MailBox> write_mbox_ptr,
-            std::shared_ptr<std::atomic<int> > signal_ptr_,
-            std::shared_ptr<std::condition_variable> signal_cv_ptr_
-        );
         void scheduler_();
         std::shared_ptr<sctp_server::server> s_ptr_;
         
@@ -80,3 +67,5 @@ namespace echo{
         std::vector<std::thread> thread_table;
     };
 }//echo namespace
+
+#endif

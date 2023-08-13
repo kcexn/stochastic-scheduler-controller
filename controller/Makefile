@@ -11,18 +11,24 @@ SRC_DIR = ./src
 # DEBUG SETTINGS
 DEBUG_CC_FLAGS = -g -D DEBUG
 DEBUG_TARGET = controller-dbg
-DEBUG_OBJECTS = echo-dbg.o sctp-server-dbg.o
+DEBUG_OBJECTS = echo-dbg.o echo-components-reader-dbg.o echo-components-writer-dbg.o sctp-server-dbg.o
 
 
 # NORMAL SETTINGS
 TARGET = controller
-OBJECTS = echo.o sctp-server.o
+OBJECTS = echo.o echo-components-reader.o echo-components-writer.o sctp-server.o
 
 .PHONY: clean debug
 
 # DEFAULT is normal settings.
 $(TARGET): $(SRC_DIR)/controller/main.cpp $(OBJECTS)
 	$(CC) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(OBJECTS) -o $(TARGET) $(LIBRARY_PATH) $(LD_FLAGS)
+
+echo-components-writer.o: $(SRC_DIR)/echo-app/components/echo_writer.cpp $(SRC_DIR)/echo-app/components/echo_writer.hpp
+	$(CC) -c $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_writer.cpp -o echo-components-writer.o
+
+echo-components-reader.o: $(SRC_DIR)/echo-app/components/echo_reader.cpp $(SRC_DIR)/echo-app/components/echo_reader.hpp
+	$(CC) -c $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_reader.cpp -o echo-components-reader.o
 
 echo.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp sctp-server.o
 	$(CC) -c $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp
@@ -35,6 +41,12 @@ debug: $(DEBUG_TARGET)
 
 $(DEBUG_TARGET): $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS)
 	$(CC) $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS) -o $(DEBUG_TARGET) $(LIBRARY_PATH) $(LD_FLAGS)	
+
+echo-components-writer-dbg.o: $(SRC_DIR)/echo-app/components/echo_writer.cpp $(SRC_DIR)/echo-app/components/echo_writer.hpp
+	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_writer.cpp -o echo-components-writer-dbg.o
+
+echo-components-reader-dbg.o: $(SRC_DIR)/echo-app/components/echo_reader.cpp $(SRC_DIR)/echo-app/components/echo_reader.hpp
+	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_reader.cpp -o echo-components-reader-dbg.o
 
 echo-dbg.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp
 	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp -o echo-dbg.o

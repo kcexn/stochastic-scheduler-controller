@@ -46,8 +46,7 @@ sctp_server::server::server(boost::asio::io_context& ioc, short port)
         perror("setsockopt SCTP_ENABLE_STREAM_RESET failed.");
     }
     if( listen(sockfd, 128) == -1){
-        int errsv = errno;
-        std::cerr << "Listen failed with errno: " << std::to_string(errsv) << std::endl;
+        perror("Listen failed.");
     }
 }
 
@@ -165,7 +164,7 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
 
     sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
     if ( snd_cmsg == NULL ){
-        std::cerr << "cmesg buffer error." << std::endl;
+        perror("cmesg buffer error.");
     } else {
         snd_cmsg->cmsg_level = IPPROTO_SCTP;
         snd_cmsg->cmsg_type = SCTP_SNDINFO;
@@ -234,7 +233,7 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
 
     sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
     if ( snd_cmsg == NULL ){
-        std::cerr << "cmesg buffer error." << std::endl;
+        perror("cmesg buffer error.");
     } else {
         snd_cmsg->cmsg_level = IPPROTO_SCTP;
         snd_cmsg->cmsg_type = SCTP_SNDINFO;
