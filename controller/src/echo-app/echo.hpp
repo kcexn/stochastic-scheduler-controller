@@ -1,34 +1,14 @@
 #ifndef ECHO_APP_HPP
 #define ECHP_APP_HPP
 
-#include <thread>
-#include <atomic>
-#include <condition_variable>
-#include <memory>
 #include <mutex>
-
+#include <condition_variable>
+#include <atomic>
 #include <boost/asio.hpp>
-
 #include "../sctp-server/sctp.hpp"
 #include "../sctp-server/sctp-server.hpp"
 
 namespace echo{
-
-    // Enum identifying signal source/destination. 
-    // TERMINATE signals are a lightweight asynchronous
-    // method to notify threads that they should terminate.
-    // Unlike pthread_cancel, or pthread_kill, these 
-    // application signals do not wake up sleeping or blocked 
-    // threads. Instead, they notify the thread that it should eventually
-    // clean up itself. Immediate terminations should be handled 
-    // using OS system calls such as pthread_cancel or pthread_kill 
-    // rather than application message box signals.
-    enum{
-        READ_THREAD = 0x0001,
-        WRITE_THREAD = 0x0002,
-        TERMINATE = 0x8000,
-    };
-
     // Shared Memory structure to return results from threads.
     struct MailBox
     {
@@ -40,7 +20,7 @@ namespace echo{
         sctp::sctp_message sndmsg = {};
     };
 
-    class app: public std::enable_shared_from_this<app>
+    class app
     {
     public:
         app(boost::asio::io_context& ioc, short port);
@@ -65,6 +45,67 @@ namespace echo{
         std::vector<std::shared_ptr<MailBox> > results;
         std::vector<sctp_server::sctp_stream> stream_table;
         std::vector<std::thread> thread_table;
+    };
+
+    // Enum identifying signal source/destination. 
+    // TERMINATE signals are a lightweight asynchronous
+    // method to notify threads that they should terminate.
+    // Unlike pthread_cancel, or pthread_kill, these 
+    // application signals do not wake up sleeping or blocked 
+    // threads. Instead, they notify the thread that it should eventually
+    // clean up itself. Immediate terminations should be handled 
+    // using OS system calls such as pthread_cancel or pthread_kill 
+    // rather than application message box signals.
+    enum {
+        READ_THREAD = 0x0001,
+        WRITE_THREAD = 0x0002,
+        TERMINATE = 0x8000,
+    };
+
+    class Worker{
+    public:
+        Worker(std::shared_ptr<MailBox> mbox_ptr);
+        void start();
+    private:
+        std::shared_ptr<MailBox> mbox_ptr_;
+    };
+
+    class EchoReader
+    {
+    public:
+        EchoReader(
+            std::shared_ptr<sctp_server::server> s_ptr,
+            std::shared_ptr<std::mutex> signal_mtx_ptr,
+            std::shared_ptr<MailBox> read_mbox_ptr,
+            std::shared_ptr<std::atomic<int> > signal_ptr,
+            std::shared_ptr<std::condition_variable> signal_cv_ptr
+        );
+        void start();
+    private:
+        std::shared_ptr<sctp_server::server> s_ptr_;
+        std::shared_ptr<std::mutex> signal_mtx_ptr_;
+        std::shared_ptr<MailBox> read_mbox_ptr_;
+        std::shared_ptr<std::atomic<int> > signal_ptr_;
+        std::shared_ptr<std::condition_variable> signal_cv_ptr_;
+    };
+
+    class EchoWriter
+    {
+    public:
+        EchoWriter(
+            std::shared_ptr<sctp_server::server> s_ptr,
+            std::shared_ptr<std::mutex> signal_mtx_ptr,
+            std::shared_ptr<MailBox> write_mbox_ptr,
+            std::shared_ptr<std::atomic<int> > signal_ptr,
+            std::shared_ptr<std::condition_variable> signal_cv_ptr
+        );
+        void start();
+    private:
+        std::shared_ptr<sctp_server::server> s_ptr_;
+        std::shared_ptr<std::mutex> signal_mtx_ptr_;
+        std::shared_ptr<MailBox> write_mbox_ptr_;
+        std::shared_ptr<std::atomic<int> > signal_ptr_;
+        std::shared_ptr<std::condition_variable> signal_cv_ptr_;
     };
 }//echo namespace
 

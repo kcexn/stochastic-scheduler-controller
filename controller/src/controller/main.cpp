@@ -1,4 +1,4 @@
-#include "echo.hpp"
+#include "../echo-app/echo.hpp"
 
 int main(int argc, char* argv[])
 {

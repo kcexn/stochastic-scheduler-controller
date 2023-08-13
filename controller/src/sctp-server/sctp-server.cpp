@@ -1,20 +1,8 @@
+#include "sctp-server.hpp"
+
 #ifdef DEBUG
 #include <iostream>
 #endif
-
-#include <signal.h>
-#include <sys/socket.h>
-#include <sys/uio.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netinet/sctp.h>
-#include <errno.h>
-
-#include <boost/asio.hpp>
-
-
-#include "sctp.hpp"
-#include "sctp-server.hpp"
 
 //Constructor
 sctp_server::server::server(boost::asio::io_context& ioc, short port)

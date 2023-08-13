@@ -1,5 +1,7 @@
 #include "../echo.hpp"
-#include "echo_writer.hpp"
+#ifdef DEBUG
+#include <iostream>
+#endif
 
 echo::EchoWriter::EchoWriter(
     std::shared_ptr<sctp_server::server> s_ptr,

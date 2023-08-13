@@ -1,10 +1,5 @@
 #ifndef SCTP_SERVER_HPP
 #define SCTP_SERVER_HPP
-#include <thread>
-#include <optional>
-
-#include <boost/asio.hpp>
-#include <sys/uio.h>
 
 #include "sctp.hpp"
 #include "../utils/uuid.hpp"

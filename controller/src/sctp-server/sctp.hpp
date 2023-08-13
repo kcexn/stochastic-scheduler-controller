@@ -3,17 +3,8 @@
 
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <boost/asio.hpp>
 #include <netinet/sctp.h>
-#include <poll.h>
-
-#include <boost/asio/detail/config.hpp>
-#include <boost/asio/basic_seq_packet_socket.hpp>
-#include <boost/asio/basic_socket_acceptor.hpp>
-#include <boost/asio/detail/socket_types.hpp>
-#include <boost/asio/ip/basic_endpoint.hpp>
-#include <boost/asio/ip/basic_resolver.hpp>
-
-
 
 class sctp
 {
@@ -80,7 +71,7 @@ public:
   //     short events;     /* requested events */
   //     short revents;    /* returned events */
   // };
-  typedef struct pollfd pollfd;
+  // typedef struct pollfd pollfd;
   
   static sctp v4() BOOST_ASIO_NOEXCEPT
   {

@@ -1,5 +1,7 @@
 #include "../echo.hpp"
-#include "echo_reader.hpp"
+#ifdef DEBUG
+#include <iostream>
+#endif
 
 echo::EchoReader::EchoReader(
     std::shared_ptr<sctp_server::server> s_ptr,
