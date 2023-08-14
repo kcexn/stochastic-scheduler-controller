@@ -1,62 +1,63 @@
-CC = g++
-CC_FLAGS = -Wall
+CXX = g++
+CXX_FLAGS = -Wall
 INCLUDE_PATH = -I/workspaces/whisk-controller-dev/boost/boost_1_82_0/
 LIBRARY_PATH = -L/usr/local/lib/
-LD_FLAGS = -l boost_system -l boost_date_time -l boost_thread -l boost_chrono -l boost_context
+LD_FLAGS = -l boost_system -l boost_date_time -l boost_thread -l boost_chrono -l boost_context -lc -lpthread
 SRC_DIR = ./src
 
 # DEBUG SETTINGS
-DEBUG_CC_FLAGS = -g -D DEBUG -Og
+DEBUG_CXX_FLAGS = -g -D DEBUG -Og
 DEBUG_TARGET = controller-dbg
-DEBUG_OBJECTS = echo-dbg.o echo-components-worker-dbg.o echo-components-reader-dbg.o echo-components-writer-dbg.o sctp-server-dbg.o
+DEBUG_OBJECTS = echo-dbg.o echo-worker-dbg.o echo-reader-dbg.o echo-writer-dbg.o sctp-server-dbg.o uuid-common-utils-dbg.o echo-scheduler-dbg.o echo-application-dbg.o unix-server-dbg.o
 
 
 # NORMAL SETTINGS
 TARGET = controller
-OBJECTS = echo.o echo-components-worker.o echo-components-reader.o echo-components-writer.o sctp-server.o
-REL_CC_FLAGS = -O2 -finline-atomics -finline-functions -finline-small-functions -flto
+OBJECTS = echo.o echo-worker.o echo-reader.o echo-writer.o sctp-server.o uuid-common-utils.o echo-scheduler.o echo-application.o unix-server.o
+REL_CXX_FLAGS = -O2 -finline-atomics -finline-functions -finline-small-functions -flto=auto -fuse-linker-plugin
 
 .PHONY: clean debug
 
 # DEFAULT is normal settings.
 $(TARGET): $(SRC_DIR)/controller/main.cpp $(OBJECTS)
-	$(CC) $(REL_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(OBJECTS) -o $(TARGET) $(LIBRARY_PATH) $(LD_FLAGS)
+	$(CXX) $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(OBJECTS) -o $(TARGET) $(LIBRARY_PATH) $(LD_FLAGS)
 
-echo-components-writer.o: $(SRC_DIR)/echo-app/components/echo_writer.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(REL_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_writer.cpp -o echo-components-writer.o
 
-echo-components-reader.o: $(SRC_DIR)/echo-app/components/echo_reader.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(REL_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_reader.cpp -o echo-components-reader.o
+%.o: $(SRC_DIR)/echo-app/components/%.cpp $(SRC_DIR)/echo-app/components/%.hpp
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
-echo-components-worker.o: $(SRC_DIR)/echo-app/components/echo-worker.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(REL_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo-worker.cpp -o echo-components-worker.o
+unix-server.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/unix-server/unix-server.cpp -o unix-server.o
+
+%-common-utils.o: $(SRC_DIR)/utils/%.cpp $(SRC_DIR)/utils/%.hpp
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 echo.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(REL_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp -o echo.o
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp -o echo.o
 
 sctp-server.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp $(SRC_DIR)/sctp-server/sctp.hpp
-	$(CC) -c $(REL_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/sctp-server/sctp-server.cpp
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/sctp-server/sctp-server.cpp
 
 
 debug: $(DEBUG_TARGET)
 
 $(DEBUG_TARGET): $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS)
-	$(CC) $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS) -o $(DEBUG_TARGET) $(LIBRARY_PATH) $(LD_FLAGS)	
+	$(CXX) $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS) -o $(DEBUG_TARGET) $(LIBRARY_PATH) $(LD_FLAGS)	
 
-echo-components-writer-dbg.o: $(SRC_DIR)/echo-app/components/echo_writer.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_writer.cpp -o echo-components-writer-dbg.o
+%-dbg.o: $(SRC_DIR)/echo-app/components/%.cpp $(SRC_DIR)/echo-app/components/%.hpp
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
-echo-components-reader-dbg.o: $(SRC_DIR)/echo-app/components/echo_reader.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo_reader.cpp -o echo-components-reader-dbg.o
+unix-server-dbg.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/unix-server/unix-server.cpp -o unix-server-dbg.o
 
-echo-components-worker-dbg.o: $(SRC_DIR)/echo-app/components/echo-worker.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/components/echo-worker.cpp -o echo-components-worker-dbg.o
+%-common-utils-dbg.o: $(SRC_DIR)/utils/%.cpp $(SRC_DIR)/utils/%.hpp
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 echo-dbg.o: $(SRC_DIR)/echo-app/echo.cpp $(SRC_DIR)/echo-app/echo.hpp
-	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp -o echo-dbg.o
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/echo-app/echo.cpp -o echo-dbg.o
 
 sctp-server-dbg.o: $(SRC_DIR)/sctp-server/sctp-server.cpp  $(SRC_DIR)/sctp-server/sctp-server.hpp $(SRC_DIR)/sctp-server/sctp.hpp
-	$(CC) -c $(DEBUG_CC_FLAGS) $(CC_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/sctp-server/sctp-server.cpp -o sctp-server-dbg.o
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/sctp-server/sctp-server.cpp -o sctp-server-dbg.o
 
 
 clean:

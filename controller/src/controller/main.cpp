@@ -1,10 +1,13 @@
 #include "../echo-app/echo.hpp"
+// #include "../unix-server/unix-server.hpp"
 
 int main(int argc, char* argv[])
 {
     boost::asio::io_context ioc;
-
     //More than one application can be registered onto the io-context.
+    // UnixServer::Server server(ioc);
+    // ioc.run();
+
     echo::app echo_app(ioc, 5100);
 
 //  From the Boost asio examples:

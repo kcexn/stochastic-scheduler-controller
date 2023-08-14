@@ -6,7 +6,7 @@
 
 //Constructor
 sctp_server::server::server(boost::asio::io_context& ioc, short port)
-    : socket_(ioc, sctp::endpoint(sctp::v4(), port))
+    : socket_(ioc, sctp::endpoint(sctp::v4(), port)), ioc_(ioc)
 {
     // Initialize SCTP message buffers.
     for (int i = 0; i < num_bufs; ++i){
@@ -236,4 +236,8 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
 
 void sctp_server::server::stop(){
     socket_.close();
+}
+
+void sctp_server::server::start(){
+    ioc_.run();
 }

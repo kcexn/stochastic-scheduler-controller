@@ -2,44 +2,7 @@
 #define SCTP_SERVER_HPP
 
 #include "sctp.hpp"
-#include "../utils/uuid.hpp"
-
 namespace sctp_server{
-
-    class sctp_stream
-    {
-    public:
-        sctp_stream(const sctp::assoc_t& assoc_id, const sctp::sid_t& sid): assoc_id_{assoc_id},sid_{sid} {}
-        sctp::assoc_t assoc_id() { return assoc_id_; }
-        sctp::sid_t sid() { return sid_; }
-        inline bool operator==(const sctp_stream& other) { return (assoc_id_ == other.assoc_id_ && sid_ == other.sid_); }
-        void set_tid(pthread_t t_id) {
-            tid_ = {
-                .id_ = t_id,
-                .tid_set_ = true
-            };
-        }
-        pthread_t get_tid(){
-            if(tid_.tid_set_) {
-                return tid_.id_;
-            } else {
-                return 0;
-            }
-        }
-    private:
-        sctp::assoc_t assoc_id_;
-        sctp::sid_t sid_;
-        uuid::uuid uuid_ = {};
-
-        // TIDs should be considered opaque blocks of memory (not portable) and so
-        // equality checks should be made ONLY if we are sure that the tid
-        // has been set. Equality checks should only be done with man(3) pthread_equal().
-        struct tid_t {
-            pthread_t id_;
-            bool tid_set_ = false;
-        } tid_;
-    };
-
     class server
     {
     public:
@@ -48,6 +11,7 @@ namespace sctp_server{
         sctp::sctp_message do_read();
         void shutdown_read(sctp::endpoint remote, sctp::assoc_t assoc_id_);
         void stop();
+        void start();
 
         void async_read(std::function<void(const boost::system::error_code& ec)>&& f);
         void do_write(const sctp::sctp_message& msg);
@@ -59,6 +23,7 @@ namespace sctp_server{
         };
         sctp::socket socket_;
         sctp::buffer bufs[num_bufs];
+        boost::asio::io_context& ioc_;
 
         //Received message.
         sctp::sctp_message rcvdmsg;

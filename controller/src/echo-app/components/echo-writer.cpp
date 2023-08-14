@@ -1,4 +1,4 @@
-#include "../echo.hpp"
+#include "echo-writer.hpp"
 #ifdef DEBUG
 #include <iostream>
 #endif
@@ -30,12 +30,12 @@ void echo::EchoWriter::start(){
     std::cout << "Message Box Controls Initialized." << std::endl;
     #endif
 
-    while((write_mbox_ptr_->signal.load() & echo::TERMINATE) != echo::TERMINATE){
+    while((write_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) != echo::Signals::TERMINATE){
         mbox_lk.lock();
         write_mbox_ptr_->mbx_cv.wait(mbox_lk, [&]{ return (write_mbox_ptr_->msg_flag.load() == true || write_mbox_ptr_->signal.load() != 0); });
         sctp::sctp_message sndmsg = write_mbox_ptr_->sndmsg;
         mbox_lk.unlock();
-        if ( (write_mbox_ptr_->signal.load() & echo::TERMINATE) == echo::TERMINATE){
+        if ( (write_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE){
             // If TERMINATE signal received. Exit.
             #ifdef DEBUG
             std::cout << "Writer Thread Closing" << std::endl;

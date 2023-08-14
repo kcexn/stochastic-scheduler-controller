@@ -1,6 +1,5 @@
-#include "../echo.hpp"
+#include "echo-worker.hpp"
 #include <sys/wait.h>
-#include <mutex>
 
 #ifdef DEBUG
 #include <iostream>
@@ -8,12 +7,17 @@
 
 echo::Worker::Worker(
     std::shared_ptr<MailBox> mbox_ptr
-) : mbox_ptr_(mbox_ptr)
-{
+) : mbox_ptr_(mbox_ptr){
     #ifdef DEBUG
     std::cout << "Worker Constructor." << std::endl;
     #endif
 }
+
+#ifdef DEBUG
+echo::Worker::~Worker(){
+    std::cout << "Worker Destructor." << std::endl;
+}
+#endif
 
 void echo::Worker::start(){
     #ifdef DEBUG
@@ -26,12 +30,12 @@ void echo::Worker::start(){
     std::cout << "Message Box Controls Initialized." << std::endl;
     #endif
 
-    while((mbox_ptr_->signal.load() & echo::TERMINATE) != echo::TERMINATE){
+    while((mbox_ptr_->signal.load() & echo::Signals::TERMINATE) != echo::Signals::TERMINATE){
         mbox_lk.lock();
         mbox_ptr_->mbx_cv.wait(mbox_lk, [&]{ return (mbox_ptr_->msg_flag.load() == true || mbox_ptr_->signal.load() != 0); });
         sctp::sctp_message rcvdmsg = mbox_ptr_->rcvdmsg;
         mbox_lk.unlock();
-        if ( (mbox_ptr_->signal.load() & echo::TERMINATE) == echo::TERMINATE ){
+        if ( (mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
             #ifdef DEBUG
             std::cout << "Echo Worker Closing." << std::endl;
             #endif
@@ -87,15 +91,14 @@ void echo::Worker::start(){
                 perror("Downstream write in the parent process failed.");
             }
 
-            char* buffer = new char[rcvdmsg.payload.size()]();
-            int length = read(upstream[0], buffer, rcvdmsg.payload.size());
+            int length = read(upstream[0], mbox_ptr_->payload_buffer_ptr->data(), rcvdmsg.payload.size());
             if ( length == -1 ){
                 perror("Upstream read in the parent process failed.");
             }
 
             #ifdef DEBUG
             std::cout << "Parent Process Write to stdout." << std::endl;
-            std::cout.write(buffer, length) << std::flush;
+            std::cout.write(mbox_ptr_->payload_buffer_ptr->data(), length) << std::flush;
             #endif
 
             // Construct the echo message.
@@ -111,7 +114,7 @@ void echo::Worker::start(){
                         .snd_assoc_id = rcvdmsg.rmt_endpt.rcvinfo.rcv_assoc_id
                     }
                 },
-                .payload = std::move(boost::asio::const_buffer(buffer, length))
+                .payload = boost::asio::const_buffer(mbox_ptr_->payload_buffer_ptr->data(), length)
             };
             mbox_lk.lock();
             mbox_ptr_->sndmsg = sndmsg;
