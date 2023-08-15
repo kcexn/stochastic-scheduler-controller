@@ -2,7 +2,7 @@ CXX = g++
 CXX_FLAGS = -Wall
 INCLUDE_PATH = -I/workspaces/whisk-controller-dev/boost/boost_1_82_0/
 LIBRARY_PATH = -L/usr/local/lib/
-LD_FLAGS = -l boost_system -l boost_date_time -l boost_thread -l boost_chrono -l boost_context -lc -lpthread
+LD_FLAGS = -l boost_system -l boost_date_time -l boost_chrono -l boost_context
 SRC_DIR = ./src
 
 # DEBUG SETTINGS
@@ -44,7 +44,7 @@ debug: $(DEBUG_TARGET)
 $(DEBUG_TARGET): $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS)
 	$(CXX) $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $(SRC_DIR)/controller/main.cpp $(DEBUG_OBJECTS) -o $(DEBUG_TARGET) $(LIBRARY_PATH) $(LD_FLAGS)	
 
-%-dbg.o: $(SRC_DIR)/echo-app/components/%.cpp $(SRC_DIR)/echo-app/components/%.hpp
+%-dbg.o: $(SRC_DIR)/echo-app/components/%.cpp $(SRC_DIR)/echo-app/components/%.hpp $(SRC_DIR)/echo-app/utils/common.hpp
 	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 unix-server-dbg.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp

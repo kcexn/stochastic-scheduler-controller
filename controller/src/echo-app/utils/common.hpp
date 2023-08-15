@@ -3,6 +3,7 @@
 #include <mutex>
 #include <condition_variable>
 #include "../../utils/uuid.hpp"
+#include "../../unix-server/unix-server.hpp"
 #include "../../sctp-server/sctp-server.hpp"
 
 namespace echo{
@@ -17,8 +18,10 @@ namespace echo{
     // rather than application message box signals.
     enum Signals {
         READ_THREAD = 0x0001,
-        WRITE_THREAD = 0x0002,
-        TERMINATE = 0x8000,
+        UNIX_READ = 0x0002,
+        SCTP_WRITE = 0x0004,
+        UNIX_WRITE = 0x0008,
+        TERMINATE = 0x8000
     };
 
     // Shared Memory structure to return results from threads.
@@ -31,6 +34,7 @@ namespace echo{
         sctp::sctp_message rcvdmsg = {};
         sctp::sctp_message sndmsg = {};
         std::shared_ptr<std::vector<char> > payload_buffer_ptr;
+        std::shared_ptr<UnixServer::Session> session_ptr;
     };
 
     class ExecutionContext

@@ -1,4 +1,6 @@
 #include "sctp-server.hpp"
+#include <cstdio>
+#include <cerrno>
 
 #ifdef DEBUG
 #include <iostream>
@@ -40,6 +42,9 @@ sctp_server::server::server(boost::asio::io_context& ioc, short port)
 
 //Destructor
 sctp_server::server::~server(){
+    #ifdef DEBUG
+    std::cout << "SCTP Server Destructor!" << std::endl;
+    #endif
     // Free SCTP server buffers.
     for(int i=0; i<num_bufs; ++i){
         free(bufs[i].iov_base);
@@ -126,6 +131,12 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
     //we must escape to the native socket handle again. See man(7) sctp, man(3) cmsg, man(2) sendmsg, man(2) writev.
     int sockfd = socket_.native_handle();
 
+    #ifdef DEBUG
+    std::cout << "SCTP Write out: ";
+    std::cout.write(static_cast<const char*>(msg.payload.data()), msg.payload.size());
+    std::cout << std::endl;
+    #endif
+
     //Initialize a buffer for ancillary data.
     char cbuf[CMSG_SPACE(sizeof(sctp::sndinfo))] = {};
 
@@ -160,7 +171,7 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
         std::memcpy(CMSG_DATA(snd_cmsg), &msg.rmt_endpt.sndinfo, sizeof(sctp::sndinfo));
     }
 
-    if(sendmsg(sockfd, &sndmsg, 0) == -1){
+    if(sendmsg(sockfd, &sndmsg, MSG_NOSIGNAL) == -1){
         perror("send message failed.");
     }
 }
@@ -232,6 +243,10 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
     if(sendmsg(sockfd, &sndmsg, 0) == -1){
         perror("shutdown failed.");
     }
+
+    #ifdef DEBUG
+    std::cout << "Association Shutdown Successful!" << std::endl;
+    #endif
 }
 
 void sctp_server::server::stop(){

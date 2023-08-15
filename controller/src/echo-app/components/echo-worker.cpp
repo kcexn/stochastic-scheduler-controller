@@ -144,4 +144,8 @@ void echo::Worker::start(){
                 break;
         }
     }
+    #ifdef DEBUG
+    std::cout << "Worker Leaving Work Loop." << std::endl;
+    #endif
+    pthread_exit(0);
 }

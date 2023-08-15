@@ -15,6 +15,9 @@ namespace echo{
             std::vector<echo::ExecutionContext>& context_table,
             std::shared_ptr<sctp_server::server> s_ptr
         );
+        #ifdef DEBUG
+        ~App();
+        #endif
         // Schedule an Echo Application.
         sctp::sctp_message schedule(sctp::sctp_message& rcvdmsg);
         void deschedule(echo::ExecutionContext context);

@@ -4,6 +4,7 @@
 #include "echo-reader.hpp"
 #include "echo-writer.hpp"
 #include "echo-application.hpp"
+#include "../../unix-server/unix-server.hpp"
 
 #ifdef DEBUG
 #include <iostream>
@@ -14,15 +15,15 @@ namespace echo {
     {
     public:
         Scheduler(boost::asio::io_context& ioc, short port);
+        #ifdef DEBUG
+        ~Scheduler();
+        #endif
         void start();
+        void run();
     private:
-        // SCTP Server.
+        // Servers
         std::shared_ptr<sctp_server::server> s_ptr_;
-
-        // HTTP Server.
-        // HTTP-TCP Server.
-        // MsgBox Holding the TCP Session.
-        // void http-server->DoAccept();
+        std::shared_ptr<UnixServer::Server> us_ptr_;
 
         // Scheduler Signals.
         std::shared_ptr<std::mutex> signal_mtx_ptr_;

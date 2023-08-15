@@ -14,6 +14,12 @@ echo::App::App(
     #endif
 }
 
+#ifdef DEBUG
+echo::App::~App(){
+    std::cout << "Echo Application Destructor!" << std::endl;
+}
+#endif
+
 // Schedule an Echo Application.
 sctp::sctp_message echo::App::schedule(sctp::sctp_message& rcvdmsg)
 {
@@ -95,14 +101,12 @@ void echo::App::deschedule(echo::ExecutionContext context)
         std::cout << "Shutting down association: " << assoc_id << std::endl;
         #endif
         s_ptr_->shutdown_read(remote, assoc_id);
-        sched_yield();
 
         // Give the worker threads a chance to clean themselves up.
         for (std::size_t i=0; i < results_.size(); ++i){
             results_[i]->signal.store(echo::Signals::TERMINATE);
             results_[i]->mbx_cv.notify_all();
         }
-        sched_yield();
 
         #ifdef DEBUG
         std::cout << "Removing the context from the context table." << std::endl;

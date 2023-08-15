@@ -13,6 +13,9 @@ namespace echo{
             std::shared_ptr<std::atomic<int> > signal_ptr,
             std::shared_ptr<std::condition_variable> signal_cv_ptr
         );
+        #ifdef DEBUG
+        ~EchoWriter();
+        #endif
         void start();
     private:
         std::shared_ptr<sctp_server::server> s_ptr_;
