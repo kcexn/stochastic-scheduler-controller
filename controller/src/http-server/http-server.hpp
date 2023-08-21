@@ -2,13 +2,36 @@
 #define HTTP_SERVER_HPP
 #include "../unix-server/unix-server.hpp"
 #include <memory>
-#include <sstream>
+#include <istream>
+#include <string>
+#include <vector>
 
-namespace HttpServer{
+#ifdef DEBUG
+#include <iostream>
+#endif
+
+namespace Http{
+    struct Request {
+        std::string verb;
+        std::string route;
+        std::size_t content_length;
+        std::string body;
+        bool headers_fully_formed;
+        bool body_fully_formed;
+    };
+
+    std::istream& operator>>(std::istream& is, Request& req);
+
     class Session{
     public:
-        Session(std::shared_ptr<UnixServer::Session> session): session_ptr_(session){}
+        Session(std::shared_ptr<UnixServer::Session> session);
+        void read_request();
 
+        #ifdef DEBUG
+        ~Session(){
+            std::cout << "HTTP Session Destructor!" << std::endl;
+        }
+        #endif
 
         // The only headers I plan to parse correctly.
         // Everything else should be completely ignored.
@@ -112,15 +135,34 @@ namespace HttpServer{
         // }
         //
 
-    private:
-        std::basic_stringstream request_;
-        std::basic_stringstream response_;
-        std::shared_ptr<UnixServer::Session> session_ptr_;
-    }
+        bool operator==(const Session& other) const {
+            return session_ptr_ == other.session_ptr_;
+        }
 
-    class Server{
-    public:
     private:
-    }
+        std::shared_ptr<UnixServer::Session> session_ptr_;
+        Request request_;
+    };
+
+    class Server
+    {
+    public:
+        Server()
+        {
+            #ifdef DEBUG
+            std::cout << "HTTP Server Constructor!" << std::endl;
+            #endif
+        }
+
+        std::vector<Session>& http_sessions();
+
+        #ifdef DEBUG
+        ~Server(){
+            std::cout << "HTTP Server Destructor!" << std::endl;
+        }
+        #endif
+    private:
+        std::vector<Session> http_sessions_;
+    };
 }// Namespace HttpServer
 #endif
