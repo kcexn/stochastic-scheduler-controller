@@ -10,3 +10,5 @@ package-lock.json
 test.txt
 node_modules/
 controller/controller*
+controller/objects/*
+http-test.http

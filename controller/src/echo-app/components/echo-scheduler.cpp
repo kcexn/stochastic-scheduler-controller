@@ -24,20 +24,23 @@ namespace echo{
             signal_ptr_,
             signal_cv_ptr_                
         ),
-        http_mbox_ptr_(std::make_shared<MailBox>()),
-        hs_ptr_(std::make_shared<HttpServer>(
-            http_mbox_ptr_
+        controller_mbox_ptr_(std::make_shared<MailBox>()),
+        controller_ptr_(std::make_shared<controller::app::Controller>(
+            controller_mbox_ptr_
         )),
         app_(
             results_,
             context_table_,
             s_ptr_
-        ), 
+        ),
         ioc_(ioc) 
     {
         #ifdef DEBUG
         std::cout << "Scheduler Constructor!" << std::endl;
         #endif
+        controller_mbox_ptr_->sched_signal_mtx_ptr = signal_mtx_ptr_;
+        controller_mbox_ptr_->sched_signal_ptr = signal_ptr_;
+        controller_mbox_ptr_->sched_signal_cv_ptr = signal_cv_ptr_;
     }
     #ifdef DEBUG
     Scheduler::~Scheduler(){
@@ -108,13 +111,12 @@ namespace echo{
                 read_mbox_ptr_->msg_flag.store(false);
                 read_mbox_ptr_->mbx_cv.notify_all();
 
-                //Pass the message to the http server.
-                http_mbox_ptr_->mbx_mtx.lock();
-                http_mbox_ptr_->session_ptr = session_ptr;
-                http_mbox_ptr_->mbx_mtx.unlock();
-                http_mbox_ptr_->msg_flag.store(true);
-                http_mbox_ptr_->mbx_cv.notify_all();
-
+                // Pass the message to the application controller.
+                controller_mbox_ptr_->mbx_mtx.lock();
+                controller_mbox_ptr_->session_ptr = session_ptr;
+                controller_mbox_ptr_->mbx_mtx.unlock();
+                controller_mbox_ptr_->msg_flag.store(true);
+                controller_mbox_ptr_->mbx_cv.notify_all();
 
                 // Send the message back to the user.
                 write_mbox_ptr_->mbx_mtx.lock();
@@ -124,6 +126,19 @@ namespace echo{
                 write_mbox_ptr_->msg_flag.store(true);
                 write_mbox_ptr_->signal.fetch_or(Signals::UNIX_WRITE, std::memory_order::memory_order_relaxed);
                 write_mbox_ptr_->mbx_cv.notify_all();
+            } else if ( (signal & Signals::SCHED_START) == Signals::SCHED_START ){
+                signal_ptr_->fetch_and(~Signals::SCHED_START, std::memory_order::memory_order_relaxed);
+                controller_mbox_ptr_->mbx_mtx.lock();
+                std::vector<char> payload(controller_mbox_ptr_->payload_buffer_ptr->begin(), controller_mbox_ptr_->payload_buffer_ptr->end());
+                controller_mbox_ptr_->mbx_mtx.unlock();
+
+                #ifdef DEBUG
+                std::cout.write(payload.data(), payload.size()) << std::endl;
+                #endif
+
+                // Echo back to Controller.
+                controller_mbox_ptr_->mbx_mtx.lock();
+                
             }
             #ifdef DEBUG
             if (++debug_counter > 10){

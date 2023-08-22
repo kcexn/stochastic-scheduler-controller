@@ -24,6 +24,7 @@ namespace UUID{
     };
 
     std::ostream& operator<<(std::ostream& out, uuid_t& rhs);
+    bool operator==(const uuid_t& lhs, const uuid_t& rhs);
 
     // bit masks for UUID Versions
     enum{

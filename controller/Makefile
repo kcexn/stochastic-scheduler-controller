@@ -2,7 +2,7 @@ CXX = g++
 CXX_FLAGS = -Wall
 INCLUDE_PATH = -I/workspaces/whisk-controller-dev/boost/boost_1_82_0/
 LIBRARY_PATH = -L/usr/local/lib/
-LD_FLAGS = -l boost_system -l boost_date_time -l boost_chrono -l boost_context
+LD_FLAGS = -l boost_system -l boost_date_time -l boost_chrono -l boost_json -l boost_context
 SRC_DIR = ./src
 OBJ_DIR = ./objects
 
@@ -12,14 +12,14 @@ DEBUG_TARGET = controller-dbg
 DEBUG_OBJECTS = echo-dbg.o echo-worker-dbg.o echo-reader-dbg.o \
 echo-writer-dbg.o sctp-server-dbg.o uuid-common-utils-dbg.o \
 echo-scheduler-dbg.o echo-application-dbg.o unix-server-dbg.o \
-http-server-dbg.o echo-http-dbg.o
+http-server-dbg.o controller-app-dbg.o run-dbg.o
 
 # NORMAL SETTINGS
 REL_CXX_FLAGS = -O2 -finline-atomics -finline-functions -finline-small-functions -flto=auto -fuse-linker-plugin
 TARGET = controller
 OBJECTS = echo.o echo-worker.o echo-reader.o echo-writer.o \
 sctp-server.o uuid-common-utils.o echo-scheduler.o \
-echo-application.o unix-server.o http-server.o echo-http.o
+echo-application.o unix-server.o http-server.o controller-app.o run.o
 
 .PHONY: clean debug
 
@@ -34,6 +34,12 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/http-server/%.cpp $(SRC_DIR)/http-server/%.hpp
 	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 $(OBJ_DIR)/unix-server.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/controller/app/%.cpp $(SRC_DIR)/controller/app/%.hpp
+	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/controller/resources/*/%.cpp $(SRC_DIR)/controller/resources/*/%.hpp
 	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 $(OBJ_DIR)/%-common-utils.o: $(SRC_DIR)/utils/%.cpp $(SRC_DIR)/utils/%.hpp
@@ -59,6 +65,12 @@ $(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/http-server/%.cpp $(SRC_DIR)/http-server/%.hpp
 	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 $(OBJ_DIR)/unix-server-dbg.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
+
+$(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/controller/app/%.cpp $(SRC_DIR)/controller/app/%.hpp
+	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
+
+$(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/controller/resources/*/%.cpp $(SRC_DIR)/controller/resources/*/%.hpp
 	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 $(OBJ_DIR)/%-common-utils-dbg.o: $(SRC_DIR)/utils/%.cpp $(SRC_DIR)/utils/%.hpp

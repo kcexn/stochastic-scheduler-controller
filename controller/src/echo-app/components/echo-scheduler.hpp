@@ -4,8 +4,8 @@
 #include "echo-reader.hpp"
 #include "echo-writer.hpp"
 #include "echo-application.hpp"
-#include "echo-http.hpp"
 #include "../../unix-server/unix-server.hpp"
+#include "../../controller/app/controller-app.hpp"
 
 #ifdef DEBUG
 #include <iostream>
@@ -37,9 +37,9 @@ namespace echo {
         echo::EchoReader echo_reader_;
         echo::EchoWriter echo_writer_;
 
-        // HTTP Server
-        std::shared_ptr<MailBox> http_mbox_ptr_;
-        std::shared_ptr<HttpServer> hs_ptr_;
+        // Controller Application
+        std::shared_ptr<MailBox> controller_mbox_ptr_;
+        std::shared_ptr<controller::app::Controller> controller_ptr_;
 
         // Echo Application.
         echo::App app_;

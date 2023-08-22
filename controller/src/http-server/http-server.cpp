@@ -1,5 +1,8 @@
 #include "http-server.hpp"
 #include <regex>
+#include <boost/json.hpp>
+#include <new>
+#include "../controller/resources/run/run.hpp"
 
 #ifdef DEBUG
 #include <iostream>
@@ -118,18 +121,8 @@ namespace Http{
         #endif
     }
 
-    void Session::read_request(){
+    Request Session::read_request(){
         session_ptr_->stream() >> request_;
-        if (request_.body_fully_formed){
-            // Route the request.
-            #ifdef DEBUG
-            std::cout << request_.verb << std::endl;
-            std::cout << request_.route << std::endl;
-            std::cout << request_.content_length << std::endl;
-            std::cout << std::boolalpha << request_.headers_fully_formed << std::endl;
-            std::cout << request_.body << std::endl;
-            std::cout << std::boolalpha << request_.body_fully_formed << std::endl;
-            #endif
-        }
+        return request_;
     }
 }//namespace Http

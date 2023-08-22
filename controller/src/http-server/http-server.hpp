@@ -25,7 +25,7 @@ namespace Http{
     class Session{
     public:
         Session(std::shared_ptr<UnixServer::Session> session);
-        void read_request();
+        Request read_request();
 
         #ifdef DEBUG
         ~Session(){
@@ -153,7 +153,6 @@ namespace Http{
             std::cout << "HTTP Server Constructor!" << std::endl;
             #endif
         }
-
         std::vector<Session>& http_sessions();
 
         #ifdef DEBUG

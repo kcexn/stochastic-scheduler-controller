@@ -21,16 +21,26 @@ namespace echo{
         UNIX_READ = 0x0002,
         SCTP_WRITE = 0x0004,
         UNIX_WRITE = 0x0008,
+        SCHED_START = 0x0010,
+        SCHED_END = 0x0020,
         TERMINATE = 0x8000
     };
 
     // Shared Memory structure to return results from threads.
     struct MailBox
     {
+        // Thread Local Signals
         std::mutex mbx_mtx;
         std::condition_variable mbx_cv;
         std::atomic<bool> msg_flag;
         std::atomic<int> signal = 0;
+
+        // Scheduler Signals
+        std::shared_ptr<std::mutex> sched_signal_mtx_ptr;
+        std::shared_ptr<std::atomic<int> > sched_signal_ptr;
+        std::shared_ptr<std::condition_variable> sched_signal_cv_ptr;
+
+        // Payloads
         sctp::sctp_message rcvdmsg = {};
         sctp::sctp_message sndmsg = {};
         std::shared_ptr<std::vector<char> > payload_buffer_ptr;
