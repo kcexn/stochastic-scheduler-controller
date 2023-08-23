@@ -27,6 +27,8 @@ namespace UnixServer{
         std::array<char, max_length>& sockbuf() { return sockbuf_; }
         std::stringstream& stream() {return stream_; }
 
+        boost::asio::local::stream_protocol::socket& socket(){ return socket_; }
+
         bool operator==(const Session& other) const {
             return this == &other;
         }

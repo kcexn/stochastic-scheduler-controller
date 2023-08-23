@@ -9,6 +9,7 @@
 #endif
 
 namespace Http{
+
     std::istream& operator>>(std::istream& is, Request& req){
         // HTTP is a stream protocol, not a datagram protocol, so 
         // at any given point in time we may have only part of the 

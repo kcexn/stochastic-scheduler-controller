@@ -20,6 +20,16 @@ namespace Http{
         bool body_fully_formed;
     };
 
+    inline bool operator==(const Request& lhs, const Request& rhs)
+    {
+        return (
+            lhs.verb == rhs.verb &&
+            lhs.route == rhs.route &&
+            lhs.content_length == rhs.content_length &&
+            lhs.body == rhs.body
+        );
+    }
+
     struct Response {
         std::string status_code;
         std::string status_message;
@@ -34,6 +44,8 @@ namespace Http{
     public:
         Session(std::shared_ptr<UnixServer::Session> session);
         Request read_request();
+        Request& request() { return request_; }
+        boost::asio::local::stream_protocol::socket& socket(){ return session_ptr_->socket(); }
 
         #ifdef DEBUG
         ~Session(){

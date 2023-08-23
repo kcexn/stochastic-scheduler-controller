@@ -78,7 +78,28 @@ namespace app{
                 for( auto ctx_ptr : ctx_ptrs ){
                     if (ctx_ptr->is_stopped()){
                         Http::Response res = create_response(*ctx_ptr);
-                        // Write this response to the unix socket.
+                        std::stringstream ss;
+                        ss << "HTTP/1.1 " << res.status_code << " " << res.status_message << "\r\n"
+                           << "Content-Type: application/json\r\n"
+                           << "Content-Length: " << res.content_length << "\r\n"
+                           << "\r\n"
+                           << res.body;
+                        #ifdef DEBUG
+                        std::cout << ss.str() << std::endl;
+                        #endif
+                        for ( Http::Session session: sessions()){
+                            if ( session.request() == ctx_ptr->req() ){
+                                std::string str(ss.str());
+
+                                //TODO: This DEFINITELY shouldn't go here.
+                                //Write the http response to the unix socket with a unique fd.
+                                session.socket().write_some(boost::asio::buffer(str.data(), str.size()));
+                                session.socket().shutdown(boost::asio::local::stream_protocol::socket::shutdown_both);
+                                session.socket().close();
+                                auto it = std::find(sessions().begin(), sessions().end(), session);
+                                sessions().erase(it);
+                            }
+                        }
                     }
                 }
             }
@@ -139,15 +160,16 @@ namespace app{
         }
     }
 
-    void Controller::create_response(ExecutionContext& ctx){
+    Http::Response Controller::create_response(ExecutionContext& ctx){
         if ( ctx.req().route == "/run" ){
             std::string result(ctx.payload().begin(), ctx.payload().end());
             boost::json::value jv = boost::json::parse(result);
-            controller::resources::run::Response response;
-            response.status = "success";
-            response.status_code = 0;
-            response.success = true;
-            response.result = jv.as_object();
+            controller::resources::run::Response response = {
+                .status = "success",
+                .status_code = 0,
+                .success = true,
+                .result = jv.as_object()
+            };
 
             boost::json::value jv_res = {
                 {"status", response.status },
@@ -157,16 +179,17 @@ namespace app{
             };
 
             boost::json::object req_body = boost::json::parse(ctx.req().body).as_object();
-
-            controller::resources::run::ActivationRecord record;
-            record.activation_id = req_body["activation_id"].as_string();
-            record.name_space = req_body["namespace"].as_string();
-            record.action_name = req_body["action_name"].as_string();
-            record.start_time = ctx.start_time();
-            record.end_time = ctx.end_time();
-            record.logs = { "LOG:1", "LOG:2" };
-            record.annotations = { "ANNOTATION:1", "ANNOTATION:2" };
-            record.response = jv_res.as_object();
+            
+            controller::resources::run::ActivationRecord record = {
+                .activation_id = req_body["activation_id"].as_string(),
+                .name_space = req_body["namespace"].as_string(),
+                .action_name = req_body["action_name"].as_string(),
+                .start_time = ctx.start_time(),
+                .end_time = ctx.end_time(),
+                .logs = {"LOG:1", "LOG:2" },
+                .annotations = { "ANOOTATION:1", "ANNOTATION:2" },
+                .response = jv_res.as_object()
+            };
 
             boost::json::value jv_activation_record = {
                 {"activation_id", record.activation_id },
@@ -178,8 +201,8 @@ namespace app{
                 {"annotations", record.annotations },
                 {"response", record.response }
             };
-            std::stringstream ss;
 
+            std::stringstream ss;
             ss << jv_activation_record;
             Http::Response res = {
                 .status_code = "200",
@@ -195,9 +218,14 @@ namespace app{
             #endif
 
             return res;
+        } else {
+            throw;
         }
     }
 
+    std::vector<Http::Session>& Controller::sessions(){
+        return server_.http_sessions();
+    }
 
     void Controller::stop(){
         pthread_cancel(tid_);

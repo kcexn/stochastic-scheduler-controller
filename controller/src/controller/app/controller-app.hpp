@@ -61,6 +61,7 @@ namespace app{
         void start();
         void route_request(Http::Request req);
         Http::Response create_response(ExecutionContext& ctx);
+        std::vector<Http::Session>& sessions();
         void stop();
         ~Controller();
     private:
@@ -74,7 +75,6 @@ namespace app{
 
         // Execution Context IDs.
         std::vector< std::shared_ptr<ExecutionContext> > ctx_ptrs;
-        
     };
 
 }// namespace app
