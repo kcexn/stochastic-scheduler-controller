@@ -4,6 +4,7 @@
 #include <thread>
 #include <boost/json.hpp>
 #include <functional>
+#include <ctime>
 
 #ifdef DEBUG
 #include <iostream>
@@ -39,33 +40,48 @@ namespace app{
         // Scheduling Loop.
         while(true){
             lk.lock();
-            controller_mbox_ptr_->mbx_cv.wait(lk, [&]{ return (controller_mbox_ptr_->msg_flag == true || controller_mbox_ptr_->signal.load() != 0); });
-            Http::Session session( controller_mbox_ptr_->session_ptr );
+            controller_mbox_ptr_->mbx_cv.wait(lk, [&]{ return (controller_mbox_ptr_->msg_flag.load() == true || controller_mbox_ptr_->signal.load() != 0); });
             lk.unlock();
-            controller_mbox_ptr_->msg_flag.store(false);
-            if ( (controller_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
-                pthread_exit(0);
-            }
-            std::vector<Http::Session>& sessions = server_.http_sessions();
-            auto it = std::find(sessions.begin(), sessions.end(), session);
-            Http::Request request = {};
-            if (it != sessions.end()){
-                // Do Something.
-                request = it->read_request();
+
+            if (controller_mbox_ptr_->msg_flag.load()){
+                lk.lock();
+                Http::Session session( controller_mbox_ptr_->session_ptr );
+                lk.unlock();
+                controller_mbox_ptr_->msg_flag.store(false);
+                if ( (controller_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
+                    pthread_exit(0);
+                }
+                std::vector<Http::Session>& sessions = server_.http_sessions();
+                auto it = std::find(sessions.begin(), sessions.end(), session);
+                Http::Request request = {};
+                if (it != sessions.end()){
+                    // Do Something.
+                    request = it->read_request();
+                    #ifdef DEBUG
+                    std::cout << "Session is in the HTTP Server." << std::endl;
+                    #endif
+                } else {
+                    sessions.push_back(std::move(session));
+                    request = server_.http_sessions().back().read_request();
+                    #ifdef DEBUG
+                    std::cout << "Session is not in the HTTP Server." << std::endl;
+                    #endif
+                }
+                route_request(request);
                 #ifdef DEBUG
-                std::cout << "Session is in the HTTP Server." << std::endl;
-                #endif
-            } else {
-                sessions.push_back(std::move(session));
-                request = server_.http_sessions().back().read_request();
-                #ifdef DEBUG
-                std::cout << "Session is not in the HTTP Server." << std::endl;
+                std::cout << "HTTP Server Loop!" << std::endl;
                 #endif
             }
-            route_request(request);
-            #ifdef DEBUG
-            std::cout << "HTTP Server Loop!" << std::endl;
-            #endif
+            
+            if ( (controller_mbox_ptr_->signal.load() & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
+                controller_mbox_ptr_->signal.fetch_and(~echo::Signals::SCHED_END);
+                for( auto ctx_ptr : ctx_ptrs ){
+                    if (ctx_ptr->is_stopped()){
+                        Http::Response res = create_response(*ctx_ptr);
+                        // Write this response to the unix socket.
+                    }
+                }
+            }
         }
     }
 
@@ -82,14 +98,23 @@ namespace app{
                 // Route the request.
                 if (req.route == "/run" ){
                     controller::resources::run::Request run(val.get_object());
-                    // Create a fiber continuation for processing the request.
-                    boost::context::fiber f = controller::resources::run::handle(run);
-                    std::shared_ptr<ExecutionContext> ctx_ptr = std::make_shared<ExecutionContext>(std::move(f));
-                    ctx_ptrs.push_back(std::move(ctx_ptr));
-                    while( *(ctx_ptrs.back()) ){
-                        ctx_ptrs.back()->resume();
-                    }
 
+                    // Create a fiber continuation for processing the request.
+                    std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run);                  
+                    std::thread executor(
+                        [&, ctx_ptr](std::shared_ptr<echo::MailBox> mbox_ptr){
+                            ctx_ptr->start_time() = static_cast<std::int64_t>(time(NULL));
+                            ctx_ptr->resume();
+                            ctx_ptr->end_time() = static_cast<std::int64_t>(time(NULL));
+                            mbox_ptr->signal.fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                            mbox_ptr->mbx_cv.notify_all();
+                            ctx_ptr->stop_thread();
+                        }, controller_mbox_ptr_
+                    );
+                    ctx_ptr->tid() = executor.native_handle();
+                    ctx_ptr->req() = req;
+                    ctx_ptrs.push_back(std::move(ctx_ptr));
+                    executor.detach();
                     #ifdef DEBUG
                     std::cout << run.deadline() << std::endl;
                     #endif
@@ -111,6 +136,65 @@ namespace app{
             std::cout << req.body << std::endl;
             std::cout << std::boolalpha << req.body_fully_formed << std::endl;
             #endif
+        }
+    }
+
+    void Controller::create_response(ExecutionContext& ctx){
+        if ( ctx.req().route == "/run" ){
+            std::string result(ctx.payload().begin(), ctx.payload().end());
+            boost::json::value jv = boost::json::parse(result);
+            controller::resources::run::Response response;
+            response.status = "success";
+            response.status_code = 0;
+            response.success = true;
+            response.result = jv.as_object();
+
+            boost::json::value jv_res = {
+                {"status", response.status },
+                {"status_code", response.status_code },
+                {"success", response.success },
+                {"result", response.result }
+            };
+
+            boost::json::object req_body = boost::json::parse(ctx.req().body).as_object();
+
+            controller::resources::run::ActivationRecord record;
+            record.activation_id = req_body["activation_id"].as_string();
+            record.name_space = req_body["namespace"].as_string();
+            record.action_name = req_body["action_name"].as_string();
+            record.start_time = ctx.start_time();
+            record.end_time = ctx.end_time();
+            record.logs = { "LOG:1", "LOG:2" };
+            record.annotations = { "ANNOTATION:1", "ANNOTATION:2" };
+            record.response = jv_res.as_object();
+
+            boost::json::value jv_activation_record = {
+                {"activation_id", record.activation_id },
+                {"namespace", record.name_space },
+                {"name", record.action_name },
+                {"start", record.start_time },
+                {"end", record.end_time },
+                {"logs", record.logs },
+                {"annotations", record.annotations },
+                {"response", record.response }
+            };
+            std::stringstream ss;
+
+            ss << jv_activation_record;
+            Http::Response res = {
+                .status_code = "200",
+                .status_message = "OK",
+                .location = "http://localhost:8080",
+                .content_length = ss.str().size(),
+                .body = ss.str(),
+            };
+
+            #ifdef DEBUG
+            std::cout << "Status Code: " << res.status_code << " : " << "Status Message: " << " : " << res.status_message << " : " << "Location: " << res.location << " : " << "Content-Length: " << res.content_length 
+                      << " : " << "Body: " << res.body << std::endl;
+            #endif
+
+            return res;
         }
     }
 

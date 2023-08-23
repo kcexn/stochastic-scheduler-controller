@@ -47,6 +47,12 @@ public:
   //SCTP Stream ID
   typedef __u16 sid_t;
 
+  // SCTP Application Stream.
+  struct stream_t {
+    assoc_t assoc_id;
+    sid_t sid;
+  };
+
   // SCTP Remote Endpoint.
   // The receive and send info structs are defined in /usr/include/linux/sctp.h
   typedef struct {

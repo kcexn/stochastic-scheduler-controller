@@ -6,49 +6,37 @@
 #include <vector>
 #include <string>
 #include <functional>
+#include "../../app/controller-app.hpp"
 
 namespace controller{
 namespace resources{
 namespace run{
 
-    class Response
-    {
-    public:
-        Response(boost::json::object obj)
-          : status_(obj["status"].as_string()),
-            status_code_(obj["status_code"].as_int64()),
-            success_(obj["success"].as_bool()),
-            result_(obj["result"].as_object())
-        {}
-    private:
-        std::string status_;
-        std::int64_t status_code_;
-        bool success_;
-        boost::json::object result_;
+    struct Response{
+        // Status can take values:
+        // "success" or "application error" or "action developer error" or "whisk internal error".
+        boost::json::string status;
+        // status code can take values:
+        // 0 : success
+        // 1 : application error
+        // 2 : action developer error
+        // 3 : whisk internal error
+        std::int64_t status_code;
+        // success is true if and only if status is success.
+        bool success;
+        // result: is a json object holding the results.
+        boost::json::object result;
     };
 
-    class ActivationRecord{
-    public:
-        ActivationRecord(boost::json::object obj)
-          : activation_id_(obj["activation_id"].as_string()),
-            ns_(obj["namespace"].as_string()),
-            action_name_(obj["name"].as_string()),
-            start_time_(obj["start"].as_int64()),
-            end_time_(obj["end"].as_int64()),
-            logs_(obj["logs"].as_array()),
-            annotations_(obj["annotations"].as_array()),
-            response_(obj["response"].as_object())
-        {}
-
-    private:
-        std::string activation_id_;
-        std::string ns_;
-        std::string action_name_;
-        std::int64_t start_time_;
-        std::int64_t end_time_;
-        boost::json::array logs_;
-        boost::json::array annotations_;
-        Response response_;
+    struct ActivationRecord{
+        boost::json::string activation_id;
+        boost::json::string name_space;
+        boost::json::string action_name;
+        std::int64_t start_time;
+        std::int64_t end_time;
+        boost::json::array logs;
+        boost::json::array annotations;
+        boost::json::object response;
     };
 
     class Request{
@@ -83,7 +71,8 @@ namespace run{
         std::int64_t deadline_;
     };
 
-    boost::context::fiber handle( Request& req );
+    // boost::context::fiber handle( Request& req, std::shared_ptr<controller::app::AppMbox>& mbox_ptr );
+    std::shared_ptr<controller::app::ExecutionContext> handle( Request& req );
 
 }//namespace run
 }//namespace resources

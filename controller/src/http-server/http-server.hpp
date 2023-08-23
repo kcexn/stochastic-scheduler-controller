@@ -20,6 +20,14 @@ namespace Http{
         bool body_fully_formed;
     };
 
+    struct Response {
+        std::string status_code;
+        std::string status_message;
+        std::string location;
+        std::size_t content_length;
+        std::string body;
+    };
+
     std::istream& operator>>(std::istream& is, Request& req);
 
     class Session{
