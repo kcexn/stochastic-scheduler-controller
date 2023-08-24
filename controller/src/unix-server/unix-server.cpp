@@ -8,7 +8,17 @@ namespace UnixServer{
     Session::Session(boost::asio::local::stream_protocol::socket socket)
         : socket_(std::move(socket)),
           stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app )
-        {}
+    {
+        #ifdef DEBUG
+        std::cout << "Unix Session Constructor!" << std::endl;
+        #endif
+    }
+    #ifdef DEBUG
+    Session::~Session()
+    {
+        std::cout << "Unix Session Destructor!" << std::endl;
+    }
+    #endif
         
     void Session::async_read(
         std::function<void(boost::system::error_code ec, std::size_t length)> fn
@@ -16,7 +26,10 @@ namespace UnixServer{
     {
         socket_.async_read_some(
             boost::asio::buffer(sockbuf_.data(), max_length),
-            fn
+            boost::asio::bind_cancellation_slot(
+                cancel_signal_.slot(),
+                fn
+            )
         );
     }
 

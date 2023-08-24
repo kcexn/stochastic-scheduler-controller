@@ -17,9 +17,15 @@ namespace UnixServer{
         enum { max_length = 1024 };
 
         Session(boost::asio::local::stream_protocol::socket socket);
+        #ifdef DEBUG
+        ~Session();
+        #endif
+
+
         void start();
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn);
         void do_write(std::size_t length);
+        void cancel() { cancel_signal_.emit(boost::asio::cancellation_type::total); }
         void shutdown_read();
         void shutdown_write();
         void close();
@@ -38,6 +44,7 @@ namespace UnixServer{
         std::array<char, max_length> sockbuf_;
         std::stringstream stream_;
         char data_[max_length];
+        boost::asio::cancellation_signal cancel_signal_;
     };
 
     class Server{

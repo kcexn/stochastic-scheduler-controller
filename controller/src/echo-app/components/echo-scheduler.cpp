@@ -118,14 +118,6 @@ namespace echo{
                 controller_mbox_ptr_->msg_flag.store(true);
                 controller_mbox_ptr_->mbx_cv.notify_all();
 
-                // Send the message back to the user.
-                write_mbox_ptr_->mbx_mtx.lock();
-                write_mbox_ptr_->session_ptr = session_ptr;
-                write_mbox_ptr_->mbx_mtx.unlock();
-                // Set Write Thread Signals.
-                write_mbox_ptr_->msg_flag.store(true);
-                write_mbox_ptr_->signal.fetch_or(Signals::UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                write_mbox_ptr_->mbx_cv.notify_all();
             } else if ( (signal & Signals::SCHED_START) == Signals::SCHED_START ){
                 signal_ptr_->fetch_and(~Signals::SCHED_START, std::memory_order::memory_order_relaxed);
                 controller_mbox_ptr_->mbx_mtx.lock();
@@ -139,9 +131,33 @@ namespace echo{
                 // Echo back to Controller.
                 controller_mbox_ptr_->mbx_mtx.lock();
                 
+            } else if ( (signal & Signals::APP_UNIX_WRITE ) == Signals::APP_UNIX_WRITE ){
+                signal_ptr_->fetch_and(~Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                controller_mbox_ptr_->mbx_mtx.lock();
+                std::vector<char> payload(controller_mbox_ptr_->payload_buffer_ptr->begin(), controller_mbox_ptr_->payload_buffer_ptr->end());
+                std::shared_ptr<UnixServer::Session> session_ptr(controller_mbox_ptr_->session_ptr);
+                controller_mbox_ptr_->mbx_mtx.unlock();
+                controller_mbox_ptr_->signal.fetch_and(~Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                controller_mbox_ptr_->mbx_cv.notify_all();
+
+                #ifdef DEBUG
+                std::cout << "Pass Payload to Writer." << std::endl;
+                std::cout.write(payload.data(), payload.size()) << std::endl;
+                #endif
+
+                // Send the message to the user.
+                std::unique_lock<std::mutex> write_mbox_lock(write_mbox_ptr_->mbx_mtx);
+                write_mbox_ptr_->mbx_cv.wait(write_mbox_lock, [&](){ return (write_mbox_ptr_->msg_flag.load() == false); });
+                write_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(payload.begin(), payload.end());
+                write_mbox_ptr_->session_ptr = session_ptr;
+                write_mbox_lock.unlock();
+                // Set Write Thread Signals.
+                write_mbox_ptr_->signal.fetch_or(Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                write_mbox_ptr_->msg_flag.store(true);
+                write_mbox_ptr_->mbx_cv.notify_all();
             }
             #ifdef DEBUG
-            if (++debug_counter > 10){
+            if (++debug_counter > 1){
                 break;
             }
             #endif
@@ -162,12 +178,6 @@ namespace echo{
             sched_yield();
         }
 
-        // Gracefully shutdown the read side of the Unix Socket Connections.
-        std::vector<std::shared_ptr<UnixServer::Session> > session_ptrs = echo_reader_.sessions();
-        for (std::shared_ptr<UnixServer::Session> session_ptr: session_ptrs){
-            session_ptr->shutdown_read();
-        }
-
         #ifdef DEBUG
         std::cout << "Closing the reader thread." << std::endl;
         #endif
@@ -181,7 +191,9 @@ namespace echo{
         #ifdef DEBUG
         std::cout << "Terminating the worker threads." << std::endl;
         #endif
-        sleep(1);
+        // Sleep for 50ms
+        struct timespec ts = {0, 50000000};
+        nanosleep(&ts, NULL);
 
         // Force terminate the worker threads.
         for ( ExecutionContext context: cancel_table ){
@@ -198,19 +210,14 @@ namespace echo{
         // Gracefully stop and close the SCTP associations,
         // Gracefully stop and close the iocontext.
         s_ptr_->stop();
-        // Gracefully stop and close the Unix Sessions.
-        for (std::shared_ptr<UnixServer::Session> session_ptr: session_ptrs){
-            session_ptr->close();
-        }
 
         // Give the writer thread an opportunity to clean itself up.
         write_mbox_ptr_->signal.store(Signals::TERMINATE);
         write_mbox_ptr_->mbx_cv.notify_all();
-        sched_yield();
+        nanosleep(&ts, NULL);
 
         // Force Terminate the Writing thread.
         pthread_cancel(writer_thread.native_handle());
-        sched_yield();
 
         read_thread.join();
         writer_thread.join();

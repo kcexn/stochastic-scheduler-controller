@@ -23,6 +23,7 @@ namespace echo{
         UNIX_WRITE = 0x0008,
         SCHED_START = 0x0010,
         SCHED_END = 0x0020,
+        APP_UNIX_WRITE = 0x0040,
         TERMINATE = 0x8000
     };
 

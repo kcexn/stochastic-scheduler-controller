@@ -46,6 +46,7 @@ namespace Http{
         Request read_request();
         Request& request() { return request_; }
         boost::asio::local::stream_protocol::socket& socket(){ return session_ptr_->socket(); }
+        std::shared_ptr<UnixServer::Session>& unix_session(){ return session_ptr_; }
 
         #ifdef DEBUG
         ~Session(){

@@ -69,16 +69,15 @@ void echo::EchoReader::async_sctp_read(){
     );
 }
 
-void echo::EchoReader::async_unix_read(std::shared_ptr<UnixServer::Session>& session){
-    std::shared_ptr<UnixServer::Session> self(session);
+void echo::EchoReader::async_unix_read(std::shared_ptr<UnixServer::Session> session){
     session->async_read(
-        [&, self](boost::system::error_code ec, std::size_t length) mutable {
+        [&, session](boost::system::error_code ec, std::size_t length) mutable {
             if(!ec){
-                self->buflen() = length;
-                self->stream().write(self->sockbuf().data(), length);
+                session->buflen() = length;
+                session->stream().write(session->sockbuf().data(), length);
                 std::unique_lock<std::mutex> mbox_lk(read_mbox_ptr_->mbx_mtx);
                 read_mbox_ptr_->mbx_cv.wait(mbox_lk, [&]{ return (read_mbox_ptr_->msg_flag.load() == false || read_mbox_ptr_->signal.load() != 0); });
-                read_mbox_ptr_->session_ptr = self;
+                read_mbox_ptr_->session_ptr = session;
                 mbox_lk.unlock();
                 if( (read_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
                     pthread_exit(0);
@@ -86,8 +85,9 @@ void echo::EchoReader::async_unix_read(std::shared_ptr<UnixServer::Session>& ses
                 read_mbox_ptr_->msg_flag.store(true);
                 signal_ptr_->fetch_or(echo::Signals::UNIX_READ, std::memory_order::memory_order_relaxed);
                 signal_cv_ptr_->notify_all();
+
+                async_unix_read(session);
             }
-            async_unix_read(self);
         }
     );
 }
@@ -98,9 +98,8 @@ void echo::EchoReader::async_unix_accept(){
             if (!ec){
                 #ifdef DEBUG
                 std::cout << "Accept a Unix Socket Connection." << std::endl;
-                #endif             
-                unix_session_ptrs_.push_back(std::make_shared<UnixServer::Session>(std::move(socket)));
-                async_unix_read(unix_session_ptrs_.back());
+                #endif
+                async_unix_read(std::move( std::make_shared<UnixServer::Session>(std::move(socket)) ));
             }
             async_unix_accept();
         }

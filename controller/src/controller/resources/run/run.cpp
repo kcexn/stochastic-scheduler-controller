@@ -100,7 +100,8 @@ namespace run{
             }
         };
         // Initialize the execution context.
-        ctx_ptr->fiber() = std::move(f).resume();
+        f = std::move(f).resume();
+        ctx_ptr->fiber() = std::move(f);
         return ctx_ptr;
     }
 }//namespace run

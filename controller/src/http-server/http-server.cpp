@@ -9,6 +9,9 @@
 #endif
 
 namespace Http{
+    std::regex verb_route("^([A-Z]*) (/.*) ");
+    std::regex content_length("Content-Length: ([0-9]*)", std::regex::ECMAScript|std::regex::icase);
+    std::regex end_of_headers("^$");
 
     std::istream& operator>>(std::istream& is, Request& req){
         // HTTP is a stream protocol, not a datagram protocol, so 
@@ -56,8 +59,8 @@ namespace Http{
                     linebuf.append(strbuf, 0, substrpos);
                     is.seekg(pos+substrpos+1);
                 }
-                std::regex verb_route("^([A-Z]*) (/.*) ");
-                if (std::regex_search(linebuf, matches, verb_route) ){
+                // std::regex verb_route("^([A-Z]*) (/.*) ");
+                if (std::regex_search(linebuf, matches, Http::verb_route) ){
                     req.verb.append(matches[1].str());
                     req.route.append(matches[2].str());
                 } else {
@@ -81,17 +84,17 @@ namespace Http{
                     linebuf.append(strbuf,0,substrpos);
                     is.seekg(pos+substrpos+1);
                 }
-                std::regex content_length("Content-Length: ([0-9]*)", std::regex::ECMAScript|std::regex::icase);
+                // std::regex content_length("Content-Length: ([0-9]*)", std::regex::ECMAScript|std::regex::icase);
                 // std::regex end_of_headers("^\r$");
 
                 // For testing only, as it is easier using nc on linux to produce empty lines than carriage returns.
-                std::regex end_of_headers("^$");
+                // std::regex end_of_headers("^$");
 
                 // match for either content-length header or the end of headers marker.
-                if(std::regex_search(linebuf, matches, content_length)) {
+                if(std::regex_search(linebuf, matches, Http::content_length)) {
                     req.content_length = std::stoul(matches[1].str());
                     req.body.reserve(req.content_length);
-                }else if(std::regex_search(linebuf, matches, end_of_headers) ){
+                }else if(std::regex_search(linebuf, matches, Http::end_of_headers) ){
                     req.headers_fully_formed = true;
                 }
             } else if ( !req.body_fully_formed ){

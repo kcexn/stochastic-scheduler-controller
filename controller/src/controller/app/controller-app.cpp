@@ -87,17 +87,22 @@ namespace app{
                         #ifdef DEBUG
                         std::cout << ss.str() << std::endl;
                         #endif
-                        for ( Http::Session session: sessions()){
+                        for ( Http::Session session: server_.http_sessions()){
                             if ( session.request() == ctx_ptr->req() ){
                                 std::string str(ss.str());
 
-                                //TODO: This DEFINITELY shouldn't go here.
                                 //Write the http response to the unix socket with a unique fd.
-                                session.socket().write_some(boost::asio::buffer(str.data(), str.size()));
-                                session.socket().shutdown(boost::asio::local::stream_protocol::socket::shutdown_both);
-                                session.socket().close();
-                                auto it = std::find(sessions().begin(), sessions().end(), session);
-                                sessions().erase(it);
+                                lk.lock();
+                                controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
+                                controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
+                                controller_mbox_ptr_->session_ptr = session.unix_session();
+                                lk.unlock();
+                                controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                                controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                                controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+
+                                auto it = std::find(server_.http_sessions().begin(), server_.http_sessions().end(), session);
+                                server_.http_sessions().erase(it);
                             }
                         }
                     }
@@ -106,7 +111,7 @@ namespace app{
         }
     }
 
-    void Controller::route_request(Http::Request req){
+    void Controller::route_request(Http::Request& req){
         if (req.body_fully_formed){
             try{
                 boost::json::error_code ec;
@@ -124,9 +129,14 @@ namespace app{
                     std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run);                  
                     std::thread executor(
                         [&, ctx_ptr](std::shared_ptr<echo::MailBox> mbox_ptr){
-                            ctx_ptr->start_time() = static_cast<std::int64_t>(time(NULL));
+                            struct timespec ts = {};
+                            clock_gettime(CLOCK_REALTIME, &ts);
+                            std::int64_t milliseconds1 = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
+                            ctx_ptr->start_time() = milliseconds1;
                             ctx_ptr->resume();
-                            ctx_ptr->end_time() = static_cast<std::int64_t>(time(NULL));
+                            clock_gettime(CLOCK_REALTIME, &ts);
+                            std::int64_t milliseconds2 = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
+                            ctx_ptr->end_time() = milliseconds2;
                             mbox_ptr->signal.fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
                             mbox_ptr->mbx_cv.notify_all();
                             ctx_ptr->stop_thread();
@@ -136,9 +146,6 @@ namespace app{
                     ctx_ptr->req() = req;
                     ctx_ptrs.push_back(std::move(ctx_ptr));
                     executor.detach();
-                    #ifdef DEBUG
-                    std::cout << run.deadline() << std::endl;
-                    #endif
                 } else if (req.route == "/init" ) {
                     // Do Something.
                 }
@@ -147,16 +154,6 @@ namespace app{
                 std::cout << "Parsing Failed: " << e.what() << std::endl;
                 #endif
             }
-
-            // Route the request.
-            #ifdef DEBUG
-            std::cout << req.verb << std::endl;
-            std::cout << req.route << std::endl;
-            std::cout << req.content_length << std::endl;
-            std::cout << std::boolalpha << req.headers_fully_formed << std::endl;
-            std::cout << req.body << std::endl;
-            std::cout << std::boolalpha << req.body_fully_formed << std::endl;
-            #endif
         }
     }
 
@@ -221,10 +218,6 @@ namespace app{
         } else {
             throw;
         }
-    }
-
-    std::vector<Http::Session>& Controller::sessions(){
-        return server_.http_sessions();
     }
 
     void Controller::stop(){

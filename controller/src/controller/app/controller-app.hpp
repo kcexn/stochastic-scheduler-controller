@@ -1,7 +1,6 @@
 #ifndef CONTROLLER_APP_HPP
 #define CONTROLLER_APP_HPP
 #include "../../echo-app/utils/common.hpp"
-#include "../../sctp-server/sctp.hpp"
 #include "../../utils/uuid.hpp"
 #include "../../http-server/http-server.hpp"
 #include <boost/context/fiber.hpp>
@@ -32,7 +31,6 @@ namespace app{
         std::int64_t& start_time() { return start_time_; }
         std::int64_t& end_time() { return end_time_; }
         pthread_t& tid() noexcept { return tid_; }
-        std::vector<sctp::stream_t>& streams(){ return associated_sctp_streams_; }
         std::vector<char>& payload() { return payload_; }
         Http::Request& req() { return req_; }
         Http::Response& res() { return res_; }
@@ -40,7 +38,6 @@ namespace app{
         boost::context::fiber& fiber() { return f_; }
         const UUID::uuid_t& execution_context_id() const noexcept { return execution_context_id_; }
     private:
-        std::vector<sctp::stream_t> associated_sctp_streams_;
         Http::Request req_;
         Http::Response res_;
         UUID::uuid_t execution_context_id_;
@@ -59,9 +56,8 @@ namespace app{
     public:
         Controller(std::shared_ptr<echo::MailBox> mbox_ptr);
         void start();
-        void route_request(Http::Request req);
+        void route_request(Http::Request& req);
         Http::Response create_response(ExecutionContext& ctx);
-        std::vector<Http::Session>& sessions();
         void stop();
         ~Controller();
     private:
