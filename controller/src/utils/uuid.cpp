@@ -1,5 +1,4 @@
 #include "uuid.hpp"
-#include <cstring>
 #include <sys/random.h>
 #include <iomanip>
 
@@ -30,7 +29,8 @@ namespace UUID{
             lhs.clock_seq_hi_and_reserved == rhs.clock_seq_hi_and_reserved &&
             lhs.clock_seq_low == rhs.clock_seq_low &&
             lhs.node[0] == rhs.node[0] &&
-            lhs.node[1] == rhs.node[2] &&
+            lhs.node[1] == rhs.node[1] &&
+			lhs.node[2] == rhs.node[2] &&
             lhs.node[3] == rhs.node[3] &&
             lhs.node[4] == rhs.node[4] &&
             lhs.node[5] == rhs.node[5]
