@@ -1,5 +1,6 @@
 #include "uuid.hpp"
 #include <sys/random.h>
+#include <cstring>
 #include <iomanip>
 
 namespace UUID{

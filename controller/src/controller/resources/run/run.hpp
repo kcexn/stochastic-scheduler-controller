@@ -3,9 +3,7 @@
 #include <cstdint>
 #include <boost/json.hpp>
 #include <boost/context/fiber.hpp>
-#include <vector>
 #include <string>
-#include <functional>
 #include "../../app/controller-app.hpp"
 
 namespace controller{

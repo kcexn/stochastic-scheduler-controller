@@ -1,10 +1,13 @@
 #include "controller-app.hpp"
 #include "../resources/run/run.hpp"
+#include "../resources/init/init.hpp"
 #include <boost/context/fiber.hpp>
 #include <thread>
 #include <boost/json.hpp>
 #include <functional>
 #include <ctime>
+
+#include <fstream>
 
 #ifdef DEBUG
 #include <iostream>
@@ -162,7 +165,39 @@ namespace app{
                     ctx_ptrs.push_back(std::move(ctx_ptr));
                     executor.detach();
                 } else if (req.route == "/init" ) {
-                    // Do Something.
+                    // std::cout << val.get_object() << std::endl;
+                    controller::resources::init::Request init(val.get_object());
+                    controller::resources::init::handle(init);
+                    Http::Response res = {
+                        .status_code = "200",
+                        .status_message = "OK",
+                        .location = "http://localhost:8080",
+                        .content_length = 0,
+                        .body = "",
+                    };
+                    std::stringstream ss;
+                    ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
+                        << "Content-Type: application/json\r\n"
+                        << "Content-Length: " << res.content_length << "\r\n"
+                        << "\r\n";
+
+                    for ( Http::Session session: server_.http_sessions()){
+                        if ( session.request() == req){
+                            std::string str(ss.str());
+                            //Write the http response to the unix socket with a unique fd.
+                            std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx);
+                            controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
+                            controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
+                            controller_mbox_ptr_->session_ptr = session.unix_session();
+                            lk.unlock();
+                            controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                            controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                            controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+
+                            auto it = std::find(server_.http_sessions().begin(), server_.http_sessions().end(), session);
+                            server_.http_sessions().erase(it);
+                        }
+                    }
                 }
             } catch ( std::bad_alloc const& e){
                 #ifdef DEBUG
