@@ -11,4 +11,5 @@ test.txt
 node_modules/
 controller/controller*
 controller/objects/*
-http-test.http
+*.http
+action-runtimes/python3/functions/__pycache__/

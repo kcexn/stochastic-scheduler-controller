@@ -1,0 +1,1 @@
+{ "value": {"ten": 10}, "namespace": "guest", "action_name": "test", "api_host": "localhost", "api_key": "akey", "activation_id": "activation", "transaction_id": "transaction", "deadline": 123456789 }

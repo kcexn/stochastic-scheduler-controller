@@ -89,6 +89,11 @@ void echo::EchoWriter::start(){
             session_ptr->cancel();
             session_ptr->socket().shutdown(boost::asio::local::stream_protocol::socket::shutdown_both);
             session_ptr->socket().close();
+            #ifdef DEBUG
+            struct timespec ts = {};
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            std::cout << "Finish Time: " << ( (ts.tv_sec*1000000) + (ts.tv_nsec/1000)) << std::endl;
+            #endif
         }
         //Unset the common write signals.
         write_mbox_ptr_->msg_flag.store(false);

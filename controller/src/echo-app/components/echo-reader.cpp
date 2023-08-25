@@ -73,6 +73,11 @@ void echo::EchoReader::async_unix_read(std::shared_ptr<UnixServer::Session> sess
     session->async_read(
         [&, session](boost::system::error_code ec, std::size_t length) mutable {
             if(!ec){
+                #ifdef DEBUG
+                struct timespec ts = {};
+                clock_gettime(CLOCK_MONOTONIC, &ts);
+                std::cout << "Start Time: " << ( (ts.tv_sec*1000000) + (ts.tv_nsec/1000)) << std::endl;
+                #endif
                 session->buflen() = length;
                 session->stream().write(session->sockbuf().data(), length);
                 std::unique_lock<std::mutex> mbox_lk(read_mbox_ptr_->mbx_mtx);

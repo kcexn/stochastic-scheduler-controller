@@ -11,7 +11,7 @@
 namespace Http{
     std::regex verb_route("^([A-Z]*) (/.*) ");
     std::regex content_length("Content-Length: ([0-9]*)", std::regex::ECMAScript|std::regex::icase);
-    std::regex end_of_headers("^$");
+    std::regex end_of_headers("^\r$");
 
     std::istream& operator>>(std::istream& is, Request& req){
         // HTTP is a stream protocol, not a datagram protocol, so 

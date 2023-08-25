@@ -79,7 +79,7 @@ namespace app{
                     if (ctx_ptr->is_stopped()){
                         Http::Response res = create_response(*ctx_ptr);
                         std::stringstream ss;
-                        ss << "HTTP/1.1 " << res.status_code << " " << res.status_message << "\r\n"
+                        ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
                            << "Content-Type: application/json\r\n"
                            << "Content-Length: " << res.content_length << "\r\n"
                            << "\r\n"
@@ -131,12 +131,27 @@ namespace app{
                         [&, ctx_ptr](std::shared_ptr<echo::MailBox> mbox_ptr){
                             struct timespec ts = {};
                             clock_gettime(CLOCK_REALTIME, &ts);
-                            std::int64_t milliseconds1 = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
-                            ctx_ptr->start_time() = milliseconds1;
+                            std::int64_t milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
+                            ctx_ptr->start_time() = milliseconds;
+
+                            // The first resume sets up the action runtime environment for execution.
+                            // The action runtime doesn't have to be setup in a distinct thread of 
+                            // execution, but since we need to take the time to setup a thread
+                            // anyway, we may as well defer the setup until after the thread 
+                            // has spun up so that we can free up the main thread to focus on 
+                            // other actions.
+
+                            // Additionally, at this stage, I'm not too sure what happens if you 
+                            // open file descriptors in one thread, and then try to pass them 
+                            // to another.
                             ctx_ptr->resume();
+
+                            // The second resume executes the function and collects the results.
+                            ctx_ptr->resume();
+
                             clock_gettime(CLOCK_REALTIME, &ts);
-                            std::int64_t milliseconds2 = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
-                            ctx_ptr->end_time() = milliseconds2;
+                            milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
+                            ctx_ptr->end_time() = milliseconds;
                             mbox_ptr->signal.fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
                             mbox_ptr->mbx_cv.notify_all();
                             ctx_ptr->stop_thread();
@@ -184,7 +199,7 @@ namespace app{
                 .start_time = ctx.start_time(),
                 .end_time = ctx.end_time(),
                 .logs = {"LOG:1", "LOG:2" },
-                .annotations = { "ANOOTATION:1", "ANNOTATION:2" },
+                .annotations = { "ANNOTATION:1", "ANNOTATION:2" },
                 .response = jv_res.as_object()
             };
 

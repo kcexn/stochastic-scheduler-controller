@@ -1,0 +1,14 @@
+DEBUG:__main__:Entered Python Application.
+DEBUG:__main__:params are: {"ten":10}
+
+DEBUG:__main__:param dict is: {'ten': 10}
+DEBUG:__main__:result dict is: {'result': 10}
+DEBUG:__main__:result string is: {"result": 10}
+
+DEBUG:__main__:Entered Python Application.
+DEBUG:__main__:params are: {"ten":10}
+
+DEBUG:__main__:param dict is: {'ten': 10}
+DEBUG:__main__:result dict is: {'result': 10}
+DEBUG:__main__:result string is: {"result": 10}
+

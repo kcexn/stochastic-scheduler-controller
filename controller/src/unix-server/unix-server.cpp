@@ -39,7 +39,7 @@ namespace UnixServer{
     //-----------------------------------------|
     //Unix-Server Server
     Server::Server(boost::asio::io_context& ioc)
-    : ioc_(ioc),
+      : ioc_(ioc),
         acceptor_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock"))
     {
         #ifdef DEBUG
