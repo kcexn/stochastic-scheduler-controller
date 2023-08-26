@@ -15,7 +15,7 @@ echo-scheduler-dbg.o echo-application-dbg.o unix-server-dbg.o \
 http-server-dbg.o controller-app-dbg.o run-dbg.o init-dbg.o
 
 # NORMAL SETTINGS
-REL_CXX_FLAGS = -O2 -finline-atomics -finline-functions -finline-small-functions -flto=auto -fuse-linker-plugin
+REL_CXX_FLAGS = -O3 -finline-atomics -flto=auto -fuse-linker-plugin
 TARGET = controller
 OBJECTS = echo.o echo-worker.o echo-reader.o echo-writer.o \
 sctp-server.o uuid-common-utils.o echo-scheduler.o \
@@ -37,10 +37,10 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/http-server/%.cpp $(SRC_DIR)/http-server/%.hpp
 $(OBJ_DIR)/unix-server.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp
 	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/controller/app/%.cpp $(SRC_DIR)/controller/app/%.hpp
+$(OBJ_DIR)/%.o: $(SRC_DIR)/controller/*/%.cpp $(SRC_DIR)/controller/*/%.hpp
 	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/controller/resources/*/%.cpp $(SRC_DIR)/controller/resources/*/%.hpp
+$(OBJ_DIR)/%.o: $(SRC_DIR)/controller/*/*/%.cpp $(SRC_DIR)/controller/*/*/%.hpp
 	$(CXX) -c $(REL_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 $(OBJ_DIR)/%-common-utils.o: $(SRC_DIR)/utils/%.cpp $(SRC_DIR)/utils/%.hpp
@@ -68,10 +68,10 @@ $(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/http-server/%.cpp $(SRC_DIR)/http-server/%.hpp
 $(OBJ_DIR)/unix-server-dbg.o: $(SRC_DIR)/unix-server/unix-server.cpp $(SRC_DIR)/unix-server/unix-server.hpp
 	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
-$(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/controller/app/%.cpp $(SRC_DIR)/controller/app/%.hpp
+$(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/controller/*/%.cpp $(SRC_DIR)/controller/*/%.hpp
 	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
-$(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/controller/resources/*/%.cpp $(SRC_DIR)/controller/resources/*/%.hpp
+$(OBJ_DIR)/%-dbg.o: $(SRC_DIR)/controller/*/*/%.cpp $(SRC_DIR)/controller/*/*/%.hpp
 	$(CXX) -c $(DEBUG_CXX_FLAGS) $(CXX_FLAGS) $(INCLUDE_PATH) $< -o $@
 
 $(OBJ_DIR)/%-common-utils-dbg.o: $(SRC_DIR)/utils/%.cpp $(SRC_DIR)/utils/%.hpp

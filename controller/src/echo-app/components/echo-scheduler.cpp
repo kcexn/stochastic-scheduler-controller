@@ -157,7 +157,7 @@ namespace echo{
                 write_mbox_ptr_->mbx_cv.notify_all();
             }
             #ifdef DEBUG
-            if (++debug_counter > 1){
+            if (++debug_counter > 3){
                 break;
             }
             #endif

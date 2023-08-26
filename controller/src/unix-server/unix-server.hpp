@@ -14,7 +14,7 @@ namespace UnixServer{
       : public std::enable_shared_from_this<Session>
     {
     public:
-        enum { max_length = 1024 };
+        enum { max_length = 65535 };
 
         Session(boost::asio::local::stream_protocol::socket socket);
         #ifdef DEBUG

@@ -86,9 +86,10 @@ void echo::EchoWriter::start(){
 
             // Write on the output of the socket.
             session_ptr->socket().write_some(boost::asio::buffer(str.data(), str.size()));
+
+            // Close the socket.
             session_ptr->cancel();
-            session_ptr->socket().shutdown(boost::asio::local::stream_protocol::socket::shutdown_both);
-            session_ptr->socket().close();
+            session_ptr->close();
             #ifdef DEBUG
             struct timespec ts = {};
             clock_gettime(CLOCK_MONOTONIC, &ts);

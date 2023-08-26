@@ -44,7 +44,7 @@ namespace run{
                     if (dup2(upstream[1], STDOUT_FILENO) == -1){
                         perror("Failed to map the upstream write to STDOUT.");
                     }
-                    std::vector<const char*> argv{"/usr/bin/python3", "/workspaces/whisk-controller-dev/action-runtimes/python3/launcher/launcher.py", "fn_000", NULL};
+                    std::vector<const char*> argv{"/usr/bin/python3", "-OO", "/workspaces/whisk-controller-dev/action-runtimes/python3/launcher/launcher.py", "fn_000", NULL};
                     execve("/usr/bin/python3", const_cast<char* const*>(argv.data()), NULL);
                     exit(1);
                 } else {

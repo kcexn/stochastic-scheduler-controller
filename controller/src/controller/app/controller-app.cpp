@@ -21,7 +21,8 @@ namespace app{
 
 // Controller Class
     Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr)
-      : controller_mbox_ptr_(mbox_ptr)
+      : controller_mbox_ptr_(mbox_ptr),
+        initialized_{false}
     {
         #ifdef DEBUG
         std::cout << "Application Controller Constructor!" << std::endl;
@@ -78,37 +79,36 @@ namespace app{
             
             if ( (controller_mbox_ptr_->signal.load() & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
                 controller_mbox_ptr_->signal.fetch_and(~echo::Signals::SCHED_END);
-                for( auto ctx_ptr : ctx_ptrs ){
-                    if (ctx_ptr->is_stopped()){
-                        Http::Response res = create_response(*ctx_ptr);
-                        std::stringstream ss;
-                        ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
-                           << "Content-Type: application/json\r\n"
-                           << "Content-Length: " << res.content_length << "\r\n"
-                           << "\r\n"
-                           << res.body;
-                        #ifdef DEBUG
-                        std::cout << ss.str() << std::endl;
-                        #endif
-                        for ( Http::Session session: server_.http_sessions()){
-                            if ( session.request() == ctx_ptr->req() ){
-                                std::string str(ss.str());
+                auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
+                while ( it != ctx_ptrs.end() ){
+                    Http::Response res = create_response(**it);
+                    std::stringstream ss;
+                    ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
+                        << "Connection: " << res.connection << "\r\n"
+                        << "Content-Type: application/json\r\n"
+                        << "Content-Length: " << res.content_length << "\r\n"
+                        << "\r\n"
+                        << res.body;
+                    #ifdef DEBUG
+                    std::cout << ss.str() << std::endl;
+                    #endif
+                    auto session_it = std::find_if(server_.http_sessions().begin(), server_.http_sessions().end(), [&](auto session){ return session.request() == (*it)->req(); });
+                    if (session_it != server_.http_sessions().end()){
+                        std::string str(ss.str());
+                        //Write the http response to the unix socket with a unique fd.
+                        lk.lock();
+                        controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
+                        controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
+                        controller_mbox_ptr_->session_ptr = std::shared_ptr<UnixServer::Session>(session_it->unix_session());
+                        lk.unlock();
+                        controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                        controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                        controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
 
-                                //Write the http response to the unix socket with a unique fd.
-                                lk.lock();
-                                controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
-                                controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
-                                controller_mbox_ptr_->session_ptr = session.unix_session();
-                                lk.unlock();
-                                controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                                controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                                controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-
-                                auto it = std::find(server_.http_sessions().begin(), server_.http_sessions().end(), session);
-                                server_.http_sessions().erase(it);
-                            }
-                        }
-                    }
+                        server_.http_sessions().erase(session_it);
+                    } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
+                    ctx_ptrs.erase(it);
+                    it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
                 }
             }
         }
@@ -132,11 +132,6 @@ namespace app{
                     std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run);                  
                     std::thread executor(
                         [&, ctx_ptr](std::shared_ptr<echo::MailBox> mbox_ptr){
-                            struct timespec ts = {};
-                            clock_gettime(CLOCK_REALTIME, &ts);
-                            std::int64_t milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
-                            ctx_ptr->start_time() = milliseconds;
-
                             // The first resume sets up the action runtime environment for execution.
                             // The action runtime doesn't have to be setup in a distinct thread of 
                             // execution, but since we need to take the time to setup a thread
@@ -148,6 +143,11 @@ namespace app{
                             // open file descriptors in one thread, and then try to pass them 
                             // to another.
                             ctx_ptr->resume();
+
+                            struct timespec ts = {};
+                            clock_gettime(CLOCK_REALTIME, &ts);
+                            std::int64_t milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
+                            ctx_ptr->start_time() = milliseconds;
 
                             // The second resume executes the function and collects the results.
                             ctx_ptr->resume();
@@ -165,37 +165,57 @@ namespace app{
                     ctx_ptrs.push_back(std::move(ctx_ptr));
                     executor.detach();
                 } else if (req.route == "/init" ) {
-                    // std::cout << val.get_object() << std::endl;
-                    controller::resources::init::Request init(val.get_object());
-                    controller::resources::init::handle(init);
-                    Http::Response res = {
-                        .status_code = "200",
-                        .status_message = "OK",
-                        .location = "http://localhost:8080",
-                        .content_length = 0,
-                        .body = "",
-                    };
-                    std::stringstream ss;
-                    ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
-                        << "Content-Type: application/json\r\n"
-                        << "Content-Length: " << res.content_length << "\r\n"
-                        << "\r\n";
-
-                    for ( Http::Session session: server_.http_sessions()){
-                        if ( session.request() == req){
+                    if ( initialized_ ){
+                        Http::Response res = {
+                            .status_code = "409",
+                            .status_message = "Conflict",
+                            .connection = "close",
+                            .content_length = 0,
+                            .body = ""
+                        };
+                        std::stringstream ss;
+                        ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
+                           << "Connection: " << res.connection << "\r\n"
+                           << "Content-Type: application/json\r\n"
+                           << "Content-Length: " << res.content_length << "\r\n"
+                           << "\r\n";
+                        auto session_it = std::find_if(server_.http_sessions().begin(), server_.http_sessions().end(), [&](auto session){ return session.request() == req; });
+                        if ( session_it != server_.http_sessions().end() ){
                             std::string str(ss.str());
                             //Write the http response to the unix socket with a unique fd.
                             std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx);
                             controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
                             controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
-                            controller_mbox_ptr_->session_ptr = session.unix_session();
+                            controller_mbox_ptr_->session_ptr = std::shared_ptr<UnixServer::Session>(session_it->unix_session());
                             lk.unlock();
                             controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
                             controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
                             controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-
-                            auto it = std::find(server_.http_sessions().begin(), server_.http_sessions().end(), session);
-                            server_.http_sessions().erase(it);
+                            server_.http_sessions().erase(session_it);                            
+                        }
+                    } else {
+                        initialized_ = true;
+                        controller::resources::init::Request init(val.get_object());
+                        Http::Response res = controller::resources::init::handle(init);
+                        std::stringstream ss;
+                        ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
+                            << "Connection: " << res.connection << "\r\n"
+                            << "Content-Type: application/json\r\n"
+                            << "Content-Length: " << res.content_length << "\r\n"
+                            << "\r\n";
+                        auto session_it = std::find_if(server_.http_sessions().begin(), server_.http_sessions().end(), [&](auto session){ return session.request() == req; });
+                        if ( session_it != server_.http_sessions().end() ){
+                            std::string str(ss.str());
+                            //Write the http response to the unix socket with a unique fd.
+                            std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx);
+                            controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
+                            controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
+                            controller_mbox_ptr_->session_ptr = std::shared_ptr<UnixServer::Session>(session_it->unix_session());
+                            lk.unlock();
+                            controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                            controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
+                            controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                            server_.http_sessions().erase(session_it);                            
                         }
                     }
                 }
@@ -254,15 +274,10 @@ namespace app{
             Http::Response res = {
                 .status_code = "200",
                 .status_message = "OK",
-                .location = "http://localhost:8080",
+                .connection = "close",
                 .content_length = ss.str().size(),
                 .body = ss.str(),
             };
-
-            #ifdef DEBUG
-            std::cout << "Status Code: " << res.status_code << " : " << "Status Message: " << " : " << res.status_message << " : " << "Location: " << res.location << " : " << "Content-Length: " << res.content_length 
-                      << " : " << "Body: " << res.body << std::endl;
-            #endif
 
             return res;
         } else {

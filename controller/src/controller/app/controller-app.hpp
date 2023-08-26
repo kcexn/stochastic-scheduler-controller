@@ -71,6 +71,9 @@ namespace app{
 
         // Execution Context IDs.
         std::vector< std::shared_ptr<ExecutionContext> > ctx_ptrs;
+
+        // OpenWhisk Action Proxy Initialized.
+        bool initialized_;
     };
 
 }// namespace app
