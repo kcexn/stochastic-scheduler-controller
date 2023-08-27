@@ -1,0 +1,18 @@
+FROM debian:stable-slim
+WORKDIR /
+RUN apt-get update
+RUN apt-get install -y coreutils python3
+RUN mkdir -p /run/controller/
+RUN mkdir -p /usr/local/lib/
+RUN mkdir -p /usr/local/bin/
+COPY lib/* /usr/local/lib/
+COPY controller/controller /usr/local/bin/
+
+# Temporary Working Directory
+RUN mkdir -p /workspaces/whisk-controller-dev/action-runtimes/python3/launcher/
+COPY action-runtimes/python3/launcher/launcher.py /workspaces/whisk-controller-dev/action-runtimes/python3/launcher/
+RUN mkdir -p /workspaces/whisk-controller-dev/action-runtimes/python3/functions/
+
+# controller application.
+ENV LD_LIBRARY_PATH /usr/local/lib
+ENTRYPOINT ["/usr/local/bin/controller"]

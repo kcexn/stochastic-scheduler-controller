@@ -35,14 +35,12 @@ namespace Http{
             if ( req.verb.empty() ){
                 // If req.verb is empty, that means
                 // we have not yet received the first line initializing an http request.
-
                 int bytes_available = is.rdbuf()->in_avail();
                 if (bytes_available == 0 ){
                     break;
                 }
                 std::vector<char> buf(bytes_available);
                 std::streamsize len = is.readsome(buf.data(), bytes_available);
-
                 std::string strbuf(buf.data(), len);
                 std::string linebuf;
                 auto substrpos = strbuf.find("\n", 0);

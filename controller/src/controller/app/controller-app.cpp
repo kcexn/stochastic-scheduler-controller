@@ -1,12 +1,10 @@
 #include "controller-app.hpp"
-#include "../resources/run/run.hpp"
-#include "../resources/init/init.hpp"
+#include "../resources/resources.hpp"
 #include <boost/context/fiber.hpp>
 #include <thread>
 #include <boost/json.hpp>
 #include <functional>
 #include <ctime>
-
 #include <fstream>
 
 #ifdef DEBUG
@@ -40,13 +38,11 @@ namespace app{
         #ifdef DEBUG
         std::cout << "HTTP Server Started!" << std::endl;
         #endif
-
         // Scheduling Loop.
         while(true){
             lk.lock();
             controller_mbox_ptr_->mbx_cv.wait(lk, [&]{ return (controller_mbox_ptr_->msg_flag.load() == true || controller_mbox_ptr_->signal.load() != 0); });
             lk.unlock();
-
             if (controller_mbox_ptr_->msg_flag.load()){
                 lk.lock();
                 Http::Session session( controller_mbox_ptr_->session_ptr );
@@ -66,7 +62,7 @@ namespace app{
                     #endif
                 } else {
                     sessions.push_back(std::move(session));
-                    request = server_.http_sessions().back().read_request();
+                    request = sessions.back().read_request();
                     #ifdef DEBUG
                     std::cout << "Session is not in the HTTP Server." << std::endl;
                     #endif
@@ -76,7 +72,6 @@ namespace app{
                 std::cout << "HTTP Server Loop!" << std::endl;
                 #endif
             }
-            
             if ( (controller_mbox_ptr_->signal.load() & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
                 controller_mbox_ptr_->signal.fetch_and(~echo::Signals::SCHED_END);
                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
@@ -104,7 +99,6 @@ namespace app{
                         controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
                         controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
                         controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-
                         server_.http_sessions().erase(session_it);
                     } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
                     ctx_ptrs.erase(it);
@@ -127,21 +121,16 @@ namespace app{
                 // Route the request.
                 if (req.route == "/run" ){
                     controller::resources::run::Request run(val.get_object());
-
                     // Create a fiber continuation for processing the request.
                     std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run);                  
                     std::thread executor(
                         [&, ctx_ptr](std::shared_ptr<echo::MailBox> mbox_ptr){
                             // The first resume sets up the action runtime environment for execution.
-                            // The action runtime doesn't have to be setup in a distinct thread of 
-                            // execution, but since we need to take the time to setup a thread
-                            // anyway, we may as well defer the setup until after the thread 
-                            // has spun up so that we can free up the main thread to focus on 
-                            // other actions.
-
-                            // Additionally, at this stage, I'm not too sure what happens if you 
-                            // open file descriptors in one thread, and then try to pass them 
-                            // to another.
+                            // The action runtime doesn't have to be set up in a distinct 
+                            // thread of execution, but since we need to take the time to set up 
+                            // a thread anyway, deferring the process fork in the execution context until after the 
+                            // thread is established so that the fork can happen concurrently 
+                            // is a more performant solution.
                             ctx_ptr->resume();
 
                             struct timespec ts = {};
@@ -237,16 +226,13 @@ namespace app{
                 .success = true,
                 .result = jv.as_object()
             };
-
             boost::json::value jv_res = {
                 {"status", response.status },
                 {"status_code", response.status_code },
                 {"success", response.success },
                 {"result", response.result }
             };
-
             boost::json::object req_body = boost::json::parse(ctx.req().body).as_object();
-            
             controller::resources::run::ActivationRecord record = {
                 .activation_id = req_body["activation_id"].as_string(),
                 .name_space = req_body["namespace"].as_string(),
@@ -257,7 +243,6 @@ namespace app{
                 .annotations = { "ANNOTATION:1", "ANNOTATION:2" },
                 .response = jv_res.as_object()
             };
-
             boost::json::value jv_activation_record = {
                 {"activation_id", record.activation_id },
                 {"namespace", record.name_space },
@@ -268,7 +253,6 @@ namespace app{
                 {"annotations", record.annotations },
                 {"response", record.response }
             };
-
             std::stringstream ss;
             ss << jv_activation_record;
             Http::Response res = {
@@ -278,7 +262,6 @@ namespace app{
                 .content_length = ss.str().size(),
                 .body = ss.str(),
             };
-
             return res;
         } else {
             throw;

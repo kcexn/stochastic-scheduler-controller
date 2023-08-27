@@ -11,17 +11,6 @@
 namespace controller{
 namespace resources{
 namespace init{
-
-    // struct EnvironmentVariables
-    // {
-    //     boost::json::string ow_api_key;
-    //     boost::json::string ow_namespace;
-    //     boost::json::string ow_action_name;
-    //     boost::json::string ow_action_version;
-    //     boost::json::string ow_activation_id;
-    //     std::int64_t ow_deadline;
-    // };
-
     class InitValue
     {
     public:
@@ -59,7 +48,6 @@ namespace init{
     };
 
     Http::Response handle( Request& req );
-
 }// init namespace
 }// resources namespace
 }// controller namespace

@@ -11,20 +11,6 @@ namespace app{
     {
     public:
         ExecutionContext() : execution_context_id_(UUID::uuid_create_v4()) {}
-
-        ExecutionContext(
-            boost::context::fiber&& f
-        ) : execution_context_id_{UUID::uuid_create_v4()},
-            f_{std::move(f)}
-        {}
-
-        ExecutionContext(
-            boost::context::fiber&& f, 
-            UUID::uuid_t& uuid
-        ) : execution_context_id_{uuid},
-            f_{std::move(f)}
-        {}
-
         void resume() { f_ = std::move(f_).resume(); }
         void stop_thread() { stopped_ = true; pthread_exit(0);}
         bool is_stopped() { return stopped_; }

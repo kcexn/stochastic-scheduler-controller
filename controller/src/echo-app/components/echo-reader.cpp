@@ -79,7 +79,13 @@ void echo::EchoReader::async_unix_read(std::shared_ptr<UnixServer::Session> sess
                 std::cout << "Start Time: " << ( (ts.tv_sec*1000000) + (ts.tv_nsec/1000)) << std::endl;
                 #endif
                 session->buflen() = length;
+                #ifdef DEBUG
+                std::cout << session->stream().str() << std::endl;
+                #endif               
                 session->stream().write(session->sockbuf().data(), length);
+                #ifdef DEBUG
+                std::cout << session->stream().str() << std::endl;
+                #endif  
                 std::unique_lock<std::mutex> mbox_lk(read_mbox_ptr_->mbx_mtx);
                 read_mbox_ptr_->mbx_cv.wait(mbox_lk, [&]{ return (read_mbox_ptr_->msg_flag.load() == false || read_mbox_ptr_->signal.load() != 0); });
                 read_mbox_ptr_->session_ptr = session;

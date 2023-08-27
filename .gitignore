@@ -4,7 +4,6 @@ controller/*.o
 .devcontainer/
 .vscode/
 lighttpd/
-nginx/
 package.json
 package-lock.json
 test.txt
@@ -13,3 +12,4 @@ controller/controller*
 controller/objects/*
 *.http
 action-runtimes/python3/functions/__pycache__/
+lib/

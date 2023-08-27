@@ -73,7 +73,7 @@ namespace run{
                     if( write(downstream[1], params.data(), params.size()) == -1 ){
                         perror("Downstream write in the parent process failed.");
                     }
-                    int max_length = 1024;
+                    int max_length = 65536;
                     ctx_ptr->payload().resize(max_length);
                     length = read(upstream[0], ctx_ptr->payload().data(), max_length);
                     if ( length == -1 ){

@@ -35,7 +35,7 @@ namespace init{
         Http::Response res = {};
         if ( req.value().binary() ){
             // binary files need to be tar.gz filse.
-            std::string filename("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.zip");
+            std::string filename("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.tz");
             int status=0;
 
             // Base64 decode using gnu coreutils base64
@@ -101,7 +101,7 @@ namespace init{
             // Tar extract files.
             pid = fork();
             if ( pid == 0 ){
-                std::vector<const char*> argv{"/usr/bin/tar", "-C", "/workspaces/whisk-controller-dev/action-runtimes/python3/functions/", "-xf", "/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.zip", NULL};
+                std::vector<const char*> argv{"/usr/bin/tar", "-C", "/workspaces/whisk-controller-dev/action-runtimes/python3/functions/", "-xf", "/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.tz", NULL};
                 execve("/usr/bin/tar", const_cast<char* const*>(argv.data()), environ);
                 exit(1);               
             } else {
