@@ -50,10 +50,7 @@ namespace init{
                         if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
                             perror("Exporting environment variable failed.");
                         }
-                        std::string envval(getenv(pair.first.c_str()));
-                        std::cout << pair.first << "=" << envval << std::endl;
                     }
-
                 } else {
                     std::string code(req.value().code());
                     std::size_t pos = 0;
