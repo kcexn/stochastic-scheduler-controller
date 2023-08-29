@@ -1,7 +1,9 @@
 #include "init.hpp"
 #include <boost/context/fiber.hpp>
+#include <filesystem>
 #include <fstream>
 #include <unistd.h>
+#include <cstdlib>
 #include <sys/wait.h>
 
 namespace controller{
@@ -27,140 +29,127 @@ namespace init{
             } else if ( kvp.value().is_double() ){
                 val = std::to_string( kvp.value().get_double() );
             }
-            value_.env().emplace(key, val);
+            value_.env_emplace(key, val);
         }
       }
 
-    Http::Response handle( Request& req ){
-        Http::Response res = {};
-        if ( req.value().binary() ){
-            // binary files need to be tar.gz filse.
-            std::string filename("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.tz");
-            int status=0;
+    std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
+        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>();
+        boost::context::fiber f{
+            [&, req, ctx_ptr](boost::context::fiber&& g){
+                if ( req.value().binary() ){
+                    std::filesystem::path archive("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.tgz");
+                    // Pipe File Descriptors
+                    int downstream[2] = {};
+                    int upstream[2] = {};
 
-            // Base64 decode using gnu coreutils base64
-            int downstream[2] = {};
-            int upstream[2] = {};
+                    base64extract(archive.string(), downstream, upstream, req);
+                    tar_extract(archive.string(), downstream, upstream);
+                    std::filesystem::remove(archive);
+                    for ( auto pair: req.value().env() ){
+                        if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
+                            perror("Exporting environment variable failed.");
+                        }
+                        std::string envval(getenv(pair.first.c_str()));
+                        std::cout << pair.first << "=" << envval << std::endl;
+                    }
 
-            //syscall return two pipes.
-            if (pipe(downstream) == -1){
-                perror("Downstream pipe failed to open.");
+                } else {
+                    std::string code(req.value().code());
+                    std::size_t pos = 0;
+                    while ( (pos = code.find("\\n", pos)) != std::string::npos ){
+                        code.replace(pos, 2, "\n");
+                        ++pos;
+                    }
+                    std::filesystem::path function_path("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/fn_000.py");
+                    std::ofstream file(function_path.string());
+                    file << code;
+                }
+                return std::move(g);         
             }
-            if (pipe(upstream) == -1){
-                perror("Upstream pip failed to open.");
-            }
-            pid_t pid = fork();
-            if (pid == 0){
-                if( close(downstream[1]) == -1 ){
-                    perror("closing the downstream write in the child process failed.");
-                }
-                if ( close(upstream[0]) == -1 ){
-                    perror("closing the upstream read in the child process failed.");
-                }
-                if (dup2(downstream[0], STDIN_FILENO) == -1){
-                    perror("Failed to map the downstream read to STDIN.");
-                }
-                if (dup2(upstream[1], STDOUT_FILENO) == -1){
-                    perror("Failed to map the upstream write to STDOUT.");
-                }
-                std::vector<const char*> argv{"/usr/bin/base64", "-d", NULL};
-                execve("/usr/bin/base64", const_cast<char* const*>(argv.data()), environ);
-                exit(1);
-            } else {
-                if ( close(upstream[1]) == -1 ){
-                    perror("Parent closing the upstream write failed.");
-                }
-                if ( close(downstream[0]) == -1 ){
-                    perror("Parent closing the downstream read failed.");
-                }
-                int length = write(downstream[1], req.value().code().data(), req.value().code().size());
-                if ( length == -1 ){
-                    perror ("Write base64 encoded text to /usr/bin/base64 failed.");
-                }
-                if (close(downstream[1]) == -1){
-                    perror("Parent closing the downstream write failed.");
-                }
-                std::vector<char> binary(req.value().code().size());
-                length = read(upstream[0], binary.data(), binary.size());
-                if ( length == -1 ){
-                    perror("Read decoded binary file from /usr/bin/base64 failed.");
-                }
-                if ( close(upstream[0]) == -1){
-                    perror("Parent closing the read pipe failed.");
-                }
-                binary.resize(length);
-                std::ofstream file(filename);
-                file.write(binary.data(), binary.size());
-                // file.close();
-                waitpid(pid, &status, 0);
-                #ifdef DEBUG
-                std::cout << "Base64 exit status: " << status << std::endl;
-                #endif
-            }
+        };
+        ctx_ptr->fiber() = std::move(f);
+        return ctx_ptr;
+    }
 
-            // Tar extract files.
-            pid = fork();
-            if ( pid == 0 ){
-                std::vector<const char*> argv{"/usr/bin/tar", "-C", "/workspaces/whisk-controller-dev/action-runtimes/python3/functions/", "-xf", "/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.tz", NULL};
-                execve("/usr/bin/tar", const_cast<char* const*>(argv.data()), environ);
-                exit(1);               
-            } else {
-                waitpid(pid, &status, 0);
-                #ifdef DEBUG
-                std::cout << "tar exit status: " << status << std::endl;
-                #endif
-            }
-
-            // Remove the compressed archive.
-            if (remove(filename.c_str()) == -1){
-                perror("file was not removed.");
-            }
-
-            #ifdef DEBUG
-            std::cout << "Export Environment Variables." << std::endl;
-            #endif
-
-            for ( auto pair: req.value().env() ){
-                std::string envvar(pair.first);
-                envvar.append("=");
-                envvar.append(pair.second);
-                #ifdef DEBUG
-                std::cout << "Envvar: " << envvar << std::endl;
-                #endif
-                if ( putenv(const_cast<char*>(envvar.c_str())) != 0 ){
-                    perror("Exporting environment variable failed.");
-                }
-            }
-
-            res = {
-                .status_code = "200",
-                .status_message = "OK",
-                .connection = "close",
-                .content_length = 0,
-                .body = ""
-            };
-        } else {
-            std::string code(req.value().code());
-            std::size_t pos = 0;
-            while ( (pos = code.find("\\n", pos)) != std::string::npos ){
-                code.replace(pos, 2, "\n");
-                ++pos;
-            }
-
-            std::string filename("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/fn_000.py");
-            std::ofstream file(filename);
-            file << code;
-            res = {
-                .status_code = "200",
-                .status_message = "OK",
-                .connection = "close",
-                .content_length = 0,
-                .body = ""
-            };
+    void base64extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2], const Request& req){
+        int status = 0;
+        //syscall return two pipes.
+        if (pipe(pipefd_down) == -1){
+            perror("Downstream pipe failed to open.");
         }
-        return res;
+        if (pipe(pipefd_up) == -1){
+            perror("Upstream pip failed to open.");
+        }
+        pid_t pid = fork();
+        if (pid == 0){
+            if( close(pipefd_down[1]) == -1 ){
+                perror("closing the downstream write in the child process failed.");
+            }
+            if ( close(pipefd_up[0]) == -1 ){
+                perror("closing the upstream read in the child process failed.");
+            }
+            if (dup2(pipefd_down[0], STDIN_FILENO) == -1){
+                perror("Failed to map the downstream read to STDIN.");
+            }
+            if (dup2(pipefd_up[1], STDOUT_FILENO) == -1){
+                perror("Failed to map the upstream write to STDOUT.");
+            }
+            std::vector<const char*> argv{"/usr/bin/base64", "-d", NULL};
+            execve("/usr/bin/base64", const_cast<char* const*>(argv.data()), environ);
+            exit(1);
+        } else {
+            if ( close(pipefd_up[1]) == -1 ){
+                perror("Parent closing the upstream write failed.");
+            }
+            if ( close(pipefd_down[0]) == -1 ){
+                perror("Parent closing the downstream read failed.");
+            }
+            int length = write(pipefd_down[1], req.value().code().data(), req.value().code().size());
+            if ( length == -1 ){
+                perror ("Write base64 encoded text to /usr/bin/base64 failed.");
+            }
+            if (close(pipefd_down[1]) == -1){
+                perror("Parent closing the downstream write failed.");
+            }
+            std::vector<char> binary(req.value().code().size());
+            length = read(pipefd_up[0], binary.data(), binary.size());
+            if ( length == -1 ){
+                perror("Read decoded binary file from /usr/bin/base64 failed.");
+            }
+            if ( close(pipefd_up[0]) == -1){
+                perror("Parent closing the read pipe failed.");
+            }
+            binary.resize(length);
+            std::ofstream file(filename);
+            file.write(binary.data(), binary.size());
+            waitpid(pid, &status, 0);
+            if ( status != 0 ){
+                std::stringstream ss;
+                ss << "base64 decode failed with status code: " << status << std::endl;
+                throw ss.str();
+            }
+        }
+    }
+
+    void tar_extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2]){
+        int status = 0;
+        std::string functions_path("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/");
+        pid_t pid = fork();
+        if ( pid == 0 ){
+            std::vector<const char*> argv{"/usr/bin/tar", "-C", static_cast<const char*>(functions_path.c_str()), "-xf", static_cast<const char*>(filename.c_str()), NULL};
+            execve("/usr/bin/tar", const_cast<char* const*>(argv.data()), environ);
+            exit(1);               
+        } else {
+            waitpid(pid, &status, 0);
+            if ( status != 0 ){
+                std::stringstream ss;
+                ss << "tar extraction failed with status code: " << status << std::endl;
+                throw ss.str();
+            }
+
+        }
     }
 }// namespace init
 }// namespace resources
 }// namespace controller
-

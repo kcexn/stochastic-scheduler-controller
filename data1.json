@@ -1,1 +1,1 @@
-{ "value":{"name":"test","main":"main","code":"def main(params):\n    key = params[\"ten\"]\n    return {\n        \"value\": key**2\n    }\n","binary":false,"env":{"__OW_API_KEY":"key","__OW_ACTION_NAME":"actionname","__OW_ACTION_VERSION":"version","__OW_ACTIVATION_ID":"activation_id","__OW_DEADLINE":10}} }
+{ "value":{"name":"test","main":"main","code":"","binary":false,"env":{"__OW_API_KEY":"key","__OW_ACTION_NAME":"actionname","__OW_ACTION_VERSION":"version","__OW_ACTIVATION_ID":"activation_id","__OW_DEADLINE":10}} }

@@ -1,5 +1,7 @@
 #include "run.hpp"
-#include <ctime>
+#include <unistd.h>
+#include <algorithm>
+#include <cctype>
 #include <sys/wait.h>
 
 #ifdef DEBUG
@@ -9,14 +11,40 @@
 namespace controller{
 namespace resources{
 namespace run{
-    std::shared_ptr<controller::app::ExecutionContext> handle( Request& req ){
+    Request::Request( boost::json::object obj )
+      : value_(obj["value"].as_object())
+    {
+        for ( auto kvp: obj ){
+            std::string key(kvp.key());
+            if ( key != "value" ){
+                std::string val;
+                if ( kvp.value().is_string() ){
+                    val = std::string( kvp.value().get_string() );
+                } else if ( kvp.value().is_int64() ){
+                    val = std::to_string( kvp.value().get_int64() );
+                } else if ( kvp.value().is_uint64() ){
+                    val = std::to_string( kvp.value().get_uint64() );
+                } else if ( kvp.value().is_double() ){
+                    val = std::to_string( kvp.value().get_double() );
+                }
+                std::string envkey("__OW_");
+                std::transform(key.cbegin(), key.cend(), key.begin(), []( unsigned char c ) { return std::toupper(c); });
+                envkey.append(key);
+                #ifdef DEBUG
+                std::cout << envkey << "=" << val << std::endl;
+                #endif
+                env_.emplace(envkey, val);
+            }
+        }
+    }
+
+    std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>();
         boost::context::fiber f{
-            [&, req, ctx_ptr](boost::context::fiber&& g){
-                boost::json::value jv(boost::json::object_kind);
+            [&, req, ctx_ptr](boost::context::fiber&& g) {
+                boost::json::value jv;
                 jv = req.value();
                 std::string params = boost::json::serialize(jv);
-                g = std::move(g).resume();
                 //Declare two pipes fds
                 int downstream[2] = {};
                 int upstream[2] = {};
@@ -45,7 +73,15 @@ namespace run{
                         perror("Failed to map the upstream write to STDOUT.");
                     }
                     std::vector<const char*> argv{"/usr/bin/python3", "-OO", "/workspaces/whisk-controller-dev/action-runtimes/python3/launcher/launcher.py", "fn_000", NULL};
-                    execve("/usr/bin/python3", const_cast<char* const*>(argv.data()), NULL);
+
+                    // Since this happens AFTER the fork, this is thread safe.
+                    // fork(2) means that the child process makes a COPY of the parents environment variables.s
+                    for ( auto pair: req.env() ){
+                        if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
+                            perror("Exporting environment variable failed.");
+                        }
+                    }
+                    execve("/usr/bin/python3", const_cast<char* const*>(argv.data()), environ);
                     exit(1);
                 } else {
                     //Parent Process.
@@ -111,7 +147,6 @@ namespace run{
             }
         };
         // Initialize the execution context.
-        f = std::move(f).resume();
         ctx_ptr->fiber() = std::move(f);
         return ctx_ptr;
     }

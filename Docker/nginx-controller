@@ -1,18 +1,30 @@
 FROM debian:stable-slim
 WORKDIR /
 RUN apt-get update
-RUN apt-get install -y coreutils python3
+RUN apt-get install -y nginx curl coreutils python3 procps
+
+# Install Controller
 RUN mkdir -p /run/controller/
 RUN mkdir -p /usr/local/lib/
 RUN mkdir -p /usr/local/bin/
+RUN mkdir -p /var/log/controller/
 COPY lib/* /usr/local/lib/
+ENV LD_LIBRARY_PATH /usr/local/lib
 COPY controller/controller /usr/local/bin/
-
-# Temporary Working Directory
 RUN mkdir -p /workspaces/whisk-controller-dev/action-runtimes/python3/launcher/
 COPY action-runtimes/python3/launcher/launcher.py /workspaces/whisk-controller-dev/action-runtimes/python3/launcher/
 RUN mkdir -p /workspaces/whisk-controller-dev/action-runtimes/python3/functions/
 
-# controller application.
-ENV LD_LIBRARY_PATH /usr/local/lib
-ENTRYPOINT ["/usr/local/bin/controller"]
+# Install Nginx
+RUN mkdir -p /var/log/nginx/
+RUN mkdir -p /run/nginx/
+RUN mkdir -p /etc/nginx/
+COPY nginx/nginx.conf /etc/nginx/
+COPY binary-data.json /root/
+COPY data.json /root/
+
+# Install startup script
+COPY Docker/run.sh /usr/local/bin/
+
+EXPOSE 8080
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/run.sh"]

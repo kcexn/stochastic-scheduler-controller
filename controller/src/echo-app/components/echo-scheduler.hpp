@@ -15,7 +15,13 @@ namespace echo {
     class Scheduler : public std::enable_shared_from_this<Scheduler>
     {
     public:
-        Scheduler(boost::asio::io_context& ioc, short port);
+        Scheduler(
+            boost::asio::io_context& ioc, 
+            short port,
+            std::shared_ptr<std::mutex> signal_mtx_ptr,
+            std::shared_ptr<std::atomic<int> > signal_ptr,
+            std::shared_ptr<std::condition_variable> signal_cv_ptr
+        );
         #ifdef DEBUG
         ~Scheduler();
         #endif
@@ -26,7 +32,7 @@ namespace echo {
         std::shared_ptr<sctp_server::server> s_ptr_;
         std::shared_ptr<UnixServer::Server> us_ptr_;
 
-        // Scheduler Signals.
+        // // Scheduler Signals.
         std::shared_ptr<std::mutex> signal_mtx_ptr_;
         std::shared_ptr<std::atomic<int> > signal_ptr_;
         std::shared_ptr<std::condition_variable> signal_cv_ptr_;

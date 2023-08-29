@@ -1,12 +1,17 @@
 #include "echo-scheduler.hpp"
 
 namespace echo{
-    Scheduler::Scheduler(boost::asio::io_context& ioc, short port)
-      : s_ptr_(std::make_shared<sctp_server::server>(ioc, port)),
+    Scheduler::Scheduler(
+        boost::asio::io_context& ioc, 
+        short port,
+        std::shared_ptr<std::mutex> signal_mtx_ptr,
+        std::shared_ptr<std::atomic<int> > signal_ptr,
+        std::shared_ptr<std::condition_variable> signal_cv_ptr
+    ) : s_ptr_(std::make_shared<sctp_server::server>(ioc, port)),
         us_ptr_(std::make_shared<UnixServer::Server>(ioc)),
-        signal_mtx_ptr_(std::make_shared<std::mutex>()),
-        signal_ptr_(std::make_shared<std::atomic<int >>()),
-        signal_cv_ptr_(std::make_shared<std::condition_variable>()),
+        signal_mtx_ptr_(signal_mtx_ptr),
+        signal_ptr_(signal_ptr),
+        signal_cv_ptr_(signal_cv_ptr),
         read_mbox_ptr_(std::make_shared<MailBox>()),
         write_mbox_ptr_(std::make_shared<MailBox>()),
         echo_reader_(
@@ -41,6 +46,8 @@ namespace echo{
         controller_mbox_ptr_->sched_signal_mtx_ptr = signal_mtx_ptr_;
         controller_mbox_ptr_->sched_signal_ptr = signal_ptr_;
         controller_mbox_ptr_->sched_signal_cv_ptr = signal_cv_ptr_;
+
+
     }
     #ifdef DEBUG
     Scheduler::~Scheduler(){
@@ -50,7 +57,6 @@ namespace echo{
 
     void Scheduler::start(){
         #ifdef DEBUG
-        int debug_counter = 0;
         std::cout << "Scheduler Called!" << std::endl;
         #endif
 
@@ -72,7 +78,7 @@ namespace echo{
         #ifdef DEBUG
         std::cout << "Scheduling Loop Started." << std::endl;
         #endif
-        while(true){
+        while( (signal_ptr_->load() & Signals::TERMINATE) != Signals::TERMINATE ){
             std::unique_lock<std::mutex> lk(*signal_mtx_ptr_);
             signal_cv_ptr_->wait(lk, [&]{ return signal_ptr_->load() != 0; });
             lk.unlock();
@@ -155,12 +161,9 @@ namespace echo{
                 write_mbox_ptr_->signal.fetch_or(Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
                 write_mbox_ptr_->msg_flag.store(true);
                 write_mbox_ptr_->mbx_cv.notify_all();
-            }
-            #ifdef DEBUG
-            if (++debug_counter > 10){
+            } else if ( (signal & Signals::TERMINATE) == Signals::TERMINATE ){
                 break;
             }
-            #endif
         }
 
         #ifdef DEBUG

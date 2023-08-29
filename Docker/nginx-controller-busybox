@@ -1,0 +1,68 @@
+FROM archlinux:base
+WORKDIR /
+#RUN mkdir -p /root/packages/
+#COPY deb-packages/* /root/packages/
+#RUN mkdir -p /var/lib/dpkg/info/
+#RUN touch /var/lib/dpkg/status
+#
+## Install gnu coreutils
+#RUN dpkg -i root/packages/gcc-12-base_12.2.0-14_amd64.deb
+#RUN dpkg -i --force-depends /root/packages/libgcc-s1_12.2.0-14_amd64.deb
+#RUN dpkg -i /root/packages/libc6_2.36-9+deb12u1_amd64.deb
+#RUN dpkg -i /root/packages/libacl1_2.3.1-3_amd64.deb
+#RUN dpkg -i /root/packages/libattr1_1%3a2.5.1-4_amd64.deb
+#RUN dpkg -i /root/packages/libgmp10_2%3a6.2.1+dfsg1-1.1_amd64.deb
+#RUN dpkg -i /root/packages/libpcre2-8-0_10.42-1_amd64.deb
+#RUN dpkg -i /root/packages/libselinux1_3.4-1+b6_amd64.deb
+#RUN dpkg -i /root/packages/coreutils_9.1-1_amd64.deb
+#
+## Install GNU tar
+#RUN dpkg -i /root/packages/tar_1.34+dfsg-1.2_amd64.deb
+#
+## Install curl.
+#RUN dpkg -i /root/packages/libbrotli1_1.0.9-2+b6_amd64.deb
+#RUN dpkg -i /root/packages/libcom-err2_1.47.0-2_amd64.deb
+#RUN dpkg -i /root/packages/libkrb5support0_1.20.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libk5crypto3_1.20.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libkeyutils1_1.6.3-2_amd64.deb
+#RUN dpkg -i /root/packages/libssl3_3.0.9-1_amd64.deb
+#RUN dpkg -i /root/packages/libkrb5-3_1.20.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libgssapi-krb5-2_1.20.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libunistring2_1.0-2_amd64.deb
+#RUN dpkg -i /root/packages/libidn2-0_2.3.3-1+b1_amd64.deb
+#RUN dpkg -i /root/packages/libnettle8_3.8.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libhogweed6_3.8.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libffi8_3.4.4-1_amd64.deb
+#RUN dpkg -i /root/packages/libp11-kit0_0.24.1-2_amd64.deb
+#RUN dpkg -i /root/packages/libtasn1-6_4.19.0-2_amd64.deb
+#RUN dpkg -i /root/packages/libgnutls30_3.7.9-2_amd64.deb
+#RUN dpkg -i /root/packages/libdb5.3_5.3.28+dfsg2-1_amd64.deb
+#RUN dpkg -i /root/packages/libsasl2-modules-db_2.1.28+dfsg-10_amd64.deb
+#RUN dpkg -i /root/packages/libsasl2-2_2.1.28+dfsg-10_amd64.deb
+#RUN dpkg -i /root/packages/libldap-2.5-0_2.5.13+dfsg-5_amd64.deb
+#RUN dpkg -i /root/packages/libnghttp2-14_1.52.0-1_amd64.deb
+#RUN dpkg -i /root/packages/libpsl5_0.21.2-1_amd64.deb
+#RUN dpkg -i /root/packages/zlib1g_1%3a1.2.13.dfsg-1_amd64.deb
+#RUN dpkg -i /root/packages/librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb
+#RUN dpkg -i /root/packages/libssh2-1_1.10.0-3+b1_amd64.deb
+#RUN dpkg -i /root/packages/libzstd1_1.5.4+dfsg2-5_amd64.deb
+#RUN dpkg -i /root/packages/libcurl4_7.88.1-10+deb12u1_amd64.deb
+#
+##install nginx
+#RUN dpkg -i /root/packages/libcrypt1_1%3a4.4.33-2_amd64.deb
+#RUN dpkg -i /root/packages/libelf1_0.188-2.1_amd64.deb
+#RUN dpkg -i /root/packages/libbpf1_1%3a1.1.0-1_amd64.deb
+#RUN dpkg -i /root/packages/libmd0_1.0.4-2_amd64.deb
+#RUN dpkg -i /root/packages/libbsd0_0.11.7-2_amd64.deb
+#RUN dpkg -i /root/packages/libcap2_1%3a2.66-4_amd64.deb
+#RUN dpkg -i /root/packages/libmnl0_1.0.4-3_amd64.deb
+#RUN dpkg -i /root/packages/libtirpc-common_1.3.3+ds-1_all.deb
+#RUN dpkg -i /root/packages/libtirpc3_1.3.3+ds-1_amd64.deb
+#RUN dpkg -i /root/packages/libxtables12_1.8.9-2_amd64.deb
+#RUN dpkg -i /root/packages/libcap2-bin_1%3a2.66-4_amd64.deb
+#
+## install dpkg
+#RUN dpkg -i /root/packages/libbz2-1.0_1.0.8-5+b1_amd64.deb
+#RUN dpkg -i /root/packages/liblzma5_5.4.1-0.2_amd64.deb
+#
+CMD "/bin/sh"

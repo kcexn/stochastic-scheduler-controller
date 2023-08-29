@@ -10,9 +10,10 @@ namespace app{
     class ExecutionContext
     {
     public:
-        ExecutionContext() : execution_context_id_(UUID::uuid_create_v4()) {}
+        ExecutionContext( ) : execution_context_id_(UUID::uuid_create_v4()){}
         void resume() { f_ = std::move(f_).resume(); }
         void stop_thread() { stopped_ = true; pthread_exit(0);}
+        void stop_context() { stopped_ = true; }
         bool is_stopped() { return stopped_; }
         std::int64_t& start_time() { return start_time_; }
         std::int64_t& end_time() { return end_time_; }
@@ -23,6 +24,8 @@ namespace app{
         explicit operator bool() const noexcept { return bool(f_); }
         boost::context::fiber& fiber() { return f_; }
         const UUID::uuid_t& execution_context_id() const noexcept { return execution_context_id_; }
+        std::vector<std::string>& environment() { return environ_; }
+        std::unique_lock<std::mutex>& env_lock() { return env_lock_; }
     private:
         Http::Request req_;
         Http::Response res_;
@@ -33,31 +36,28 @@ namespace app{
         std::int64_t end_time_;
         pthread_t tid_;
         std::vector<char> payload_;
+        std::vector<std::string> environ_;
+        std::unique_lock<std::mutex> env_lock_;
     };
-
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs);
-
     class Controller
     {
     public:
         Controller(std::shared_ptr<echo::MailBox> mbox_ptr);
         void start();
-        void route_request(Http::Request& req);
+        void route_request(Http::Request& req );
         Http::Response create_response(ExecutionContext& ctx);
+        void flush_wsk_logs() { std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; return;}
         void stop();
         ~Controller();
     private:
         Http::Server server_;
-
         // Controller Thread ID.
         pthread_t tid_;
-
         // Global Signals.
         std::shared_ptr<echo::MailBox> controller_mbox_ptr_;
-
         // Execution Context IDs.
         std::vector< std::shared_ptr<ExecutionContext> > ctx_ptrs;
-
         // OpenWhisk Action Proxy Initialized.
         bool initialized_;
     };
