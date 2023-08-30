@@ -12,7 +12,7 @@ DEBUG_TARGET = controller-dbg
 DEBUG_OBJECTS = echo-dbg.o echo-worker-dbg.o echo-reader-dbg.o \
 echo-writer-dbg.o sctp-server-dbg.o uuid-common-utils-dbg.o \
 echo-scheduler-dbg.o echo-application-dbg.o unix-server-dbg.o \
-http-server-dbg.o controller-app-dbg.o run-dbg.o init-dbg.o
+http-server-dbg.o controller-app-dbg.o run-dbg.o init-dbg.o controller-io-dbg.o
 
 # NORMAL SETTINGS
 REL_CXX_FLAGS = -O3 -finline-atomics -flto=auto -fuse-linker-plugin
@@ -20,7 +20,7 @@ TARGET = controller
 OBJECTS = echo.o echo-worker.o echo-reader.o echo-writer.o \
 sctp-server.o uuid-common-utils.o echo-scheduler.o \
 echo-application.o unix-server.o http-server.o controller-app.o run.o \
-init.o
+init.o controller-io.o
 
 .PHONY: clean debug
 

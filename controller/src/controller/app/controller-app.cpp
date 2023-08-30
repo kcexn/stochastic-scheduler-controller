@@ -21,15 +21,27 @@ namespace app{
     // Controller Class
     Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr)
       : controller_mbox_ptr_(mbox_ptr),
-        initialized_{false}
+        initialized_{false},
+        io_mbox_ptr_(std::make_shared<echo::MailBox>()),
+        io_(io_mbox_ptr_, "/run/controller/controller2.sock")
     {
         #ifdef DEBUG
         std::cout << "Application Controller Constructor!" << std::endl;
         #endif
+        // Initialize parent controls
+        io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
+        io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<int> >();
+        io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
+
         std::thread controller(
             &Controller::start, this
         );
+        std::thread application(
+            &Controller::start_controller, this
+        );
+        tid1_ = application.native_handle();
         tid_ = controller.native_handle();
+        application.detach();
         controller.detach();
     }
 
@@ -37,7 +49,7 @@ namespace app{
         // Initialize resources I might need.
         std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx, std::defer_lock);
         #ifdef DEBUG
-        std::cout << "HTTP Server Started!" << std::endl;
+        std::cout << "Application Server Started!" << std::endl;
         #endif
         // Scheduling Loop.
         while( (controller_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) != echo::Signals::TERMINATE ){
@@ -108,6 +120,17 @@ namespace app{
                 }
             }
         }
+        pthread_exit(0);
+    }
+
+    void Controller::start_controller(){
+        #ifdef DEBUG
+        std::cout << "Controller Start!" << std::endl;
+        #endif
+
+        #ifdef DEBUG
+        std::cout << "Controller Stop!" << std::endl;
+        #endif
         pthread_exit(0);
     }
 
@@ -370,6 +393,7 @@ namespace app{
 
     void Controller::stop(){
         pthread_cancel(tid_);
+        pthread_join(tid_, nullptr);
     }
 
     Controller::~Controller()
@@ -378,10 +402,6 @@ namespace app{
         std::cout << "Application Controller Destructor!" << std::endl;
         #endif
         stop();
-    }
-
-    void thread_safe_copy_env(std::vector<char*>& environment){
-        
     }
 }// namespace app
 }//namespace controller

@@ -1,5 +1,5 @@
-#ifndef TCP_SERVER_HPP
-#define TCP_SERVER_HPP
+#ifndef UNIX_SERVER_HPP
+#define UNIX_SERVER_HPP
 #include <array>
 #include <functional>
 #include <sstream>
@@ -17,23 +17,22 @@ namespace UnixServer{
         enum { max_length = 65536 };
 
         Session(boost::asio::local::stream_protocol::socket socket);
-        #ifdef DEBUG
+        Session( Session&& other );
         ~Session();
-        #endif
-
 
         void start();
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn);
         void do_write(std::size_t length);
-        void cancel() { cancel_signal_.emit(boost::asio::cancellation_type::total); }
+        void cancel() { stop_signal_.emit(boost::asio::cancellation_type::total); }
+        void stop() { socket_.cancel(); }
         void shutdown_read();
         void shutdown_write();
         void close();
         std::size_t& buflen() { return buflen_;}
         std::array<char, max_length>& sockbuf() { return sockbuf_; }
         std::stringstream& stream() {return stream_; }
-
         boost::asio::local::stream_protocol::socket& socket(){ return socket_; }
+        std::shared_ptr<Session> share(){ return shared_from_this(); }
 
         bool operator==(const Session& other) const {
             return this == &other;
@@ -44,13 +43,15 @@ namespace UnixServer{
         std::array<char, max_length> sockbuf_;
         std::stringstream stream_;
         char data_[max_length];
-        boost::asio::cancellation_signal cancel_signal_;
+        boost::asio::cancellation_signal stop_signal_;
     };
 
     class Server{
         public:
             Server(boost::asio::io_context& ioc);
+            Server(boost::asio::io_context& ioc, boost::asio::local::stream_protocol::endpoint endpoint);
             void start_accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn);
+            void stop(){ acceptor_.close(); return; }
             ~Server();
         private:  
             boost::asio::io_context& ioc_;

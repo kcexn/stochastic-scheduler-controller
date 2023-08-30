@@ -13,12 +13,23 @@ namespace UnixServer{
         std::cout << "Unix Session Constructor!" << std::endl;
         #endif
     }
-    #ifdef DEBUG
+
+    Session::Session( Session&& other )
+      : socket_(std::move(other.socket_)),
+        stream_(std::move(other.stream_))
+    {
+        #ifdef DEBUG
+        std::cout << "Unix Session Move Constructor!." << std::endl;
+        #endif
+    }
+
     Session::~Session()
     {
+        #ifdef DEBUG
         std::cout << "Unix Session Destructor!" << std::endl;
+        #endif
+        close();
     }
-    #endif
         
     void Session::async_read(
         std::function<void(boost::system::error_code ec, std::size_t length)> fn
@@ -27,7 +38,7 @@ namespace UnixServer{
         socket_.async_read_some(
             boost::asio::buffer(sockbuf_.data(), max_length),
             boost::asio::bind_cancellation_slot(
-                cancel_signal_.slot(),
+                stop_signal_.slot(),
                 fn
             )
         );
@@ -36,16 +47,7 @@ namespace UnixServer{
     void Session::do_write(std::size_t length){
         socket_.write_some(boost::asio::buffer(sockbuf_.data(), length));
     }
-    //-----------------------------------------|
-    //Unix-Server Server
-    Server::Server(boost::asio::io_context& ioc)
-      : ioc_(ioc),
-        acceptor_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock"))
-    {
-        #ifdef DEBUG
-        std::cout << "Unix Domain Socket Server Constructor!" << std::endl;
-        #endif
-    }
+
 
     void Session::shutdown_read(){
         #ifdef DEBUG
@@ -67,6 +69,25 @@ namespace UnixServer{
         #endif
         socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both);
         socket_.close();
+    }
+    //-----------------------------------------|
+    //Unix-Server Server
+    Server::Server(boost::asio::io_context& ioc)
+      : ioc_(ioc),
+        acceptor_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock"))
+    {
+        #ifdef DEBUG
+        std::cout << "Unix Domain Socket Server Constructor!" << std::endl;
+        #endif
+    }
+
+    Server::Server(boost::asio::io_context& ioc, boost::asio::local::stream_protocol::endpoint endpoint)
+      : ioc_(ioc),
+        acceptor_(ioc, endpoint)
+    {
+        #ifdef DEBUG
+        std::cout << "Unix Domain Socket Server Endpoint Constructor!" << std::endl;
+        #endif
     }
 
     Server::~Server(){

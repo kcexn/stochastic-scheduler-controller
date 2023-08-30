@@ -4,6 +4,7 @@
 #include "../../utils/uuid.hpp"
 #include "../../http-server/http-server.hpp"
 #include <boost/context/fiber.hpp>
+#include "../io/controller-io.hpp"
 
 namespace controller{
 namespace app{
@@ -24,8 +25,6 @@ namespace app{
         explicit operator bool() const noexcept { return bool(f_); }
         boost::context::fiber& fiber() { return f_; }
         const UUID::uuid_t& execution_context_id() const noexcept { return execution_context_id_; }
-        std::vector<std::string>& environment() { return environ_; }
-        std::unique_lock<std::mutex>& env_lock() { return env_lock_; }
     private:
         Http::Request req_;
         Http::Response res_;
@@ -36,15 +35,16 @@ namespace app{
         std::int64_t end_time_;
         pthread_t tid_;
         std::vector<char> payload_;
-        std::vector<std::string> environ_;
-        std::unique_lock<std::mutex> env_lock_;
     };
+
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs);
+
     class Controller
     {
     public:
         Controller(std::shared_ptr<echo::MailBox> mbox_ptr);
         void start();
+        void start_controller();
         void route_request(Http::Request& req );
         Http::Response create_response(ExecutionContext& ctx);
         void flush_wsk_logs() { std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; return;}
@@ -54,12 +54,16 @@ namespace app{
         Http::Server server_;
         // Controller Thread ID.
         pthread_t tid_;
+        pthread_t tid1_;
         // Global Signals.
         std::shared_ptr<echo::MailBox> controller_mbox_ptr_;
         // Execution Context IDs.
         std::vector< std::shared_ptr<ExecutionContext> > ctx_ptrs;
         // OpenWhisk Action Proxy Initialized.
         bool initialized_;
+        // IO
+        std::shared_ptr<echo::MailBox> io_mbox_ptr_;
+        controller::io::IO io_;
     };
 
 }// namespace app
