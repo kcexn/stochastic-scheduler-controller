@@ -151,12 +151,12 @@ namespace app{
         #endif
         if (req.body_fully_formed){
             /* Lets leave this logging in here for now, just until I'm confident that I have the action interface implemented properly. */
-            std::ofstream log("/var/log/controller/request.log", std::ios_base::out | std::ios_base::app );
-            std::stringstream ss;
-            ss << req.verb << " " << req.route << " HTTP/1.0\r\n"
+            // std::ofstream log("/var/log/controller/request.log", std::ios_base::out | std::ios_base::app );
+            // std::stringstream ss;
+            std::cout << req.verb << " " << req.route << " HTTP/1.0\r\n"
                << "Content-Length: " << req.content_length << "\r\n"
                << "\r\n" << req.body << "\r\n";
-            log << ss.str();
+            // std::cout << ss.str() << std::endl;;
             /* ------------------------------------------------------------------------------------------------- */
             try{
                 boost::json::error_code ec;
