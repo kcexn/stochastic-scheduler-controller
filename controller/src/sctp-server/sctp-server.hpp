@@ -32,12 +32,12 @@ namespace sctp_server{
         int sctp_recvrcvinfo = 1;
         int sctp_recvnxtinfo = 1;
         struct sctp_assoc_value sctp_future_assoc = {
-            .assoc_id = SCTP_FUTURE_ASSOC,
-            .assoc_value = 1
+            SCTP_FUTURE_ASSOC,
+            1
         };
         struct sctp_assoc_value sctp_reset_future_streams = {
-            .assoc_id = SCTP_FUTURE_ASSOC,
-            .assoc_value = SCTP_ENABLE_RESET_STREAM_REQ
+            SCTP_FUTURE_ASSOC,
+            SCTP_ENABLE_RESET_STREAM_REQ
         };
 
         int sctp_autoclose = 60;

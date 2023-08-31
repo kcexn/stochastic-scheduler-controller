@@ -9,7 +9,6 @@ namespace echo{
     public:
         EchoReader(
             std::shared_ptr<sctp_server::server> s_ptr,
-            std::shared_ptr<UnixServer::Server> us_ptr,
             std::shared_ptr<std::mutex> signal_mtx_ptr,
             std::shared_ptr<MailBox> read_mbox_ptr,
             std::shared_ptr<std::atomic<int> > signal_ptr,
@@ -26,7 +25,6 @@ namespace echo{
     private:
         boost::asio::cancellation_signal cancel_signal_;
         std::shared_ptr<sctp_server::server> s_ptr_;
-        std::shared_ptr<UnixServer::Server> us_ptr_;
         std::shared_ptr<std::mutex> signal_mtx_ptr_;
         std::shared_ptr<MailBox> read_mbox_ptr_;
         std::shared_ptr<std::atomic<int> > signal_ptr_;

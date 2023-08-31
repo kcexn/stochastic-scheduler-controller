@@ -103,18 +103,18 @@ void echo::Worker::start(){
 
             // Construct the echo message.
             sctp::sctp_message sndmsg = {
-                .rmt_endpt = {
-                    .endpt = rcvdmsg.rmt_endpt.endpt,
-                    .rcvinfo = {},
-                    .sndinfo = {
-                        .snd_sid = rcvdmsg.rmt_endpt.rcvinfo.rcv_sid,
-                        .snd_flags = 0,
-                        .snd_ppid = rcvdmsg.rmt_endpt.rcvinfo.rcv_ppid,
-                        .snd_context = rcvdmsg.rmt_endpt.rcvinfo.rcv_context,
-                        .snd_assoc_id = rcvdmsg.rmt_endpt.rcvinfo.rcv_assoc_id
+                {
+                    rcvdmsg.rmt_endpt.endpt,
+                    {},
+                    {
+                        rcvdmsg.rmt_endpt.rcvinfo.rcv_sid,
+                        0,
+                        rcvdmsg.rmt_endpt.rcvinfo.rcv_ppid,
+                        rcvdmsg.rmt_endpt.rcvinfo.rcv_context,
+                        rcvdmsg.rmt_endpt.rcvinfo.rcv_assoc_id
                     }
                 },
-                .payload = boost::asio::const_buffer(mbox_ptr_->payload_buffer_ptr->data(), length)
+                boost::asio::const_buffer(mbox_ptr_->payload_buffer_ptr->data(), length)
             };
             mbox_lk.lock();
             mbox_ptr_->sndmsg = sndmsg;

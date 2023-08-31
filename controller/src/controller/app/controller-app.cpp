@@ -19,11 +19,32 @@ namespace app{
     }
 
     // Controller Class
-    Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr)
+    // Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr)
+    //   : controller_mbox_ptr_(mbox_ptr),
+    //     initialized_{false},
+    //     io_mbox_ptr_(std::make_shared<echo::MailBox>()),
+    //     io_(io_mbox_ptr_, "/run/controller/controller2.sock")
+    // {
+    //     #ifdef DEBUG
+    //     std::cout << "Application Controller Constructor!" << std::endl;
+    //     #endif
+    //     // Initialize parent controls
+    //     io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
+    //     io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<int> >();
+    //     io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
+
+    //     std::thread application(
+    //         &Controller::start, this
+    //     );
+    //     tid_ = application.native_handle();
+    //     application.detach();
+    // }
+
+    Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr, boost::asio::io_context& ioc)
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
         io_mbox_ptr_(std::make_shared<echo::MailBox>()),
-        io_(io_mbox_ptr_, "/run/controller/controller2.sock")
+        io_(io_mbox_ptr_, "/run/controller/controller2.sock", ioc)
     {
         #ifdef DEBUG
         std::cout << "Application Controller Constructor!" << std::endl;
@@ -33,49 +54,48 @@ namespace app{
         io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<int> >();
         io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
 
-        std::thread controller(
+        std::thread application(
             &Controller::start, this
         );
-        std::thread application(
-            &Controller::start_controller, this
-        );
-        tid1_ = application.native_handle();
-        tid_ = controller.native_handle();
+        tid_ = application.native_handle();
         application.detach();
-        controller.detach();
     }
 
     void Controller::start(){
-        // Initialize resources I might need.
-        std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx, std::defer_lock);
         #ifdef DEBUG
-        std::cout << "Application Server Started!" << std::endl;
+        std::cout << "Controller Start!" << std::endl;
         #endif
+        // Initialize resources I might need.
+        std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
+        int thread_local_signal;
+        bool thread_local_msg_flag;
         // Scheduling Loop.
-        while( (controller_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) != echo::Signals::TERMINATE ){
+        // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
+        while( (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & echo::Signals::TERMINATE) != echo::Signals::TERMINATE ){
             lk.lock();
-            controller_mbox_ptr_->mbx_cv.wait(lk, [&]{ return (controller_mbox_ptr_->msg_flag.load() == true || controller_mbox_ptr_->signal.load() != 0); });
+            io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) == true || io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) != 0); });
+            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
+            thread_local_msg_flag = io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed);
+            io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
             lk.unlock();
-            if (controller_mbox_ptr_->msg_flag.load()){
+            if (thread_local_msg_flag){
                 lk.lock();
-                Http::Session session( controller_mbox_ptr_->session_ptr );
+                Http::Session http_session( io_mbox_ptr_->session_ptr );
                 lk.unlock();
-                controller_mbox_ptr_->msg_flag.store(false);
-                if ( (controller_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
+                if (( thread_local_signal & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
                     pthread_exit(0);
                 }
-                std::vector<Http::Session>& sessions = server_.http_sessions();
-                auto it = std::find(sessions.begin(), sessions.end(), session);
+                auto it = std::find(server_.begin(), server_.end(), http_session);
                 Http::Request request = {};
-                if (it != sessions.end()){
+                if (it != server_.end()){
                     // Do Something.
                     request = it->read_request();
                     #ifdef DEBUG
                     std::cout << "Session is in the HTTP Server." << std::endl;
                     #endif
                 } else {
-                    sessions.push_back(std::move(session));
-                    request = sessions.back().read_request();
+                    server_.push_back(std::move(http_session));
+                    request = server_.back().read_request();
                     #ifdef DEBUG
                     std::cout << "Session is not in the HTTP Server." << std::endl;
                     #endif
@@ -85,8 +105,8 @@ namespace app{
                 std::cout << "HTTP Server Loop!" << std::endl;
                 #endif
             }
-            if ( (controller_mbox_ptr_->signal.load() & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
-                controller_mbox_ptr_->signal.fetch_and(~echo::Signals::SCHED_END);
+            if ( (thread_local_signal & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
+                io_mbox_ptr_->sched_signal_ptr->fetch_and(~echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
                 while ( it != ctx_ptrs.end() ){
                     Http::Response res = create_response(**it);
@@ -100,19 +120,18 @@ namespace app{
                     #ifdef DEBUG
                     std::cout << ss.str() << std::endl;
                     #endif
-                    auto session_it = std::find_if(server_.http_sessions().begin(), server_.http_sessions().end(), [&](auto session){ return session.request() == (*it)->req(); });
-                    if (session_it != server_.http_sessions().end()){
-                        std::string str(ss.str());
+                    auto session_it = std::find_if(server_.begin(), server_.end(), [&](auto session){ return session.request() == (*it)->req(); });
+                    if (session_it != server_.end()){
                         //Write the http response to the unix socket with a unique fd.
-                        lk.lock();
-                        controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
-                        controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
-                        controller_mbox_ptr_->session_ptr = std::shared_ptr<UnixServer::Session>(session_it->unix_session());
-                        lk.unlock();
-                        controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                        controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                        controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                        server_.http_sessions().erase(session_it);
+                        std::string str(ss.str());
+                        boost::asio::const_buffer write_buffer(str.data(), str.size());
+                        io_.async_unix_write(write_buffer, session_it->unix_session(), 
+                            [&](UnixServer::Session& unix_session){
+                                unix_session.cancel_reads();
+                                unix_session.shutdown_write();
+                            }
+                        );
+                        server_.erase(session_it);
                     } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
                     ctx_ptrs.erase(it);
                     it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
@@ -120,14 +139,6 @@ namespace app{
                 }
             }
         }
-        pthread_exit(0);
-    }
-
-    void Controller::start_controller(){
-        #ifdef DEBUG
-        std::cout << "Controller Start!" << std::endl;
-        #endif
-
         #ifdef DEBUG
         std::cout << "Controller Stop!" << std::endl;
         #endif
@@ -135,6 +146,9 @@ namespace app{
     }
 
     void Controller::route_request(Http::Request& req){
+        #ifdef DEBUG
+        std::cout << "Request Router!" << std::endl;
+        #endif
         if (req.body_fully_formed){
             /* Lets leave this logging in here for now, just until I'm confident that I have the action interface implemented properly. */
             std::ofstream log("/var/log/controller/request.log", std::ios_base::out | std::ios_base::app );
@@ -180,10 +194,10 @@ namespace app{
                                 clock_gettime(CLOCK_REALTIME, &ts);
                                 milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
                                 ctx_ptr->end_time() = milliseconds;
-                                mbox_ptr->signal.fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
-                                mbox_ptr->mbx_cv.notify_all();
+                                mbox_ptr->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                mbox_ptr->sched_signal_cv_ptr->notify_all();
                                 ctx_ptr->stop_thread();
-                            }, controller_mbox_ptr_
+                            }, io_mbox_ptr_
                         );
                         ctx_ptr->tid() = executor.native_handle();
                         ctx_ptrs.push_back(std::move(ctx_ptr));
@@ -201,19 +215,18 @@ namespace app{
                             << "Content-Length: " << res.content_length << "\r\n"
                             << "\r\n"
                             << res.body;
-                        auto session_it = std::find_if(server_.http_sessions().begin(), server_.http_sessions().end(), [&](auto session){ return session.request() == req; });
-                        if (session_it != server_.http_sessions().end()){
+                        auto session_it = std::find_if(server_.begin(), server_.end(), [&](auto session){ return session.request() == req; });
+                        if (session_it != server_.end()){
                             std::string str(ss.str());
                             //Write the http response to the unix socket with a unique fd.
-                            std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx);
-                            controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
-                            controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
-                            controller_mbox_ptr_->session_ptr = std::shared_ptr<UnixServer::Session>(session_it->unix_session());
-                            lk.unlock();
-                            controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                            controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                            controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                            server_.http_sessions().erase(session_it);
+                            boost::asio::const_buffer write_buffer(str.data(), str.size());
+                            io_.async_unix_write(write_buffer, session_it->unix_session(), 
+                                [&](UnixServer::Session& unix_session){
+                                    unix_session.cancel_reads();
+                                    unix_session.shutdown_write();
+                                }
+                            );
+                            server_.erase(session_it);
                         }
                     }
                 } else if (req.route == "/init" ) {
@@ -245,19 +258,18 @@ namespace app{
                         << "Content-Type: application/json\r\n"
                         << "Content-Length: " << res.content_length << "\r\n"
                         << "\r\n";
-                    auto it = std::find_if(server_.http_sessions().begin(), server_.http_sessions().end(), [&](auto session){ return session.request() == req; });
-                    if ( it != server_.http_sessions().end() ){
+                    auto it = std::find_if(server_.begin(), server_.end(), [&](auto session){ return session.request() == req; });
+                    if ( it != server_.end() ){
                         std::string str(ss.str());
                         //Write the http response to the unix socket with a unique fd.
-                        std::unique_lock<std::mutex> lk(controller_mbox_ptr_->mbx_mtx);
-                        controller_mbox_ptr_->mbx_cv.wait(lk, [&](){ return ((controller_mbox_ptr_->signal.load() & echo::Signals::APP_UNIX_WRITE) == 0); });
-                        controller_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(str.begin(), str.end());
-                        controller_mbox_ptr_->session_ptr = std::shared_ptr<UnixServer::Session>(it->unix_session());
-                        lk.unlock();
-                        controller_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                        controller_mbox_ptr_->signal.fetch_or(echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                        controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                        server_.http_sessions().erase(it);
+                        boost::asio::const_buffer write_buffer(str.data(), str.size());
+                        io_.async_unix_write(write_buffer, it->unix_session(), 
+                            [&](UnixServer::Session& unix_session){
+                                unix_session.cancel_reads();
+                                unix_session.shutdown_write();
+                            }
+                        );
+                        server_.erase(it);
                     }
                 }
             } catch ( std::bad_alloc const& e){
@@ -281,38 +293,38 @@ namespace app{
                 }
                 if ( !ec ){
                     res = {
-                        .status_code = "200",
-                        .status_message = "OK",
-                        .connection = "close",
-                        .content_length = result.size(),
-                        .body = result
+                        "200",
+                        "OK",
+                        "close",
+                        result.size(),
+                        result
                     };
                 } else {
                     res = {
-                        .status_code = "500",
-                        .status_message = "Internal Server Error",
-                        .connection = "close",
-                        .content_length = 0,
-                        .body = ""
+                        "500",
+                        "Internal Server Error",
+                        "close",
+                        0,
+                        ""
                     };
                 }
             } else {
                res = {
-                    .status_code = "404",
-                    .status_message = "Not Found.",
-                    .connection = "close",
-                    .content_length = 0,
-                    .body = ""
+                    "404",
+                    "Not Found.",
+                    "close",
+                    0,
+                    ""
                };
             }
         } else if ( ctx.req().route == "/init" ){
             if ( !ctx ) {
                 res = {
-                    .status_code = "409",
-                    .status_message = "Conflict",
-                    .connection = "close",
-                    .content_length = 0,
-                    .body = ""
+                    "409",
+                    "Conflict",
+                    "close",
+                    0,
+                    ""
                 };
             } else {
                 boost::json::value jv = boost::json::parse(ctx.req().body);
@@ -369,19 +381,19 @@ namespace app{
 
                 if ( ec ){
                     res = {
-                        .status_code = "400",
-                        .status_message = "Bad Request",
-                        .connection = "close",
-                        .content_length = 0,
-                        .body = ""
+                        "400",
+                        "Bad Request",
+                        "close",
+                        0,
+                        ""
                     };
                 } else {
                     res = {
-                        .status_code = "200",
-                        .status_message = "OK",
-                        .connection = "close",
-                        .content_length = 0,
-                        .body = ""
+                        "200",
+                        "OK",
+                        "close",
+                        0,
+                        ""
                     };
                 }
             }
@@ -392,8 +404,14 @@ namespace app{
     }
 
     void Controller::stop(){
-        pthread_cancel(tid_);
-        pthread_join(tid_, nullptr);
+        controller_mbox_ptr_->signal.fetch_or(echo::Signals::TERMINATE);
+        controller_mbox_ptr_->mbx_cv.notify_all();
+        io_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::TERMINATE);
+        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+
+        // Wait a reasonable amount of time for the threads to stop gracefully.
+        struct timespec ts = {0,50000000};
+        nanosleep(&ts, nullptr);
     }
 
     Controller::~Controller()

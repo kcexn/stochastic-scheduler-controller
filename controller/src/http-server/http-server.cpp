@@ -97,9 +97,9 @@ namespace Http{
                 }
             } else if ( !req.body_fully_formed ){
                 int buflen = req.content_length - req.body.size();
-                char buf[buflen] = {};
-                std::streamsize length = is.readsome(buf, buflen);
-                req.body.append(buf, length);
+                std::vector<char> buf(buflen);
+                std::streamsize length = is.readsome(buf.data(), buf.size());
+                req.body.append(buf.data(), buf.size());
                 if (req.body.size() == req.content_length ){
                     req.body_fully_formed = true;
 
@@ -114,7 +114,7 @@ namespace Http{
         return http_sessions_;
     }
 
-    Session::Session(std::shared_ptr<UnixServer::Session> session)
+    Session::Session(const std::shared_ptr<UnixServer::Session>& session)
       : session_ptr_(session),
         request_{}
     {
@@ -123,7 +123,7 @@ namespace Http{
         #endif
     }
 
-    Request Session::read_request(){
+    const Request& Session::read_request() {
         session_ptr_->stream() >> request_;
         return request_;
     }

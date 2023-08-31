@@ -10,19 +10,22 @@ namespace io{
     class IO
     {
     public:
-        IO(std::shared_ptr<echo::MailBox>& mbox);
-        IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint);
+        // IO(std::shared_ptr<echo::MailBox>& mbox);
+        // IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint);
+        IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
         void start();
         void stop();
 
         // Unix Socket Related Functions.
-        void async_unix_read(std::shared_ptr<UnixServer::Session> session);
+        void async_unix_read(const std::shared_ptr<UnixServer::Session>& session);
         void async_unix_accept();
+        void async_unix_write(const boost::asio::const_buffer& write_buffer, const std::shared_ptr<UnixServer::Session>& unix_session_ptr, std::function<void(UnixServer::Session&)> fn);
         ~IO();
     private:
         std::shared_ptr<echo::MailBox> mbox_ptr_;
         pthread_t io_;
-        boost::asio::io_context ioc_;
+        // boost::asio::io_context ioc1_;
+        boost::asio::io_context& ioc_;
         
         // Unix Socket Controls.
         std::vector<std::shared_ptr<UnixServer::Session> > unix_session_ptrs_;

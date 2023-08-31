@@ -67,8 +67,8 @@ namespace echo{
         sctp::sid_t sid() { return sid_; }
         void set_tid(pthread_t t_id) {
             tid_ = {
-                .id_ = t_id,
-                .tid_set_ = true
+                t_id,
+                true
             };
         }
         pthread_t get_tid(){

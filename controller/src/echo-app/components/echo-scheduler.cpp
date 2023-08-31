@@ -1,4 +1,5 @@
 #include "echo-scheduler.hpp"
+#include <filesystem>
 
 namespace echo{
     Scheduler::Scheduler(
@@ -8,7 +9,6 @@ namespace echo{
         std::shared_ptr<std::atomic<int> > signal_ptr,
         std::shared_ptr<std::condition_variable> signal_cv_ptr
     ) : s_ptr_(std::make_shared<sctp_server::server>(ioc, port)),
-        us_ptr_(std::make_shared<UnixServer::Server>(ioc)),
         signal_mtx_ptr_(signal_mtx_ptr),
         signal_ptr_(signal_ptr),
         signal_cv_ptr_(signal_cv_ptr),
@@ -16,7 +16,6 @@ namespace echo{
         write_mbox_ptr_(std::make_shared<MailBox>()),
         echo_reader_(
             s_ptr_,
-            us_ptr_,
             signal_mtx_ptr_,
             read_mbox_ptr_,
             signal_ptr_,
@@ -31,7 +30,8 @@ namespace echo{
         ),
         controller_mbox_ptr_(std::make_shared<MailBox>()),
         controller_ptr_(std::make_shared<controller::app::Controller>(
-            controller_mbox_ptr_
+            controller_mbox_ptr_,
+            ioc
         )),
         app_(
             results_,
@@ -66,10 +66,12 @@ namespace echo{
         #ifdef DEBUG
         std::cout << "Reader Started." << std::endl;
         #endif
+        reader_ = read_thread.native_handle();
 
         std::thread writer_thread(
             &EchoWriter::start, std::ref(echo_writer_)
         );
+        writer_ = writer_thread.native_handle();
         #ifdef DEBUG
         std::cout << "Writer Thread Started." << std::endl;
         #endif
@@ -96,7 +98,6 @@ namespace echo{
                 read_mbox_ptr_->mbx_cv.notify_all();
 
                 // Create an echo message.
-                // Explicitly Copy Construct.
                 sctp::sctp_message sndmsg(app_.schedule(rcvdmsg));
 
                 // Send the echo message back to the user.
@@ -107,22 +108,6 @@ namespace echo{
                 write_mbox_ptr_->msg_flag.store(true);
                 write_mbox_ptr_->signal.fetch_or(Signals::SCTP_WRITE, std::memory_order::memory_order_relaxed);
                 write_mbox_ptr_->mbx_cv.notify_all();
-            } else if ( (signal & Signals::UNIX_READ) == Signals::UNIX_READ){
-                // Read from the reader thread.
-                read_mbox_ptr_->mbx_mtx.lock();
-                std::shared_ptr<UnixServer::Session> session_ptr(read_mbox_ptr_->session_ptr);
-                read_mbox_ptr_->mbx_mtx.unlock();
-                //Unset the UNIX_READ signals.
-                signal_ptr_->fetch_and(~Signals::UNIX_READ, std::memory_order::memory_order_relaxed);
-                read_mbox_ptr_->msg_flag.store(false);
-                read_mbox_ptr_->mbx_cv.notify_all();
-
-                // Pass the message to the application controller.
-                controller_mbox_ptr_->mbx_mtx.lock();
-                controller_mbox_ptr_->session_ptr = session_ptr;
-                controller_mbox_ptr_->mbx_mtx.unlock();
-                controller_mbox_ptr_->msg_flag.store(true);
-                controller_mbox_ptr_->mbx_cv.notify_all();
 
             } else if ( (signal & Signals::SCHED_START) == Signals::SCHED_START ){
                 signal_ptr_->fetch_and(~Signals::SCHED_START, std::memory_order::memory_order_relaxed);
@@ -136,31 +121,6 @@ namespace echo{
 
                 // Echo back to Controller.
                 controller_mbox_ptr_->mbx_mtx.lock();
-                
-            } else if ( (signal & Signals::APP_UNIX_WRITE ) == Signals::APP_UNIX_WRITE ){
-                signal_ptr_->fetch_and(~Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                controller_mbox_ptr_->mbx_mtx.lock();
-                std::vector<char> payload(controller_mbox_ptr_->payload_buffer_ptr->begin(), controller_mbox_ptr_->payload_buffer_ptr->end());
-                std::shared_ptr<UnixServer::Session> session_ptr(controller_mbox_ptr_->session_ptr);
-                controller_mbox_ptr_->mbx_mtx.unlock();
-                controller_mbox_ptr_->signal.fetch_and(~Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                controller_mbox_ptr_->mbx_cv.notify_all();
-
-                #ifdef DEBUG
-                std::cout << "Pass Payload to Writer." << std::endl;
-                std::cout.write(payload.data(), payload.size()) << std::endl;
-                #endif
-
-                // Send the message to the user.
-                std::unique_lock<std::mutex> write_mbox_lock(write_mbox_ptr_->mbx_mtx);
-                write_mbox_ptr_->mbx_cv.wait(write_mbox_lock, [&](){ return (write_mbox_ptr_->msg_flag.load() == false); });
-                write_mbox_ptr_->payload_buffer_ptr = std::make_shared<std::vector<char> >(payload.begin(), payload.end());
-                write_mbox_ptr_->session_ptr = session_ptr;
-                write_mbox_lock.unlock();
-                // Set Write Thread Signals.
-                write_mbox_ptr_->signal.fetch_or(Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-                write_mbox_ptr_->msg_flag.store(true);
-                write_mbox_ptr_->mbx_cv.notify_all();
             } else if ( (signal & Signals::TERMINATE) == Signals::TERMINATE ){
                 break;
             }
@@ -169,6 +129,8 @@ namespace echo{
         #ifdef DEBUG
         std::cout << "Scheduling Loop Ended." << std::endl;
         #endif
+        read_thread.detach();
+        writer_thread.detach();
 
         // SIGTERM all threads.
         // Initiate graceful shutdown of SCTP associations.
@@ -180,7 +142,7 @@ namespace echo{
             cancel_table.push_back(context);
             sched_yield();
         }
-
+    
         #ifdef DEBUG
         std::cout << "Closing the reader thread." << std::endl;
         #endif
@@ -188,8 +150,9 @@ namespace echo{
         // Give the reader an opportunity to clean itself up.
         read_mbox_ptr_->signal.store(Signals::TERMINATE);
         read_mbox_ptr_->mbx_cv.notify_all();
+        echo_reader_.request_cancel();
         sched_yield();
-        ioc_.stop();
+        pthread_cancel(reader_);
 
         #ifdef DEBUG
         std::cout << "Terminating the worker threads." << std::endl;
@@ -210,20 +173,17 @@ namespace echo{
         std::cout << "Terminating the writer thread." << std::endl;
         #endif
 
-        // Gracefully stop and close the SCTP associations,
-        // Gracefully stop and close the iocontext.
-        s_ptr_->stop();
-
         // Give the writer thread an opportunity to clean itself up.
         write_mbox_ptr_->signal.store(Signals::TERMINATE);
         write_mbox_ptr_->mbx_cv.notify_all();
         nanosleep(&ts, NULL);
 
+        s_ptr_->stop();
         // Force Terminate the Writing thread.
-        pthread_cancel(writer_thread.native_handle());
+        pthread_cancel(writer_);
 
-        read_thread.join();
-        writer_thread.join();
+        std::filesystem::path p("/run/controller/controller.sock");
+        std::filesystem::remove(p);
     }
 
     void Scheduler::run(){

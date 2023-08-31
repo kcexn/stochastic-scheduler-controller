@@ -23,7 +23,9 @@ namespace UnixServer{
         void start();
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn);
         void do_write(std::size_t length);
+        void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void(Session&)>& fn);
         void cancel() { stop_signal_.emit(boost::asio::cancellation_type::total); }
+        void cancel_reads() {shutdown_read(); stop_signal_.emit(boost::asio::cancellation_type::total);}
         void stop() { socket_.cancel(); }
         void shutdown_read();
         void shutdown_write();

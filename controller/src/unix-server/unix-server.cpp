@@ -1,4 +1,5 @@
 #include "unix-server.hpp"
+#include <cstring>
 #include <filesystem>
 #include <ios>
 
@@ -48,27 +49,51 @@ namespace UnixServer{
         socket_.write_some(boost::asio::buffer(sockbuf_.data(), length));
     }
 
+    void Session::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void(Session&)>& fn){
+        std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
+        std::memcpy(write_data_ptr->data(), write_buffer.data(), write_data_ptr->size());
+        boost::asio::const_buffer buf(write_data_ptr->data(), write_data_ptr->size());
+        socket_.async_write_some(
+            buf,
+            [&, buf, write_data_ptr, fn](const boost::system::error_code& ec, std::size_t bytes_transferred){
+                if (!ec){
+                    std::size_t remaining_bytes = write_data_ptr->size() - bytes_transferred;
+                    if ( remaining_bytes > 0 ){
+                        boost::asio::const_buffer buf = buf + bytes_transferred;
+                        async_write(buf, fn);
+                    } else {
+                        // Once the write is complete execute the completion
+                        // handler.
+                        fn(*this);
+                    }
+                }
+            }
+        );
+    }
 
     void Session::shutdown_read(){
         #ifdef DEBUG
         std::cout << "Shutdown the Read side of the Unix socket." << std::endl;
         #endif
-        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_receive);
+        boost::system::error_code ec;
+        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_receive, ec);
     }
 
     void Session::shutdown_write(){
         #ifdef DEBUG
         std::cout << "Shutdown the write side of the Unix socket." << std::endl;
         #endif
-        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_send);
+        boost::system::error_code ec;
+        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_send, ec);
     }
 
     void Session::close(){
         #ifdef DEBUG
         std::cout << "Shutdown both sides of the Unix socket. Close the Unix socket." << std::endl;
         #endif
-        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both);
-        socket_.close();
+        boost::system::error_code ec;
+        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
+        socket_.close(ec);
     }
     //-----------------------------------------|
     //Unix-Server Server
@@ -94,7 +119,6 @@ namespace UnixServer{
         #ifdef DEBUG
         std::cout << "Unix Socket Server Destructor" << std::endl;
         #endif
-        std::filesystem::remove("/run/controller/controller.sock");
     }
 
     void Server::start_accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn){

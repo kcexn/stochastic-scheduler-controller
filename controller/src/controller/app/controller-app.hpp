@@ -42,7 +42,8 @@ namespace app{
     class Controller
     {
     public:
-        Controller(std::shared_ptr<echo::MailBox> mbox_ptr);
+        // Controller(std::shared_ptr<echo::MailBox> mbox_ptr);
+        Controller(std::shared_ptr<echo::MailBox> mbox_ptr, boost::asio::io_context& ioc);
         void start();
         void start_controller();
         void route_request(Http::Request& req );
@@ -54,7 +55,6 @@ namespace app{
         Http::Server server_;
         // Controller Thread ID.
         pthread_t tid_;
-        pthread_t tid1_;
         // Global Signals.
         std::shared_ptr<echo::MailBox> controller_mbox_ptr_;
         // Execution Context IDs.

@@ -1,5 +1,5 @@
 CXX = g++
-CXX_FLAGS = -Wall
+CXX_FLAGS = -Wpedantic
 INCLUDE_PATH = -I/workspaces/whisk-controller-dev/boost/boost_1_82_0/
 LIBRARY_PATH = -L/usr/local/lib/
 LD_FLAGS = -l boost_system -l boost_date_time -l boost_chrono -l boost_json -l boost_context

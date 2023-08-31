@@ -66,13 +66,13 @@ sctp::sctp_message sctp_server::server::do_read(){
 
     //Initialize a message envelope
     sctp::envelope msg = {
-        .msg_name = &sin,
-        .msg_namelen = sizeof(sin),
-        .msg_iov = bufs,
-        .msg_iovlen = num_bufs,
-        .msg_control = cbuf,
-        .msg_controllen = cbuflen,
-        .msg_flags = 0
+        &sin,
+        sizeof(sin),
+        bufs,
+        num_bufs,
+        cbuf,
+        cbuflen,
+        0
     };
 
     int length = recvmsg(sockfd, &msg, 0);
@@ -98,11 +98,11 @@ sctp::sctp_message sctp_server::server::do_read(){
 
         //Construct the SCTP Received Message.
         sctp::sctp_message rcv_msg = {
-            .rmt_endpt = {
-                .endpt = endpt,
-                .rcvinfo = rcvinfo
+            {
+                endpt,
+                rcvinfo
             },
-            .payload = payload
+            payload
         };
 
         // sctp_server::sctp_stream strm(rcv_msg.rmt_endpt.rcvinfo.rcv_assoc_id, rcv_msg.rmt_endpt.rcvinfo.rcv_sid);
@@ -141,24 +141,24 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
     char cbuf[CMSG_SPACE(sizeof(sctp::sndinfo))] = {};
 
     //Initialize payload buffers for writing to the socket.
-    char pbuf[msg.payload.size()] = {};
-    std::memcpy(pbuf, msg.payload.data(), msg.payload.size());
+    std::vector<char> pbuf(msg.payload.size());
+    std::memcpy(pbuf.data(), msg.payload.data(), msg.payload.size());
     sctp::buffer pbufs[1] = {
-        [0] = {
-            .iov_base = pbuf,
-            .iov_len = sizeof(pbuf)            
+        {
+            pbuf.data(),
+            pbuf.size()          
         }
     };
 
     //Initialize a message envelope
     sctp::envelope sndmsg = {
-        .msg_name = NULL,
-        .msg_namelen = 0,
-        .msg_iov = pbufs,
-        .msg_iovlen = num_bufs,
-        .msg_control = cbuf,
-        .msg_controllen = sizeof(cbuf),
-        .msg_flags=0
+        NULL,
+        0,
+        pbufs,
+        num_bufs,
+        cbuf,
+        sizeof(cbuf),
+        0
     };
 
     sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
@@ -199,11 +199,11 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
 
     // Construct the sndinfo.
     sctp::sndinfo shutdown = {
-        .snd_sid = 0,
-        .snd_flags = SCTP_EOF,
-        .snd_ppid = 0,
-        .snd_context = 0,
-        .snd_assoc_id = assoc_id_
+        0,
+        SCTP_EOF,
+        0,
+        0,
+        assoc_id_
     };
 
     //Initialize a buffer for ancillary data.
@@ -213,20 +213,20 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
     inet_pton(AF_INET, remote.address().to_string().c_str(), &addr_v4);
 
     struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(remote.port()),
-        .sin_addr = addr_v4
+        AF_INET,
+        htons(remote.port()),
+        addr_v4
     };
 
     //Initialize a message envelope
     sctp::envelope sndmsg = {
-        .msg_name = &addr,
-        .msg_namelen = sizeof(addr),
-        .msg_iov = NULL,
-        .msg_iovlen = 0,
-        .msg_control = cbuf,
-        .msg_controllen = sizeof(cbuf),
-        .msg_flags=0
+        &addr,
+        sizeof(addr),
+        nullptr,
+        0,
+        cbuf,
+        sizeof(cbuf),
+        0
     };
 
 

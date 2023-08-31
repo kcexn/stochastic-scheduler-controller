@@ -30,7 +30,6 @@ namespace echo {
     private:
         // Servers
         std::shared_ptr<sctp_server::server> s_ptr_;
-        std::shared_ptr<UnixServer::Server> us_ptr_;
 
         // // Scheduler Signals.
         std::shared_ptr<std::mutex> signal_mtx_ptr_;
@@ -53,6 +52,9 @@ namespace echo {
         std::vector<echo::ExecutionContext> context_table_;
 
         boost::asio::io_context& ioc_;
+
+        pthread_t reader_;
+        pthread_t writer_;
     };
 }//namespace echo.
 #endif

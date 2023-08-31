@@ -72,29 +72,6 @@ void echo::EchoWriter::start(){
             write_mbox_ptr_->mbx_cv.notify_all();
 
             s_ptr_->do_write(sndmsg);
-
-        } else if ((signal & echo::Signals::APP_UNIX_WRITE) == echo::Signals::APP_UNIX_WRITE){
-            mbox_lk.lock();
-            std::string str(write_mbox_ptr_->payload_buffer_ptr->begin(), write_mbox_ptr_->payload_buffer_ptr->end());
-            std::shared_ptr<UnixServer::Session> session_ptr(write_mbox_ptr_->session_ptr);
-            mbox_lk.unlock();
-
-            //clear signals.
-            write_mbox_ptr_->signal.fetch_and(~echo::Signals::APP_UNIX_WRITE, std::memory_order::memory_order_relaxed);
-            write_mbox_ptr_->msg_flag.store(false);
-            write_mbox_ptr_->mbx_cv.notify_all();
-
-            // Write on the output of the socket.
-            session_ptr->socket().write_some(boost::asio::buffer(str.data(), str.size()));
-
-            // Close the socket.
-            session_ptr->cancel();
-            session_ptr->close();
-            #ifdef DEBUG
-            struct timespec ts = {};
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            std::cout << "Finish Time: " << ( (ts.tv_sec*1000000) + (ts.tv_nsec/1000)) << std::endl;
-            #endif
         }
         //Unset the common write signals.
         write_mbox_ptr_->msg_flag.store(false);

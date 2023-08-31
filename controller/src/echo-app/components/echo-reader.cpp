@@ -9,13 +9,13 @@
 
 echo::EchoReader::EchoReader(
     std::shared_ptr<sctp_server::server> s_ptr,
-    std::shared_ptr<UnixServer::Server> us_ptr,
+    // std::shared_ptr<UnixServer::Server> us_ptr,
     std::shared_ptr<std::mutex> signal_mtx_ptr,
     std::shared_ptr<echo::MailBox> read_mbox_ptr,
     std::shared_ptr<std::atomic<int> > signal_ptr,
     std::shared_ptr<std::condition_variable> signal_cv_ptr
 ) : s_ptr_(s_ptr),
-    us_ptr_(us_ptr),
+    // us_ptr_(us_ptr),
     signal_mtx_ptr_(signal_mtx_ptr),
     read_mbox_ptr_(read_mbox_ptr),
     signal_ptr_(signal_ptr),
@@ -38,7 +38,6 @@ void echo::EchoReader::start(){
     #endif
 
     // Open an SCTP Endpoint.
-    async_unix_accept();
     async_sctp_read();
     s_ptr_->start();
 
@@ -63,56 +62,8 @@ void echo::EchoReader::async_sctp_read(){
                 read_mbox_ptr_->msg_flag.store(true);
                 signal_ptr_->fetch_or(echo::Signals::READ_THREAD, std::memory_order::memory_order_relaxed);
                 signal_cv_ptr_->notify_all();
+                async_sctp_read();
             }
-            async_sctp_read();
-        }
-    );
-}
-
-void echo::EchoReader::async_unix_read(std::shared_ptr<UnixServer::Session> session){
-    session->async_read(
-        [&, session](boost::system::error_code ec, std::size_t length) mutable {
-            if(!ec){
-                #ifdef DEBUG
-                struct timespec ts = {};
-                clock_gettime(CLOCK_MONOTONIC, &ts);
-                std::cout << "Start Time: " << ( (ts.tv_sec*1000000) + (ts.tv_nsec/1000)) << std::endl;
-                #endif
-                session->buflen() = length;
-                #ifdef DEBUG
-                std::cout << session->stream().str() << std::endl;
-                #endif               
-                session->stream().write(session->sockbuf().data(), length);
-                #ifdef DEBUG
-                std::cout << session->stream().str() << std::endl;
-                #endif  
-                std::unique_lock<std::mutex> mbox_lk(read_mbox_ptr_->mbx_mtx);
-                read_mbox_ptr_->mbx_cv.wait(mbox_lk, [&]{ return (read_mbox_ptr_->msg_flag.load() == false || read_mbox_ptr_->signal.load() != 0); });
-                read_mbox_ptr_->session_ptr = session;
-                mbox_lk.unlock();
-                if( (read_mbox_ptr_->signal.load() & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
-                    pthread_exit(0);
-                }
-                read_mbox_ptr_->msg_flag.store(true);
-                signal_ptr_->fetch_or(echo::Signals::UNIX_READ, std::memory_order::memory_order_relaxed);
-                signal_cv_ptr_->notify_all();
-
-                async_unix_read(session);
-            }
-        }
-    );
-}
-
-void echo::EchoReader::async_unix_accept(){
-    us_ptr_->start_accept(
-        [&](const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket){
-            if (!ec){
-                #ifdef DEBUG
-                std::cout << "Accept a Unix Socket Connection." << std::endl;
-                #endif
-                async_unix_read(std::move( std::make_shared<UnixServer::Session>(std::move(socket)) ));
-            }
-            async_unix_accept();
         }
     );
 }

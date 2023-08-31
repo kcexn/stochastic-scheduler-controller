@@ -102,36 +102,4 @@ void echo::App::deschedule(echo::ExecutionContext context)
         results_.erase(results_it);
         context_table_.erase(ctx_it);
     }
-
-
-    // std::size_t context_idx = 0;
-    // for (; context_idx < context_table_.size(); ++context_idx){
-    //     if (context_table_[context_idx] == context ){
-    //         break;
-    //     }
-    // }
-    // if ( context_idx == context_table_.size()){
-    //     // The stream has already been descheduled.
-    //     return;
-    // } else {
-    //     sctp::endpoint remote = results_[context_idx]->rcvdmsg.rmt_endpt.endpt;
-    //     sctp::assoc_t assoc_id = results_[context_idx]->rcvdmsg.rmt_endpt.rcvinfo.rcv_assoc_id;
-    //     #ifdef DEBUG
-    //     std::cout << "Shutting down association: " << assoc_id << std::endl;
-    //     #endif
-    //     s_ptr_->shutdown_read(remote, assoc_id);
-
-    //     // Give the worker threads a chance to clean themselves up.
-    //     for (std::size_t i=0; i < results_.size(); ++i){
-    //         results_[i]->signal.store(echo::Signals::TERMINATE);
-    //         results_[i]->mbx_cv.notify_all();
-    //     }
-
-    //     #ifdef DEBUG
-    //     std::cout << "Removing the context from the context table." << std::endl;
-    //     #endif
-    //     results_.erase(results_.begin() + context_idx);
-    //     context_table_.erase(context_table_.begin() + context_idx);
-    //     return;
-    // }
 }
