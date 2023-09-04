@@ -37,15 +37,22 @@ namespace init{
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>();
         boost::context::fiber f{
             [&, req, ctx_ptr](boost::context::fiber&& g){
+                const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
+                std::filesystem::path path;
+                if (__OW_ACTIONS != nullptr){
+                    path =  std::filesystem::path(std::string(__OW_ACTIONS));
+                } else {
+                    throw "Environment variable __OW_ACTIONS not defined.";
+                }
                 if ( req.value().binary() ){
-                    std::filesystem::path archive("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/archive.tgz");
+                    path /= "archive.tgz";
                     // Pipe File Descriptors
                     int downstream[2] = {};
                     int upstream[2] = {};
 
-                    base64extract(archive.string(), downstream, upstream, req);
-                    tar_extract(archive.string(), downstream, upstream);
-                    std::filesystem::remove(archive);
+                    base64extract(path.string(), downstream, upstream, req);
+                    tar_extract(path.string(), downstream, upstream);
+                    std::filesystem::remove(path);
                     for ( auto pair: req.value().env() ){
                         if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
                             perror("Exporting environment variable failed.");
@@ -58,8 +65,18 @@ namespace init{
                         code.replace(pos, 2, "\n");
                         ++pos;
                     }
-                    std::filesystem::path function_path("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/fn_000.py");
-                    std::ofstream file(function_path.string());
+                    const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
+                    std::string filename("fn_000");
+                    std::string ext;
+                    if (__OW_ACTION_EXT != nullptr){
+                        ext = std::string(__OW_ACTION_EXT);
+                    } else {
+                        throw "Environment variable __OW_ACTION_EXT not defined.";
+                    }
+                    filename.append(".");
+                    filename.append(ext);
+                    path /= std::filesystem::path(filename);
+                    std::ofstream file(path.string());
                     file << code;
                 }
                 return std::move(g);         
@@ -131,10 +148,16 @@ namespace init{
 
     void tar_extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2]){
         int status = 0;
-        std::string functions_path("/workspaces/whisk-controller-dev/action-runtimes/python3/functions/");
+        const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
+        std::string fn_path;
+        if ( __OW_ACTIONS != nullptr ){
+            fn_path = std::string(__OW_ACTIONS);
+        } else {
+            throw "__OW_ACTIONS environment variable has not been defined.";
+        }
         pid_t pid = fork();
         if ( pid == 0 ){
-            std::vector<const char*> argv{"/usr/bin/tar", "-C", static_cast<const char*>(functions_path.c_str()), "-xf", static_cast<const char*>(filename.c_str()), NULL};
+            std::vector<const char*> argv{"/usr/bin/tar", "-C", fn_path.c_str(), "-xf", filename.c_str(), NULL};
             execve("/usr/bin/tar", const_cast<char* const*>(argv.data()), environ);
             exit(1);               
         } else {

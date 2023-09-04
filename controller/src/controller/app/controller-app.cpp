@@ -44,7 +44,7 @@ namespace app{
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
         io_mbox_ptr_(std::make_shared<echo::MailBox>()),
-        io_(io_mbox_ptr_, "/run/controller/controller2.sock", ioc)
+        io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc)
     {
         #ifdef DEBUG
         std::cout << "Application Controller Constructor!" << std::endl;
@@ -75,13 +75,14 @@ namespace app{
             lk.lock();
             io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) == true || io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) != 0); });
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
+            //Unset all of the scheduler signals except TERMINATE.
+            io_mbox_ptr_->sched_signal_ptr->fetch_and( ~(thread_local_signal & ~echo::Signals::TERMINATE), std::memory_order::memory_order_relaxed);
             thread_local_msg_flag = io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed);
+            // Unset the msg box flag.
             io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
+            Http::Session http_session( io_mbox_ptr_->session_ptr );
             lk.unlock();
             if (thread_local_msg_flag){
-                lk.lock();
-                Http::Session http_session( io_mbox_ptr_->session_ptr );
-                lk.unlock();
                 if (( thread_local_signal & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
                     pthread_exit(0);
                 }
@@ -106,7 +107,6 @@ namespace app{
                 #endif
             }
             if ( (thread_local_signal & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
-                io_mbox_ptr_->sched_signal_ptr->fetch_and(~echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
                 while ( it != ctx_ptrs.end() ){
                     Http::Response res = create_response(**it);
@@ -153,9 +153,9 @@ namespace app{
             /* Lets leave this logging in here for now, just until I'm confident that I have the action interface implemented properly. */
             // std::ofstream log("/var/log/controller/request.log", std::ios_base::out | std::ios_base::app );
             // std::stringstream ss;
-            std::cout << req.verb << " " << req.route << " HTTP/1.0\r\n"
-               << "Content-Length: " << req.content_length << "\r\n"
-               << "\r\n" << req.body << "\r\n";
+            // std::cout << req.verb << " " << req.route << " HTTP/1.0\r\n"
+            //    << "Content-Length: " << req.content_length << "\r\n"
+            //    << "\r\n" << req.body << "\r\n";
             // std::cout << ss.str() << std::endl;;
             /* ------------------------------------------------------------------------------------------------- */
             try{

@@ -116,7 +116,8 @@ namespace Http{
 
     Session::Session(const std::shared_ptr<UnixServer::Session>& session)
       : session_ptr_(session),
-        request_{}
+        request_{},
+        response_{}
     {
         #ifdef DEBUG
         std::cout << "HTTP Session Constructor!" << std::endl;

@@ -1,7 +1,7 @@
 import sys
 import importlib
 import json
-sys.path.insert(1,"/workspaces/whisk-controller-dev/action-runtimes/python3/functions")
+sys.path.insert(1,"/var/controller/action-runtimes/python3/functions")
 
 if __name__ == "__main__":
     main = importlib.import_module(sys.argv[1]).main
