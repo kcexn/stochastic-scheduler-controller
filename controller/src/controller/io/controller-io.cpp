@@ -123,7 +123,7 @@ namespace io{
         while( ioc_.poll() > 0 ){}
         std::filesystem::path socket_address;
         if ( endpoint_ == boost::asio::local::stream_protocol::endpoint()){
-            socket_address = std::filesystem::path("/run/controller/controller2.sock");
+            socket_address = std::filesystem::path("/run/controller/controller.sock");
         } else {
             socket_address = std::filesystem::path(endpoint_.path());
         }

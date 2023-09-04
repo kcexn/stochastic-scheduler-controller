@@ -72,7 +72,15 @@ namespace run{
                     if (dup2(upstream[1], STDOUT_FILENO) == -1){
                         perror("Failed to map the upstream write to STDOUT.");
                     }
-                    std::vector<const char*> argv{"/usr/bin/python3", "-OO", "/workspaces/whisk-controller-dev/action-runtimes/python3/launcher/launcher.py", "fn_000", NULL};
+                    const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
+                    if ( __OW_ACTION_BIN == nullptr ){
+                        throw "__OW_ACTION_BIN environment variable not set.";
+                    }
+                    const char* __OW_ACTION_LAUNCHER = getenv("__OW_ACTION_LAUNCHER");
+                    if ( __OW_ACTION_LAUNCHER == nullptr ){
+                        throw "__OW_ACTION_LAUNCHER environment varible not set.";
+                    }
+                    std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, "fn_000", NULL};
 
                     // Since this happens AFTER the fork, this is thread safe.
                     // fork(2) means that the child process makes a COPY of the parents environment variables.s
@@ -81,7 +89,7 @@ namespace run{
                             perror("Exporting environment variable failed.");
                         }
                     }
-                    execve("/usr/bin/python3", const_cast<char* const*>(argv.data()), environ);
+                    execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
                     exit(1);
                 } else {
                     //Parent Process.

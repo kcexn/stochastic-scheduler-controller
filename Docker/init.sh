@@ -5,7 +5,11 @@ function terminate(){
 	done
 }
 trap terminate SIGTERM
-/usr/sbin/nginx
+
+# Start the controller
 /usr/local/bin/controller &
+
+# Start the web server.
+/usr/sbin/nginx
 wait
 wait

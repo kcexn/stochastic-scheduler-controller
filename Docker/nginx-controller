@@ -1,30 +1,50 @@
 FROM debian:stable-slim
-WORKDIR /
-RUN apt-get update
-RUN apt-get install -y nginx curl coreutils python3 procps
 
-# Install Controller
-RUN mkdir -p /run/controller/
-RUN mkdir -p /usr/local/lib/
-RUN mkdir -p /usr/local/bin/
-RUN mkdir -p /var/log/controller/
-COPY lib/* /usr/local/lib/
-ENV LD_LIBRARY_PATH /usr/local/lib
-COPY controller/controller /usr/local/bin/
-RUN mkdir -p /workspaces/whisk-controller-dev/action-runtimes/python3/launcher/
-COPY action-runtimes/python3/launcher/launcher.py /workspaces/whisk-controller-dev/action-runtimes/python3/launcher/
-RUN mkdir -p /workspaces/whisk-controller-dev/action-runtimes/python3/functions/
+WORKDIR /root
+RUN apt-get update && apt-get install -y nginx curl coreutils procps lua5.4 lua5.4-dev
+
+# Set up the lua environment
+ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
+    __OW_ACTION_LAUNCHER=/var/controller/action-runtimes/lua/launcher/launcher.lua \
+    LUA_PATH=/var/controller/action-runtimes/lua/functions/?.lua;/var/controller/action-runtimes/lua/lib/?.lua;; \
+    LUA_CPATH=/var/controller/action-runtimes/lua/functions/?.so;/var/controller/action-runtimes/lua/lib/?.so;;
+COPY action-runtimes/lua/ /var/controller/action-runtimes/lua/
+
+# Set up the function executor variables.
+ENV __OW_ACTION_EXT=lua \
+    __OW_ACTION_BIN=/usr/bin/lua
+
+#Setup the python environment
+# RUN mkdir -p /var/controller/action-runtimes/python3/functions
+# ENV __OW_ACTIONS /var/controller/action-runtimes/python3/functions
+
+# RUN mkdir -p /var/controller/action-runtimes/python3/launcher
+# ENV __OW_ACTION_LAUNCHER /var/controller/action-runtimes/python3/launcher/launcher.py
+# COPY action-runtimes/python3/launcher/launcher.py /var/controller/action-runtimes/python3/launcher/
 
 # Install Nginx
-RUN mkdir -p /var/log/nginx/
-RUN mkdir -p /run/nginx/
-RUN mkdir -p /etc/nginx/
+RUN mkdir -p /var/log/nginx/ &&\
+    mkdir -p /run/nginx/ && \
+    mkdir -p /etc/nginx/
 COPY nginx/nginx.conf /etc/nginx/
+
+# Install the Controller
+RUN mkdir -p /usr/local/lib/ && \
+    mkdir -p /usr/local/bin/ && \
+    mkdir -p /run/controller
+COPY lib/ /usr/local/lib/
+ENV LD_LIBRARY_PATH=/usr/local/lib
+COPY controller/controller /usr/local/bin/
+
+# Install init script
+COPY Docker/init.sh /usr/local/bin/
+
+# Install some test data.
 COPY binary-data.json /root/
 COPY data.json /root/
-
-# Install startup script
-COPY Docker/run.sh /usr/local/bin/
+COPY data2.json /root/
+COPY lua-text-init.json /root/
+COPY lua-test-activation.json /root/
 
 EXPOSE 8080
-ENTRYPOINT ["/bin/bash", "/usr/local/bin/run.sh"]
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/init.sh"]
