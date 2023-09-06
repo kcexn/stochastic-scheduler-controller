@@ -34,16 +34,18 @@ namespace init{
       }
 
     std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
-        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>();
+        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Init{});
         boost::context::fiber f{
             [&, req, ctx_ptr](boost::context::fiber&& g){
+                if ( setenv("__OW_ACTION_ENTRY_POINT", req.value().main().c_str(), 1) == -1 ){
+                    perror("Setting the action entry point environment variable faield.");
+                }
                 const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
                 std::filesystem::path path;
-                if (__OW_ACTIONS != nullptr){
-                    path =  std::filesystem::path(std::string(__OW_ACTIONS));
-                } else {
+                if (__OW_ACTIONS == nullptr){
                     throw "Environment variable __OW_ACTIONS not defined.";
                 }
+                path = std::filesystem::path(__OW_ACTIONS);
                 if ( req.value().binary() ){
                     path /= "archive.tgz";
                     // Pipe File Descriptors
@@ -66,23 +68,27 @@ namespace init{
                         ++pos;
                     }
                     const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
-                    std::string filename("fn_000");
+                    // Default file entrypoint is called main. i.e.: "main.lua", "main.js", "main.py".
+                    std::string filename("main");
                     std::string ext;
-                    if (__OW_ACTION_EXT != nullptr){
-                        ext = std::string(__OW_ACTION_EXT);
-                    } else {
+                    if (__OW_ACTION_EXT == nullptr){
                         throw "Environment variable __OW_ACTION_EXT not defined.";
                     }
                     filename.append(".");
-                    filename.append(ext);
+                    filename.append(__OW_ACTION_EXT);
                     path /= std::filesystem::path(filename);
                     std::ofstream file(path.string());
                     file << code;
                 }
-                return std::move(g);         
+                return std::move(g);      
             }
         };
-        ctx_ptr->fiber() = std::move(f);
+        {
+            //Anonymous scope is to ensure the fibers reference is immediately invalidated.
+            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+            fibers.push_back(std::move(f));
+            ctx_ptr->release_fibers();
+        }
         return ctx_ptr;
     }
 

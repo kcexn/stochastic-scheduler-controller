@@ -1,8 +1,6 @@
 #include "controller-app.hpp"
 #include "../resources/resources.hpp"
-#include <boost/context/fiber.hpp>
 #include <thread>
-#include <boost/json.hpp>
 #include <functional>
 #include <ctime>
 #include <fstream>
@@ -13,9 +11,250 @@
 #endif
 namespace controller{
 namespace app{
+    Relation::Relation(const std::string& key, const std::filesystem::path& path, const std::vector<std::shared_ptr<Relation> >& dependencies)
+      : kvp_(std::string(key), std::string() ),
+        dependencies_(dependencies),
+        depth_{1},
+        path_(path)
+    {
+        for ( auto dependency: dependencies_ ){
+            if ( dependency->depth() >= depth_ ){
+                depth_ = dependency->depth() + 1;
+            }
+        }
+    }
+
+    Relation::Relation(std::string&& key, std::filesystem::path&& path, std::vector<std::shared_ptr<Relation> >&& dependencies)
+      : kvp_(std::string(key), std::string() ),
+        dependencies_(dependencies),
+        depth_{1},
+        path_(path)
+    {
+        for ( auto dependency: dependencies_ ){
+            if ( dependency->depth() >= depth_ ){
+                depth_ = dependency->depth() + 1;
+            }
+        }
+    }
+
+    Relation::Relation(const std::string& key, const std::string& value, const std::filesystem::path& path, const std::vector<std::shared_ptr<Relation> >& dependencies)
+      : kvp_(std::string(key), std::string(value)),
+        dependencies_(dependencies),
+        depth_{1},
+        path_(path)
+    {
+        for ( auto dependency: dependencies_ ){
+            if ( dependency->depth() >= depth_ ){
+                depth_ = dependency->depth() + 1;
+            }
+        }
+    }
+
+    Relation::Relation(std::string&& key, std::string&& value, std::filesystem::path&& path, std::vector<std::shared_ptr<Relation> >&& dependencies)
+      : kvp_(std::string(key), std::string(value)),
+        dependencies_(dependencies),
+        depth_{1},
+        path_(path)
+    {
+        for ( auto dependency: dependencies_ ){
+            if ( dependency->depth() >= depth_ ){
+                depth_ = dependency->depth() + 1;
+            }
+        }
+    }
+
+    // Action Manifest.
+    ActionManifest::ActionManifest()
+      : index_()
+    {}
+
+    void ActionManifest::emplace(const std::string& key, const boost::json::object& manifest){
+        // Search for key in index_
+        auto it = std::find_if(index_.begin(), index_.end(),[&](auto& rel){
+            return rel->key() == key;
+        });
+        // If the key isn't in the manifest, loop through
+        // all of the dependencies, and recursively insert them.
+        if ( it == index_.end() ){
+            boost::json::array deps(manifest.at(key).as_object().at("depends").as_array());
+            std::vector<std::shared_ptr<Relation> > dependencies;
+            for (auto& dep: deps){
+                std::string dep_key(dep.as_string());
+                emplace(dep_key, manifest);
+                // Find the emplaced key in the index.
+                auto tmp = std::find_if(index_.begin(), index_.end(), [&](auto& rel){
+                    return rel->key() == dep_key;
+                });
+                // Create a copy of the std::shared_ptr<Relation> and emplace 
+                // it into the dependencies vector.
+                dependencies.emplace_back(*tmp);
+            }
+            // This is the second recursive base case.
+            // All of the dependencies have been emplaced, so this element can be constructed and emplaced now.
+            std::string fname(manifest.at(key).as_object().at("file").as_string());
+            const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
+            std::filesystem::path path(__OW_ACTIONS);
+            path /= fname;
+            
+            std::shared_ptr<Relation> rel = std::make_shared<Relation>(key, path, dependencies);
+            index_.push_back(std::move(rel));
+            return;
+        } else {
+            // This is one of the recursive base cases. The key is already in the 
+            // index, so don't do anything.
+            return;
+        }
+    }
+
+    std::shared_ptr<Relation> ActionManifest::next(const std::string& key, const std::size_t& idx){
+        // Return the next task that needs to be completed in the list of dependences for 
+        // "key".
+
+        // Search for "key" in index.
+        auto it = std::find_if(index_.begin(), index_.end(),[&](auto& rel){
+            return rel->key() == key;
+        });
+        // If key isn't in index. Throw an exception, this shouldn't be possible.
+        if (it == index_.end() ){
+            throw "Key not in index!";
+        }
+
+        // Iterate through all of the dependencies starting at
+        // the index: idx (mod dependencies.size()).
+        std::size_t num_deps = (*it)->size();
+        if (num_deps == 0){
+            // The first recursive base case.
+            // The number of dependencies the current relation has is 0.
+            // Therefore we can just directly return the relation.
+            return *it;
+        }
+        std::size_t start = idx % num_deps;
+        for (std::size_t offset=0; offset < num_deps; ++offset){
+            std::size_t select = (start + offset)%num_deps;
+            // If the dependency value is empty that means the dependency
+            // has not finished computing yet. Call next recursively.
+            if ( (**it)[select]->value().empty() ){
+                std::string dep_key((**it)[select]->key());
+                return next(key, idx);
+            }
+        }
+        // The second recursive base case.
+        // All of the dependencies have computed values. Therefore return the current relation.
+        return  *it;
+    }
+
+    std::vector<std::shared_ptr<Relation> >::iterator ActionManifest::begin() { return index_.begin(); }
+    std::vector<std::shared_ptr<Relation> >::iterator ActionManifest::end() { return index_.end(); }
+    std::vector<std::shared_ptr<Relation> >::const_iterator ActionManifest::cbegin() { return index_.cbegin(); }
+    std::vector<std::shared_ptr<Relation> >::const_iterator ActionManifest::cend() { return index_.cend(); }
+    std::vector<std::shared_ptr<Relation> >::reverse_iterator ActionManifest::rbegin() { return index_.rbegin(); }
+    std::vector<std::shared_ptr<Relation> >::reverse_iterator ActionManifest::rend() { return index_.rend(); }
+    std::vector<std::shared_ptr<Relation> >::const_reverse_iterator ActionManifest::crbegin() { return index_.crbegin(); }
+    std::vector<std::shared_ptr<Relation> >::const_reverse_iterator ActionManifest::crend() { return index_.crend(); }
+
+    std::shared_ptr<Relation>& ActionManifest::operator[](std::vector<std::shared_ptr<Relation> >::size_type pos){ return index_[pos]; }
+    
+    // Thread Controls
+    void ThreadControls::wait(){
+         std::unique_lock lk(*mtx_); 
+         cv_->wait(lk, [&](){ 
+            return ((signal_->load(std::memory_order::memory_order_relaxed)&echo::Signals::SCHED_START)==echo::Signals::SCHED_START);
+        }); 
+         return;
+    }
+
+    void ThreadControls::notify(){ 
+        signal_->fetch_or(echo::Signals::SCHED_START, std::memory_order::memory_order_relaxed); 
+        cv_->notify_all(); 
+        return; 
+    }
+
     // Execution Context
+    ExecutionContext::ExecutionContext(ExecutionContext::Init init)
+      : execution_context_id_(UUID::uuid_create_v4())
+    {}
+
+    ExecutionContext::ExecutionContext(ExecutionContext::Run run)
+      : execution_context_id_(UUID::uuid_create_v4())
+    {
+        const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
+        if ( __OW_ACTIONS == nullptr ){
+            throw "Environment variable __OW_ACTIONS not defined!";
+        }
+        std::filesystem::path action_path(__OW_ACTIONS);
+        std::filesystem::path manifest_path(action_path / "action-manifest.json");
+        if ( std::filesystem::exists(manifest_path) ){
+            std::fstream f(manifest_path, std::ios_base::in);
+            boost::json::error_code ec;
+            boost::json::value tmp = boost::json::parse(f,ec);
+            boost::json::object manifest(tmp.as_object());
+            if (ec){
+                throw "boost json parse failed.";
+            }
+            #ifdef DEBUG
+            std::cout << manifest << std::endl;
+            #endif
+            // If the manifest is empty throw an exception.
+            if(manifest.empty()){
+                throw "action-manifest.json can't be empty.";
+            }
+            // Loop through manifest.json until manifest_ contains the same number of keys.
+            while(manifest_.size() < manifest.size()){
+                #ifdef DEBUG
+                std::cout << manifest_.size() << std::endl;
+                std::cout << manifest.size() << std::endl;
+                #endif
+                // Find a key that isn't in the manifest_ yet.
+                auto it = std::find_if(manifest.begin(), manifest.end(), [&](auto& kvp){
+                    auto tmp = std::find_if(manifest_.begin(), manifest_.end(), [&](auto& rel){
+                        return rel->key() == kvp.key();
+                    });
+                    return (tmp != manifest_.end()) ? false : true;
+                });
+                // Insert it into the manifest, using a recursive tree traversal method.
+                std::string key(it->key());
+                manifest_.emplace(key, manifest); 
+            }
+            #ifdef DEBUG
+            std::cout << manifest.size() << std::endl;
+            #endif
+        } else {
+            const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
+            if ( __OW_ACTION_EXT == nullptr ){
+                throw "Environment variable __OW_ACTION_EXT is not defined!";
+            }
+            // By default the file is called "main" + __OW_ACTION_EXT.
+            // e.g. "main.lua", or "main.py", or "main.js".
+            std::string filename("main");
+            filename.append(".");
+            filename.append(__OW_ACTION_EXT);
+            std::filesystem::path fn_path(action_path / filename);
+
+            const char* __OW_ACTION_ENTRY_POINT = getenv("__OW_ACTION_ENTRY_POINT");
+            std::string entrypoint;
+            if ( __OW_ACTION_ENTRY_POINT == nullptr ){
+                // By default, the entry point is called main.
+                entrypoint = std::string("main");
+            } else {
+                entrypoint = std::string(__OW_ACTION_ENTRY_POINT);
+            }
+            // By default, the entry point has no dependencies.
+            manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
+        }
+    }
+
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs){
         return lhs.execution_context_id() == rhs.execution_context_id();
+    }
+
+    bool ExecutionContext::is_stopped() {
+        std::lock_guard<std::mutex> lk(fiber_mtx_);
+        for (auto& fiber: fibers_){
+            if (fiber){
+                return false;
+            }
+        }
+        return true;
     }
 
     // Controller Class
@@ -32,7 +271,6 @@ namespace app{
     //     io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
     //     io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<int> >();
     //     io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
-
     //     std::thread application(
     //         &Controller::start, this
     //     );
@@ -107,35 +345,86 @@ namespace app{
                 #endif
             }
             if ( (thread_local_signal & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
-                auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
-                while ( it != ctx_ptrs.end() ){
-                    Http::Response res = create_response(**it);
-                    std::stringstream ss;
-                    ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
-                        << "Connection: " << res.connection << "\r\n"
-                        << "Content-Type: application/json\r\n"
-                        << "Content-Length: " << res.content_length << "\r\n"
-                        << "\r\n"
-                        << res.body;
-                    #ifdef DEBUG
-                    std::cout << ss.str() << std::endl;
-                    #endif
-                    auto session_it = std::find_if(server_.begin(), server_.end(), [&](auto session){ return session.request() == (*it)->req(); });
-                    if (session_it != server_.end()){
-                        //Write the http response to the unix socket with a unique fd.
-                        std::string str(ss.str());
-                        boost::asio::const_buffer write_buffer(str.data(), str.size());
-                        io_.async_unix_write(write_buffer, session_it->unix_session(), 
-                            [&](UnixServer::Session& unix_session){
-                                unix_session.cancel_reads();
-                                unix_session.shutdown_write();
-                            }
-                        );
-                        server_.erase(session_it);
-                    } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
-                    ctx_ptrs.erase(it);
-                    it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [](std::shared_ptr<ExecutionContext> ctx_ptr){ return ctx_ptr->is_stopped(); });
-                    flush_wsk_logs();
+
+                // Find a context that has a valid stopped thread.
+                auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
+                    auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
+                        return thread.is_stopped() && thread.is_valid();
+                    });
+                    return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                });
+
+                while( it != ctx_ptrs.end() ){
+                    // Check to see if the context is stopped.
+                    if ((*it)->is_stopped()){
+                        // create the response.
+                        Http::Response res = create_response(**it);
+                        std::stringstream ss;
+                        ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
+                            << "Connection: " << res.connection << "\r\n"
+                            << "Content-Type: application/json\r\n"
+                            << "Content-Length: " << res.content_length << "\r\n"
+                            << "\r\n"
+                            << res.body;
+                        #ifdef DEBUG
+                        std::cout << ss.str() << std::endl;
+                        #endif
+                        auto session_it = std::find_if(server_.begin(), server_.end(), [&](auto session){ return session.request() == (*it)->req(); });
+                        if (session_it != server_.end()){
+                            //Write the http response to the unix socket with a unique fd.
+                            std::string str(ss.str());
+                            boost::asio::const_buffer write_buffer(str.data(), str.size());
+                            io_.async_unix_write(write_buffer, session_it->unix_session(), 
+                                [&](UnixServer::Session& unix_session){
+                                    unix_session.cancel_reads();
+                                    unix_session.shutdown_write();
+                                }
+                            );
+                            server_.erase(session_it);
+                        } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
+                        ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
+                        // Find a context that has a stopped thread.
+                        it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
+                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                                return thread.is_stopped() && thread.is_valid();
+                            });
+                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                        });
+                        flush_wsk_logs();
+                    } else {
+                        // Evaluate which thread to execute next and notify it.
+                        auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
+                            return thread.is_stopped() && thread.is_valid();
+                        });
+                        // invalidate the thread.
+                        stopped_thread->invalidate();
+
+                        // TODO: implement the execution context index properly.
+                        std::size_t execution_context_idx{0};
+
+                        // get the index of the stopped thread.
+                        std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
+                        // Get the key of the action at this index+1.
+                        std::string key((*it)->manifest()[++idx]->key());
+                        // Get the next relation to execute from the dependencies of the relation at this key.
+                        std::shared_ptr<Relation> relation = (*it)->manifest().next(key, execution_context_idx);
+                        // Retrieve the index of this relation in the manifest.
+                        auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
+                            return rel->key() == relation->key();
+                        });
+                        std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
+
+                        //Start the thread at this index.
+                        (*it)->thread_controls()[next_idx].notify();
+
+                        // Search through remaining contexts.
+                        it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
+                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                                return thread.is_stopped() && thread.is_valid();
+                            });
+                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                        });
+                    }
                 }
             }
         }
@@ -172,41 +461,73 @@ namespace app{
                     // Create a fiber continuation for processing the request.
                     std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run); 
                     ctx_ptr->req() = req;
-                    if ( initialized_ ){             
-                        std::thread executor(
-                            [&, ctx_ptr](std::shared_ptr<echo::MailBox> mbox_ptr){
-                                // The first resume sets up the action runtime environment for execution.
-                                // The action runtime doesn't have to be set up in a distinct 
-                                // thread of execution, but since we need to take the time to set up 
-                                // a thread anyway, deferring the process fork in the execution context until after the 
-                                // thread is established so that the fork can happen concurrently 
-                                // is a more performant solution.
-                                ctx_ptr->resume();
+                    if ( initialized_ ){
+                        std::size_t num_fibers;
+                        {
+                            // The anonymous scope is to ensure the reference is invalidated.
+                            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                            num_fibers = fibers.size();
+                            ctx_ptr->release_fibers();
+                        }
+                        if ( ctx_ptr->manifest().size() != num_fibers ){
+                            throw "Execution Context does not have an equal number of fibers and manifest elements.";
+                        }
+                        for( int i = 0; i < ctx_ptr->manifest().size(); ++i ){
+                            ctx_ptr->thread_controls().emplace_back();
+                            std::thread executor(
+                                [&, ctx_ptr, i](std::shared_ptr<echo::MailBox> mbox_ptr){
+                                    ctx_ptr->thread_controls()[i].tid() = pthread_self();
+                                    
+                                    // The first resume sets up the action runtime environment for execution.
+                                    // The action runtime doesn't have to be set up in a distinct 
+                                    // thread of execution, but since we need to take the time to set up 
+                                    // a thread anyway, deferring the process fork in the execution context until after the 
+                                    // thread is established so that the fork can happen concurrently 
+                                    // is a more performant solution.
+                                    {
+                                        // The anonymous scope is to ensure that the reference is immediately
+                                        // invalidated after releasing the fibers.
+                                        std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                                        fibers[i] = std::move(fibers[i]).resume();
+                                        ctx_ptr->release_fibers();
+                                    }
 
-                                struct timespec ts = {};
-                                clock_gettime(CLOCK_REALTIME, &ts);
-                                std::int64_t milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
-                                ctx_ptr->start_time() = milliseconds;
+                                    // The second resume executes the function and collects the results.
+                                    ctx_ptr->thread_controls()[i].wait();
+                                    {
+                                        std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                                        fibers[i] = std::move(fibers[i]).resume();
+                                        ctx_ptr->release_fibers();
+                                    }
+                                    ctx_ptr->thread_controls()[i].signal().fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                    mbox_ptr->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                    mbox_ptr->sched_signal_cv_ptr->notify_all();
+                                }, io_mbox_ptr_
+                            );
+                            executor.detach();
+                        }
+                        //TODO: reverse lexicographically sort the manifest to ensure that we are searching in the correct order for latin squares.
+                        //TODO: implement execution context indices to correctly offset the starting search point for latin squares.
+                        std::size_t execution_idx{0};
 
-                                // The second resume executes the function and collects the results.
-                                ctx_ptr->resume();
-
-                                clock_gettime(CLOCK_REALTIME, &ts);
-                                milliseconds = ((ts.tv_sec*1000) + (ts.tv_nsec/1000000));
-                                ctx_ptr->end_time() = milliseconds;
-                                mbox_ptr->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
-                                mbox_ptr->sched_signal_cv_ptr->notify_all();
-                                ctx_ptr->stop_thread();
-                            }, io_mbox_ptr_
-                        );
-                        ctx_ptr->tid() = executor.native_handle();
+                        // Get the starting relation.
+                        std::string start_key(ctx_ptr->manifest()[execution_idx]->key());
+                        std::shared_ptr<Relation> relation = ctx_ptr->manifest().next(start_key, execution_idx);
+                        // Find the index in the manifest of the starting relation.
+                        auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
+                            return rel->key() == start_key;
+                        });
+                        std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
+                        ctx_ptr->thread_controls()[start_idx].notify();
                         ctx_ptrs.push_back(std::move(ctx_ptr));
-                        executor.detach();
                     } else {
-                        // invalidate the fiber.
-                        boost::context::fiber f;
-                        ctx_ptr->fiber().~fiber();
-                        ctx_ptr->fiber() = std::move(f);
+                        // invalidate the fibers.
+                        {
+                            // The anonymous scope is to ensure that the reference is invalidated.
+                            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                            fibers.clear();
+                            ctx_ptr->release_fibers();
+                        }
                         Http::Response res = create_response(*ctx_ptr);
                         std::stringstream ss;
                         ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
@@ -239,18 +560,25 @@ namespace app{
                     ctx_ptr->req() = req;
                     Http::Response res = {};
                     if ( initialized_ ) {
-                        // invalidate the fiber.
-                        boost::context::fiber f;
-                        ctx_ptr->fiber().~fiber();
-                        ctx_ptr->fiber() = std::move(f);
+                        // invalidate the fibers.
+                        {
+                            // The anonymous scope is to ensure that the reference is invalidated.
+                            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                            fibers.clear();
+                            ctx_ptr->release_fibers();
+                        }
                     } else {
                         // Execute the initializer.
                         res = create_response(*ctx_ptr);
                         if ( res.status_code == "200" ){
                             initialized_ = true;
-                            ctx_ptr->resume();
+                            {
+                                // The anonymous scope is to ensure that the reference is invalidated.
+                                std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                                fibers[0] = std::move(fibers[0]).resume();
+                                ctx_ptr->release_fibers();
+                            }
                         }   
-
                     }
                     std::stringstream ss;
                     ss << "HTTP/1.0 " << res.status_code << " " << res.status_message << "\r\n"
@@ -276,6 +604,7 @@ namespace app{
                 #ifdef DEBUG
                 std::cout << "Parsing Failed: " << e.what() << std::endl;
                 #endif
+                throw e;
             }
         }
     }
@@ -283,21 +612,37 @@ namespace app{
     Http::Response Controller::create_response(ExecutionContext& ctx){
         Http::Response res = {};
         if ( ctx.req().route == "/run" ){
-            if ( !ctx && ctx.is_stopped() ){
-                std::string result(ctx.payload().begin(), ctx.payload().end());
-                boost::json::value jv = boost::json::parse(result);
-                bool ec = false;
-                auto it = std::find_if(jv.as_object().begin(), jv.as_object().end(), [&](auto kvp){ return kvp.key() == "error"; });
-                if ( it != jv.as_object().end() ){
-                    ec = true;
+            if ( ctx.is_stopped() ){
+                boost::json::object jv;
+                bool ec{false};
+                const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
+                if ( __OW_ACTIONS == nullptr ){
+                    throw "environment variable __OW_ACTIONS is not defined.";
                 }
+                std::filesystem::path path(__OW_ACTIONS);
+                std::filesystem::path manifest_path(path/"action-manifest.json");
+                bool manifest_exists = std::filesystem::exists(manifest_path);
+                for ( auto& relation: ctx.manifest() ){
+                    boost::json::error_code err;
+                    boost::json::object val = boost::json::parse(relation->value(), err).as_object();
+                    auto it = std::find_if(val.begin(), val.end(), [&](auto kvp){ return kvp.key() == "error"; });
+                    if ( it != val.end() ){
+                        ec = true;
+                    }
+                    if ( manifest_exists ){
+                        jv.emplace(relation->key(), val);
+                    } else {
+                        jv = val;
+                    }
+                }
+                std::string ss = boost::json::serialize(jv);
                 if ( !ec ){
                     res = {
                         "200",
                         "OK",
                         "close",
-                        result.size(),
-                        result
+                        ss.size(),
+                        ss
                     };
                 } else {
                     res = {
@@ -318,7 +663,7 @@ namespace app{
                };
             }
         } else if ( ctx.req().route == "/init" ){
-            if ( !ctx ) {
+            if ( ctx.is_stopped() ) {
                 res = {
                     "409",
                     "Conflict",

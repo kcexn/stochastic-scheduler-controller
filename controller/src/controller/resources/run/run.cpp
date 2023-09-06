@@ -39,123 +39,145 @@ namespace run{
     }
 
     std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
-        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>();
-        boost::context::fiber f{
-            [&, req, ctx_ptr](boost::context::fiber&& g) {
-                boost::json::value jv;
-                jv = req.value();
-                std::string params = boost::json::serialize(jv);
-                //Declare two pipes fds
-                int downstream[2] = {};
-                int upstream[2] = {};
+        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Run{});
+        for (auto it=ctx_ptr->manifest().begin(); it != ctx_ptr->manifest().end(); ++it){
+            std::shared_ptr<controller::app::Relation>& relation = *it;
+            boost::context::fiber f{
+                [&, req, ctx_ptr, relation](boost::context::fiber&& g) {
+                    boost::json::value jv;
+                    jv = req.value();
+                    std::string params = boost::json::serialize(jv);
 
-                //syscall return two pipes.
-                if (pipe(downstream) == -1){
-                    perror("Downstream pipe failed to open.");
-                }
-                if (pipe(upstream) == -1){
-                    perror("Upstream pip failed to open.");
-                }
+                    //Declare two pipes fds
+                    int downstream[2] = {};
+                    int upstream[2] = {};
 
-                pid_t pid = fork();
-                if ( pid == 0 ){
-                    //Child Process.
-                    if( close(downstream[1]) == -1 ){
-                        perror("closing the downstream write in the child process failed.");
+                    //syscall return two pipes.
+                    if (pipe(downstream) == -1){
+                        perror("Downstream pipe failed to open.");
+                    }
+                    if (pipe(upstream) == -1){
+                        perror("Upstream pip failed to open.");
+                    }
+                    pid_t pid = fork();
+                    if ( pid == 0 ){
+                        //Child Process.
+                        if( close(downstream[1]) == -1 ){
+                            perror("closing the downstream write in the child process failed.");
+                        }
+                        if ( close(upstream[0]) == -1 ){
+                            perror("closing the upstream read in the child process failed.");
+                        }
+                        if (dup2(downstream[0], STDIN_FILENO) == -1){
+                            perror("Failed to map the downstream read to STDIN.");
+                        }
+                        if (dup2(upstream[1], STDOUT_FILENO) == -1){
+                            perror("Failed to map the upstream write to STDOUT.");
+                        }
+                        const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
+                        if ( __OW_ACTION_BIN == nullptr ){
+                            throw "__OW_ACTION_BIN environment variable not set.";
+                        }
+                        const char* __OW_ACTION_LAUNCHER = getenv("__OW_ACTION_LAUNCHER");
+                        if ( __OW_ACTION_LAUNCHER == nullptr ){
+                            throw "__OW_ACTION_LAUNCHER environment varible not set.";
+                        }
+                        std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, relation->path().stem().string().c_str(), relation->key().c_str(), NULL};
+                        // Since this happens AFTER the fork, this is thread safe.
+                        // fork(2) means that the child process makes a COPY of the parents environment variables.s
+                        for ( auto pair: req.env() ){
+                            if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
+                                perror("Exporting environment variable failed.");
+                            }
+                        }
+                        execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
+                        exit(1);
+                    } else {
+                        //Parent Process.
+                        if( close(downstream[0]) == -1 ){
+                            perror("closing the downstream read in the parent process failed.");
+                        }
+                        if ( close(upstream[1]) == -1 ){
+                            perror("closing the upstream write in the parent process failed.");
+                        }
+
+                        char ready[1] = {};
+                        int length = read(upstream[0], ready, 1);
+                        if( length == -1 ){
+                            perror("Upstream read in the parent process failed.");
+                        }
+                        if (kill(pid, SIGSTOP) == -1){
+                            perror("Pausing the child process failed.");
+                        }
+                        g = std::move(g).resume();
+                        if (kill(pid, SIGCONT) == -1 ){
+                            perror("Parent process failed to unpause child process.");
+                        }
+                        if(relation->size() == 0){
+                            // continue to use params if the relation has no dependencies.
+                            params.append("\n");
+                        } else {
+                            // Override params with emplaced parameters.
+                            boost::json::object jv;
+                            boost::json::error_code ec;
+                            for (auto& dep: *relation){
+                                boost::json::object val = boost::json::parse(dep->value(), ec).as_object();
+                                jv.emplace(dep->key(), val);
+                            }
+                            params = boost::json::serialize(jv);
+                            params.append("\n");
+                        }
+                        if( write(downstream[1], params.data(), params.size()) == -1 ){
+                            perror("Downstream write in the parent process failed.");
+                        }
+                        int max_length = 65536;
+                        relation->value().resize(max_length);
+                        length = read(upstream[0], relation->value().data(), max_length);
+                        if ( length == -1 ){
+                            perror("Upstream read in the parent process failed.");
+                        }
+                        relation->value().resize(length);
+                        #ifdef DEBUG
+                        std::cout << relation->value() << std::endl;
+                        #endif
+                    }
+                    if ( close(downstream[1]) == -1 ){
+                        perror("closing the downstream write failed.");
                     }
                     if ( close(upstream[0]) == -1 ){
-                        perror("closing the upstream read in the child process failed.");
+                        perror("closing the upstream read failed.");
                     }
-                    if (dup2(downstream[0], STDIN_FILENO) == -1){
-                        perror("Failed to map the downstream read to STDIN.");
+                    int status;
+                    pid_t child_returned = waitpid( pid, &status, WNOHANG);
+                    switch (child_returned){
+                        case 0:
+                            // Child Process with specified PID exists, but has not exited normally yet.
+                            // At this stage in the thread though, the output from the process has already been collected.
+                            // The only reason we would be in this state is if the application is hanging for some reason.
+                            // For example, `cat' glues STDIN to STDOUT and stays running until it receives a signal.
+                            // The scheduler thread at this stage will send a SIGTERM to the child process, and performa a blocking wait.
+                            if ( kill(pid, SIGTERM) == -1 ){
+                                perror("child process failed to terminate.");
+                            }
+                            if ( waitpid( pid, &status, 0) == -1 ){
+                                perror("Wait on child has failed.");
+                            }
+                            break;
+                        case -1:
+                            perror("Wait on child pid failed.");
+                            break;
                     }
-                    if (dup2(upstream[1], STDOUT_FILENO) == -1){
-                        perror("Failed to map the upstream write to STDOUT.");
-                    }
-                    const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
-                    if ( __OW_ACTION_BIN == nullptr ){
-                        throw "__OW_ACTION_BIN environment variable not set.";
-                    }
-                    const char* __OW_ACTION_LAUNCHER = getenv("__OW_ACTION_LAUNCHER");
-                    if ( __OW_ACTION_LAUNCHER == nullptr ){
-                        throw "__OW_ACTION_LAUNCHER environment varible not set.";
-                    }
-                    std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, "fn_000", NULL};
-
-                    // Since this happens AFTER the fork, this is thread safe.
-                    // fork(2) means that the child process makes a COPY of the parents environment variables.s
-                    for ( auto pair: req.env() ){
-                        if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
-                            perror("Exporting environment variable failed.");
-                        }
-                    }
-                    execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
-                    exit(1);
-                } else {
-                    //Parent Process.
-                    if( close(downstream[0]) == -1 ){
-                        perror("closing the downstream read in the parent process failed.");
-                    }
-                    if ( close(upstream[1]) == -1 ){
-                        perror("closing the upstream write in the parent process failed.");
-                    }
-
-                    char ready[1] = {};
-                    int length = read(upstream[0], ready, 1);
-                    if( length == -1 ){
-                        perror("Upstream read in the parent process failed.");
-                    }
-                    if (kill(pid, SIGSTOP) == -1){
-                        perror("Pausing the child process failed.");
-                    }
-                    g = std::move(g).resume();
-                    if (kill(pid, SIGCONT) == -1 ){
-                        perror("Parent process failed to unpause child process.");
-                    }
-
-                    params.append("\n");
-                    if( write(downstream[1], params.data(), params.size()) == -1 ){
-                        perror("Downstream write in the parent process failed.");
-                    }
-                    int max_length = 65536;
-                    ctx_ptr->payload().resize(max_length);
-                    length = read(upstream[0], ctx_ptr->payload().data(), max_length);
-                    if ( length == -1 ){
-                        perror("Upstream read in the parent process failed.");
-                    }
-                    ctx_ptr->payload().resize(length);
+                    return std::move(g);
                 }
-                if ( close(downstream[1]) == -1 ){
-                    perror("closing the downstream write failed.");
-                }
-                if ( close(upstream[0]) == -1 ){
-                    perror("closing the upstream read failed.");
-                }
-                int status;
-                pid_t child_returned = waitpid( pid, &status, WNOHANG);
-                switch (child_returned){
-                    case 0:
-                        // Child Process with specified PID exists, but has not exited normally yet.
-                        // At this stage in the thread though, the output from the process has already been collected.
-                        // The only reason we would be in this state is if the application is hanging for some reason.
-                        // For example, `cat' glues STDIN to STDOUT and stays running until it receives a signal.
-                        // The scheduler thread at this stage will send a SIGTERM to the child process, and performa a blocking wait.
-                        if ( kill(pid, SIGTERM) == -1 ){
-                            perror("child process failed to terminate.");
-                        }
-                        if ( waitpid( pid, &status, 0) == -1 ){
-                            perror("Wait on child has failed.");
-                        }
-                        break;
-                    case -1:
-                        perror("Wait on child pid failed.");
-                        break;
-                }
-                return std::move(g);
+            };
+            {
+                //Anonymous scope is to ensure that fibers reference is immediately invalidated.
+                std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                fibers.push_back(std::move(f));
+                ctx_ptr->release_fibers();
             }
-        };
-        // Initialize the execution context.
-        ctx_ptr->fiber() = std::move(f);
+
+        }
         return ctx_ptr;
     }
 }//namespace run

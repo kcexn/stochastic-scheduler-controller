@@ -26,7 +26,7 @@ namespace init{
         {}
 
         std::string& name() { return name_; }
-        std::string& main() { return main_; }
+        const std::string& main() const { return main_; }
         const std::string& code() const { return code_; }
         const bool& binary() const { return binary_; }
         void env_emplace(std::string lhs, std::string rhs) { env_.emplace(lhs, rhs); }
