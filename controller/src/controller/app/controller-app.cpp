@@ -133,9 +133,12 @@ namespace app{
             std::size_t select = (start + offset)%num_deps;
             // If the dependency value is empty that means the dependency
             // has not finished computing yet. Call next recursively.
+            #ifdef DEBUG
+            std::cout << (**it)[select]->key() << std::endl;
+            #endif
             if ( (**it)[select]->value().empty() ){
                 std::string dep_key((**it)[select]->key());
-                return next(key, idx);
+                return next(dep_key, idx);
             }
         }
         // The second recursive base case.
@@ -183,7 +186,7 @@ namespace app{
         }
         std::filesystem::path action_path(__OW_ACTIONS);
         std::filesystem::path manifest_path(action_path / "action-manifest.json");
-        if ( std::filesystem::exists(manifest_path) ){
+        if (std::filesystem::exists(manifest_path)){
             std::fstream f(manifest_path, std::ios_base::in);
             boost::json::error_code ec;
             boost::json::value tmp = boost::json::parse(f,ec);
@@ -218,6 +221,10 @@ namespace app{
             #ifdef DEBUG
             std::cout << manifest.size() << std::endl;
             #endif
+            // Reverse lexicographically sort the manifest.
+            std::sort(manifest_.begin(), manifest_.end(), [&](std::shared_ptr<Relation> a, std::shared_ptr<Relation> b){
+                return a->depth() > b->depth();
+            });
         } else {
             const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
             if ( __OW_ACTION_EXT == nullptr ){
@@ -404,13 +411,13 @@ namespace app{
 
                         // get the index of the stopped thread.
                         std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
-                        // Get the key of the action at this index+1.
-                        std::string key((*it)->manifest()[++idx]->key());
+                        // Get the key of the action at this index+1 (mod thread_controls.size())
+                        std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
                         // Get the next relation to execute from the dependencies of the relation at this key.
-                        std::shared_ptr<Relation> relation = (*it)->manifest().next(key, execution_context_idx);
+                        std::shared_ptr<Relation> next = (*it)->manifest().next(key, execution_context_idx);
                         // Retrieve the index of this relation in the manifest.
                         auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
-                            return rel->key() == relation->key();
+                            return rel->key() == next->key();
                         });
                         std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
 
@@ -506,16 +513,15 @@ namespace app{
                             );
                             executor.detach();
                         }
-                        //TODO: reverse lexicographically sort the manifest to ensure that we are searching in the correct order for latin squares.
                         //TODO: implement execution context indices to correctly offset the starting search point for latin squares.
                         std::size_t execution_idx{0};
 
                         // Get the starting relation.
                         std::string start_key(ctx_ptr->manifest()[execution_idx]->key());
-                        std::shared_ptr<Relation> relation = ctx_ptr->manifest().next(start_key, execution_idx);
+                        std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
                         // Find the index in the manifest of the starting relation.
                         auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
-                            return rel->key() == start_key;
+                            return rel->key() == start->key();
                         });
                         std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
                         ctx_ptr->thread_controls()[start_idx].notify();

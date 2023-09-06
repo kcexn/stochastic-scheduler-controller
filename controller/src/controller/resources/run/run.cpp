@@ -40,8 +40,7 @@ namespace run{
 
     std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Run{});
-        for (auto it=ctx_ptr->manifest().begin(); it != ctx_ptr->manifest().end(); ++it){
-            std::shared_ptr<controller::app::Relation>& relation = *it;
+        for (auto& relation: ctx_ptr->manifest()){
             boost::context::fiber f{
                 [&, req, ctx_ptr, relation](boost::context::fiber&& g) {
                     boost::json::value jv;
