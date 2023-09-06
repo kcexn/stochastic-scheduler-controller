@@ -77,21 +77,23 @@ namespace app{
             mtx_(std::make_unique<std::mutex>()), 
             cv_(std::make_unique<std::condition_variable>()), 
             signal_(std::make_unique<std::atomic<int> >()),
-            valid_(std::make_unique<std::atomic<bool> >(true))
+            valid_(std::make_unique<std::atomic<bool> >(true)),
+            execution_context_idx_(std::make_unique<std::atomic<std::size_t> >(0))
         {}
         pthread_t& tid() { return tid_; }
         std::atomic<int>& signal() { return *signal_; }
         void wait();
-        void notify();
+        void notify(std::size_t idx);
         const bool is_stopped() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & echo::Signals::SCHED_END) == echo::Signals::SCHED_END); }
         const bool is_valid() const { return valid_->load(std::memory_order::memory_order_relaxed); }
-        void invalidate() { valid_->store(false, std::memory_order::memory_order_relaxed); return;}
+        std::size_t invalidate() { valid_->store(false, std::memory_order::memory_order_relaxed); return execution_context_idx_->load(std::memory_order::memory_order_relaxed); }
     private:
         pthread_t tid_;
         std::unique_ptr<std::mutex> mtx_;
         std::unique_ptr<std::condition_variable> cv_;
         std::unique_ptr<std::atomic<int> > signal_;
         std::unique_ptr<std::atomic<bool> > valid_;
+        std::unique_ptr<std::atomic<std::size_t> > execution_context_idx_;
     };
 
     class ExecutionContext
@@ -103,6 +105,7 @@ namespace app{
         ExecutionContext(): execution_context_id_(UUID::uuid_create_v4()) {}
         explicit ExecutionContext(Init init);
         explicit ExecutionContext(Run run);
+        // explicit ExecutionContext(Run run, UUID::uuid_t execution_context_id, std::size_t execution_context_idx);
         bool is_stopped();
         Http::Request& req() { return req_; }
         Http::Response& res() { return res_; }
@@ -110,6 +113,7 @@ namespace app{
         ActionManifest& manifest() { return manifest_; }
 
         // Context data elements.
+        std::size_t& idx() { return execution_context_index_; }
         std::vector<boost::context::fiber>& acquire_fibers() { fiber_mtx_.lock(); return fibers_; }
         void release_fibers() { fiber_mtx_.unlock(); return; }
 

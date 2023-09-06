@@ -166,7 +166,8 @@ namespace app{
          return;
     }
 
-    void ThreadControls::notify(){ 
+    void ThreadControls::notify(std::size_t idx){ 
+        execution_context_idx_->store(idx, std::memory_order::memory_order_relaxed);
         signal_->fetch_or(echo::Signals::SCHED_START, std::memory_order::memory_order_relaxed); 
         cv_->notify_all(); 
         return; 
@@ -174,11 +175,13 @@ namespace app{
 
     // Execution Context
     ExecutionContext::ExecutionContext(ExecutionContext::Init init)
-      : execution_context_id_(UUID::uuid_create_v4())
+      : execution_context_id_(UUID::uuid_create_v4()),
+        execution_context_index_(0)
     {}
 
     ExecutionContext::ExecutionContext(ExecutionContext::Run run)
-      : execution_context_id_(UUID::uuid_create_v4())
+      : execution_context_id_(UUID::uuid_create_v4()),
+        execution_context_index_(0)
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
@@ -249,6 +252,80 @@ namespace app{
             manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
         }
     }
+
+    // ExecutionContext::ExecutionContext(ExecutionContext::Run run, UUID::uuid_t execution_context_id, std::size_t execution_context_idx)
+    //   : execution_context_id_(execution_context_id),
+    //     execution_context_index_(execution_context_idx)
+    // {
+    //     const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
+    //     if ( __OW_ACTIONS == nullptr ){
+    //         throw "Environment variable __OW_ACTIONS not defined!";
+    //     }
+    //     std::filesystem::path action_path(__OW_ACTIONS);
+    //     std::filesystem::path manifest_path(action_path / "action-manifest.json");
+    //     if (std::filesystem::exists(manifest_path)){
+    //         std::fstream f(manifest_path, std::ios_base::in);
+    //         boost::json::error_code ec;
+    //         boost::json::value tmp = boost::json::parse(f,ec);
+    //         boost::json::object manifest(tmp.as_object());
+    //         if (ec){
+    //             throw "boost json parse failed.";
+    //         }
+    //         #ifdef DEBUG
+    //         std::cout << manifest << std::endl;
+    //         #endif
+    //         // If the manifest is empty throw an exception.
+    //         if(manifest.empty()){
+    //             throw "action-manifest.json can't be empty.";
+    //         }
+    //         // Loop through manifest.json until manifest_ contains the same number of keys.
+    //         while(manifest_.size() < manifest.size()){
+    //             #ifdef DEBUG
+    //             std::cout << manifest_.size() << std::endl;
+    //             std::cout << manifest.size() << std::endl;
+    //             #endif
+    //             // Find a key that isn't in the manifest_ yet.
+    //             auto it = std::find_if(manifest.begin(), manifest.end(), [&](auto& kvp){
+    //                 auto tmp = std::find_if(manifest_.begin(), manifest_.end(), [&](auto& rel){
+    //                     return rel->key() == kvp.key();
+    //                 });
+    //                 return (tmp != manifest_.end()) ? false : true;
+    //             });
+    //             // Insert it into the manifest, using a recursive tree traversal method.
+    //             std::string key(it->key());
+    //             manifest_.emplace(key, manifest); 
+    //         }
+    //         #ifdef DEBUG
+    //         std::cout << manifest.size() << std::endl;
+    //         #endif
+    //         // Reverse lexicographically sort the manifest.
+    //         std::sort(manifest_.begin(), manifest_.end(), [&](std::shared_ptr<Relation> a, std::shared_ptr<Relation> b){
+    //             return a->depth() > b->depth();
+    //         });
+    //     } else {
+    //         const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
+    //         if ( __OW_ACTION_EXT == nullptr ){
+    //             throw "Environment variable __OW_ACTION_EXT is not defined!";
+    //         }
+    //         // By default the file is called "main" + __OW_ACTION_EXT.
+    //         // e.g. "main.lua", or "main.py", or "main.js".
+    //         std::string filename("main");
+    //         filename.append(".");
+    //         filename.append(__OW_ACTION_EXT);
+    //         std::filesystem::path fn_path(action_path / filename);
+
+    //         const char* __OW_ACTION_ENTRY_POINT = getenv("__OW_ACTION_ENTRY_POINT");
+    //         std::string entrypoint;
+    //         if ( __OW_ACTION_ENTRY_POINT == nullptr ){
+    //             // By default, the entry point is called main.
+    //             entrypoint = std::string("main");
+    //         } else {
+    //             entrypoint = std::string(__OW_ACTION_ENTRY_POINT);
+    //         }
+    //         // By default, the entry point has no dependencies.
+    //         manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
+    //     }
+    // }
 
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs){
         return lhs.execution_context_id() == rhs.execution_context_id();
@@ -404,10 +481,7 @@ namespace app{
                             return thread.is_stopped() && thread.is_valid();
                         });
                         // invalidate the thread.
-                        stopped_thread->invalidate();
-
-                        // TODO: implement the execution context index properly.
-                        std::size_t execution_context_idx{0};
+                        std::size_t execution_context_idx = stopped_thread->invalidate();
 
                         // get the index of the stopped thread.
                         std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
@@ -422,7 +496,7 @@ namespace app{
                         std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
 
                         //Start the thread at this index.
-                        (*it)->thread_controls()[next_idx].notify();
+                        (*it)->thread_controls()[next_idx].notify(execution_context_idx);
 
                         // Search through remaining contexts.
                         it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
@@ -514,7 +588,7 @@ namespace app{
                             executor.detach();
                         }
                         //TODO: implement execution context indices to correctly offset the starting search point for latin squares.
-                        std::size_t execution_idx{0};
+                        std::size_t execution_idx = ctx_ptr->idx();
 
                         // Get the starting relation.
                         std::string start_key(ctx_ptr->manifest()[execution_idx]->key());
@@ -524,7 +598,7 @@ namespace app{
                             return rel->key() == start->key();
                         });
                         std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
-                        ctx_ptr->thread_controls()[start_idx].notify();
+                        ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                         ctx_ptrs.push_back(std::move(ctx_ptr));
                     } else {
                         // invalidate the fibers.
