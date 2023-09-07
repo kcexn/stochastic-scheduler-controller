@@ -40,11 +40,7 @@ COPY controller/controller /usr/local/bin/
 COPY Docker/init.sh /usr/local/bin/
 
 # Install some test data.
-COPY binary-data.json /root/
-COPY data.json /root/
-COPY data2.json /root/
-COPY lua-text-init.json /root/
-COPY lua-test-activation.json /root/
+COPY tests/ /root/tests/
 
 EXPOSE 8080
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/init.sh"]

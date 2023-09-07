@@ -136,7 +136,9 @@ namespace app{
             #ifdef DEBUG
             std::cout << (**it)[select]->key() << std::endl;
             #endif
-            if ( (**it)[select]->value().empty() ){
+            std::string value = (**it)[select]->acquire_value();
+            (**it)[select]->release_value();
+            if ( value.empty() ){
                 std::string dep_key((**it)[select]->key());
                 return next(dep_key, idx);
             }
@@ -159,29 +161,40 @@ namespace app{
     
     // Thread Controls
     void ThreadControls::wait(){
-         std::unique_lock lk(*mtx_); 
+         std::unique_lock<std::mutex> lk(*mtx_); 
          cv_->wait(lk, [&](){ 
             return ((signal_->load(std::memory_order::memory_order_relaxed)&echo::Signals::SCHED_START)==echo::Signals::SCHED_START);
         }); 
-         return;
+        return;
     }
 
     void ThreadControls::notify(std::size_t idx){ 
-        execution_context_idx_->store(idx, std::memory_order::memory_order_relaxed);
+        mtx_->lock();
+        execution_context_idxs_.push_back(idx);
+        mtx_->unlock();
         signal_->fetch_or(echo::Signals::SCHED_START, std::memory_order::memory_order_relaxed); 
         cv_->notify_all(); 
         return; 
     }
 
+    std::vector<std::size_t> ThreadControls::invalidate() { 
+        valid_->store(false, std::memory_order::memory_order_relaxed);  
+        mtx_->lock();
+        std::vector<std::size_t> tmp(execution_context_idxs_.size());
+        std::memcpy(tmp.data(), execution_context_idxs_.data(), execution_context_idxs_.size());
+        mtx_->unlock();
+        return tmp;
+    }
+
     // Execution Context
     ExecutionContext::ExecutionContext(ExecutionContext::Init init)
       : execution_context_id_(UUID::uuid_create_v4()),
-        execution_context_index_(0)
+        execution_context_idx_stack_{0}
     {}
 
     ExecutionContext::ExecutionContext(ExecutionContext::Run run)
       : execution_context_id_(UUID::uuid_create_v4()),
-        execution_context_index_(0)
+        execution_context_idx_stack_{0}
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
@@ -341,6 +354,20 @@ namespace app{
         return true;
     }
 
+    std::size_t ExecutionContext::pop_execution_idx() {
+        if (execution_context_idx_stack_.empty()){
+            throw "Execution Context idx stack shouldn't be empty when calling pop.";
+        }
+        std::size_t idx = execution_context_idx_stack_.back();
+        execution_context_idx_stack_.pop_back();
+        return idx;
+    }
+
+    void ExecutionContext::push_execution_idx(std::size_t idx){
+        execution_context_idx_stack_.push_back(idx);
+        return;
+    }
+
     // Controller Class
     // Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr)
     //   : controller_mbox_ptr_(mbox_ptr),
@@ -409,21 +436,21 @@ namespace app{
                     pthread_exit(0);
                 }
                 auto it = std::find(server_.begin(), server_.end(), http_session);
-                Http::Request request = {};
                 if (it != server_.end()){
                     // Do Something.
-                    request = it->read_request();
                     #ifdef DEBUG
                     std::cout << "Session is in the HTTP Server." << std::endl;
                     #endif
+                    route_request(it->read_request());
                 } else {
-                    server_.push_back(std::move(http_session));
-                    request = server_.back().read_request();
                     #ifdef DEBUG
                     std::cout << "Session is not in the HTTP Server." << std::endl;
                     #endif
+                    server_.push_back(std::move(http_session));
+                    route_request(server_.back().read_request());
+
                 }
-                route_request(request);
+                // route_request(it->request());
                 #ifdef DEBUG
                 std::cout << "HTTP Server Loop!" << std::endl;
                 #endif
@@ -481,23 +508,22 @@ namespace app{
                             return thread.is_stopped() && thread.is_valid();
                         });
                         // invalidate the thread.
-                        std::size_t execution_context_idx = stopped_thread->invalidate();
-
+                        std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
                         // get the index of the stopped thread.
                         std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
                         // Get the key of the action at this index+1 (mod thread_controls.size())
                         std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
-                        // Get the next relation to execute from the dependencies of the relation at this key.
-                        std::shared_ptr<Relation> next = (*it)->manifest().next(key, execution_context_idx);
-                        // Retrieve the index of this relation in the manifest.
-                        auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
-                            return rel->key() == next->key();
-                        });
-                        std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
-
-                        //Start the thread at this index.
-                        (*it)->thread_controls()[next_idx].notify(execution_context_idx);
-
+                        for (auto& idx: execution_context_idxs){
+                            // Get the next relation to execute from the dependencies of the relation at this key.
+                            std::shared_ptr<Relation> next = (*it)->manifest().next(key, idx);
+                            // Retrieve the index of this relation in the manifest.
+                            auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
+                                return rel->key() == next->key();
+                            });
+                            std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
+                            //Start the thread at this index.
+                            (*it)->thread_controls()[next_idx].notify(idx);
+                        }
                         // Search through remaining contexts.
                         it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
                             auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
@@ -515,11 +541,11 @@ namespace app{
         pthread_exit(0);
     }
 
-    void Controller::route_request(Http::Request& req){
+    void Controller::route_request(const std::shared_ptr<Http::Request>& req){
         #ifdef DEBUG
         std::cout << "Request Router!" << std::endl;
         #endif
-        if (req.body_fully_formed){
+        if (req->body_fully_formed){
             /* Lets leave this logging in here for now, just until I'm confident that I have the action interface implemented properly. */
             // std::ofstream log("/var/log/controller/request.log", std::ios_base::out | std::ios_base::app );
             // std::stringstream ss;
@@ -530,68 +556,72 @@ namespace app{
             /* ------------------------------------------------------------------------------------------------- */
             try{
                 boost::json::error_code ec;
-                boost::json::value val = boost::json::parse(req.body, ec);
+                boost::json::value val = boost::json::parse(req->body, ec);
                 if (ec) {
                     #ifdef DEBUG
                     std::cout << "Parsing failed: " << ec.message() << std::endl;
                     #endif
                 }
                 // Route the request.
-                if (req.route == "/run" ){
+                if (req->route == "/run" ){
                     controller::resources::run::Request run(val.as_object());
                     // Create a fiber continuation for processing the request.
                     std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run); 
-                    ctx_ptr->req() = req;
+                    ctx_ptr->req() = std::shared_ptr<Http::Request>(req);
                     if ( initialized_ ){
-                        std::size_t num_fibers;
-                        {
-                            // The anonymous scope is to ensure the reference is invalidated.
-                            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
-                            num_fibers = fibers.size();
-                            ctx_ptr->release_fibers();
-                        }
-                        if ( ctx_ptr->manifest().size() != num_fibers ){
-                            throw "Execution Context does not have an equal number of fibers and manifest elements.";
-                        }
-                        for( int i = 0; i < ctx_ptr->manifest().size(); ++i ){
-                            ctx_ptr->thread_controls().emplace_back();
-                            std::thread executor(
-                                [&, ctx_ptr, i](std::shared_ptr<echo::MailBox> mbox_ptr){
-                                    ctx_ptr->thread_controls()[i].tid() = pthread_self();
-                                    
-                                    // The first resume sets up the action runtime environment for execution.
-                                    // The action runtime doesn't have to be set up in a distinct 
-                                    // thread of execution, but since we need to take the time to set up 
-                                    // a thread anyway, deferring the process fork in the execution context until after the 
-                                    // thread is established so that the fork can happen concurrently 
-                                    // is a more performant solution.
-                                    {
-                                        // The anonymous scope is to ensure that the reference is immediately
-                                        // invalidated after releasing the fibers.
-                                        std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
-                                        fibers[i] = std::move(fibers[i]).resume();
-                                        ctx_ptr->release_fibers();
-                                    }
+                        // Initialize threads only once.
+                        if(ctx_ptr->thread_controls().empty()){
+                            std::size_t num_fibers = 0;
+                            {
+                                // The anonymous scope is to ensure the reference is invalidated.
+                                std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                                num_fibers = fibers.size();
+                                ctx_ptr->release_fibers();
+                            }
+                            if ( ctx_ptr->manifest().size() != num_fibers ){
+                                throw "Execution Context does not have an equal number of fibers and manifest elements.";
+                            }
+                            for( int i = 0; i < ctx_ptr->manifest().size(); ++i ){
+                                ctx_ptr->thread_controls().emplace_back();
+                                std::thread executor(
+                                    [&, ctx_ptr, i](std::shared_ptr<echo::MailBox> mbox_ptr){
+                                        ctx_ptr->thread_controls()[i].tid() = pthread_self();
+                                        
+                                        // The first resume sets up the action runtime environment for execution.
+                                        // The action runtime doesn't have to be set up in a distinct 
+                                        // thread of execution, but since we need to take the time to set up 
+                                        // a thread anyway, deferring the process fork in the execution context until after the 
+                                        // thread is established so that the fork can happen concurrently 
+                                        // is a more performant solution.
+                                        {
+                                            // The anonymous scope is to ensure that the reference is immediately
+                                            // invalidated after releasing the fibers.
+                                            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                                            fibers[i] = std::move(fibers[i]).resume();
+                                            ctx_ptr->release_fibers();
+                                        }
 
-                                    // The second resume executes the function and collects the results.
-                                    ctx_ptr->thread_controls()[i].wait();
-                                    {
-                                        std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
-                                        fibers[i] = std::move(fibers[i]).resume();
-                                        ctx_ptr->release_fibers();
-                                    }
-                                    ctx_ptr->thread_controls()[i].signal().fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
-                                    mbox_ptr->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
-                                    mbox_ptr->sched_signal_cv_ptr->notify_all();
-                                }, io_mbox_ptr_
-                            );
-                            executor.detach();
+                                        // The second resume executes the function and collects the results.
+                                        ctx_ptr->thread_controls()[i].wait();
+                                        {
+                                            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
+                                            fibers[i] = std::move(fibers[i]).resume();
+                                            ctx_ptr->release_fibers();
+                                        }
+                                        ctx_ptr->thread_controls()[i].signal().fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                        mbox_ptr->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                        mbox_ptr->sched_signal_cv_ptr->notify_all();
+                                    }, io_mbox_ptr_
+                                );
+                                executor.detach();
+                            }
                         }
-                        //TODO: implement execution context indices to correctly offset the starting search point for latin squares.
-                        std::size_t execution_idx = ctx_ptr->idx();
+                        // This id is pushed in the context constructor.
+                        std::size_t execution_idx = ctx_ptr->pop_execution_idx();
+                        std::size_t manifest_size = ctx_ptr->manifest().size();
 
                         // Get the starting relation.
-                        std::string start_key(ctx_ptr->manifest()[execution_idx]->key());
+                        std::string start_key(ctx_ptr->manifest()[execution_idx % manifest_size]->key());
                         std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
                         // Find the index in the manifest of the starting relation.
                         auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
@@ -599,7 +629,11 @@ namespace app{
                         });
                         std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
                         ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
-                        ctx_ptrs.push_back(std::move(ctx_ptr));
+                        // add the ctx pointer to the list of context pointers iff it does not exist.
+                        auto ctx_it = std::find(ctx_ptrs.begin(), ctx_ptrs.end(), ctx_ptr);
+                        if (ctx_it == ctx_ptrs.end()){
+                            ctx_ptrs.push_back(std::move(ctx_ptr));
+                        }
                     } else {
                         // invalidate the fibers.
                         {
@@ -630,14 +664,14 @@ namespace app{
                             server_.erase(session_it);
                         }
                     }
-                } else if (req.route == "/init" ) {
+                } else if (req->route == "/init" ) {
                     controller::resources::init::Request init(val.as_object());
                     // It is not strictly necessary to construct a context for initialization requests.
                     // But it keeps the controller resource interface homogeneous and easy to follow.
                     // Also, since the initialization route is only called once, the cost to performance
                     // should not be significant.
                     std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::init::handle(init);
-                    ctx_ptr->req() = req;
+                    ctx_ptr->req() = std::shared_ptr<Http::Request>(req);
                     Http::Response res = {};
                     if ( initialized_ ) {
                         // invalidate the fibers.
@@ -647,6 +681,7 @@ namespace app{
                             fibers.clear();
                             ctx_ptr->release_fibers();
                         }
+                        res = create_response(*ctx_ptr);
                     } else {
                         // Execute the initializer.
                         res = create_response(*ctx_ptr);
@@ -691,7 +726,7 @@ namespace app{
 
     Http::Response Controller::create_response(ExecutionContext& ctx){
         Http::Response res = {};
-        if ( ctx.req().route == "/run" ){
+        if ( ctx.req()->route == "/run" ){
             if ( ctx.is_stopped() ){
                 boost::json::object jv;
                 bool ec{false};
@@ -704,7 +739,9 @@ namespace app{
                 bool manifest_exists = std::filesystem::exists(manifest_path);
                 for ( auto& relation: ctx.manifest() ){
                     boost::json::error_code err;
-                    boost::json::object val = boost::json::parse(relation->value(), err).as_object();
+                    std::string value = relation->acquire_value();
+                    relation->release_value();
+                    boost::json::object val = boost::json::parse(value, err).as_object();
                     auto it = std::find_if(val.begin(), val.end(), [&](auto kvp){ return kvp.key() == "error"; });
                     if ( it != val.end() ){
                         ec = true;
@@ -742,7 +779,7 @@ namespace app{
                     ""
                };
             }
-        } else if ( ctx.req().route == "/init" ){
+        } else if ( ctx.req()->route == "/init" ){
             if ( ctx.is_stopped() ) {
                 res = {
                     "409",
@@ -752,7 +789,7 @@ namespace app{
                     ""
                 };
             } else {
-                boost::json::value jv = boost::json::parse(ctx.req().body);
+                boost::json::value jv = boost::json::parse(ctx.req()->body);
                 bool ec = false;
                 if ( jv.is_object() ){
                     boost::json::object obj = jv.get_object();

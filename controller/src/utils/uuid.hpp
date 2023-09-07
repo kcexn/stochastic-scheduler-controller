@@ -23,6 +23,9 @@ namespace UUID{
         char node[6] = {0,0,0,0,0,0}; // 6 octets
     };
 
+    //TODO: need to provide a constructor that constructs
+    //a UUID from a string.
+
     std::ostream& operator<<(std::ostream& out, uuid_t& rhs);
     bool operator==(const uuid_t& lhs, const uuid_t& rhs);
 

@@ -116,16 +116,16 @@ namespace Http{
 
     Session::Session(const std::shared_ptr<UnixServer::Session>& session)
       : session_ptr_(session),
-        request_{},
-        response_{}
+        request_(std::make_shared<Request>(Request{})),
+        response_(std::make_shared<Response>(Response{}))
     {
         #ifdef DEBUG
         std::cout << "HTTP Session Constructor!" << std::endl;
         #endif
     }
 
-    const Request& Session::read_request() {
-        session_ptr_->stream() >> request_;
+    const std::shared_ptr<Request>& Session::read_request() {
+        session_ptr_->stream() >> *request_;
         return request_;
     }
 }//namespace Http

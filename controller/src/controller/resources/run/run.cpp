@@ -11,10 +11,16 @@
 namespace controller{
 namespace resources{
 namespace run{
-    Request::Request( boost::json::object obj )
-      : value_(obj["value"].as_object())
+    Request::Request( boost::json::object& obj )
     {
-        for ( auto kvp: obj ){
+        boost::json::object& value = obj.at("value").as_object();
+        if (!value.contains("execution_context")){
+            value_ = boost::json::object(value);
+        } else {
+            // TODO: construct an execution context request.
+            value_ = boost::json::object(value.at("execution_context").as_object().at("value").as_object());
+        }
+        for ( auto& kvp: obj ){
             std::string key(kvp.key());
             if ( key != "value" ){
                 std::string val;
@@ -38,7 +44,11 @@ namespace run{
         }
     }
 
-    std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
+    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req){
+        //TODO: check request for a signature that notifies the controller that this execution context already exists on this controller.
+        //If the execution context already exists, instead of constructing a new execution context, instead of constructing a new context, just find the context in the list
+        //of contexts, and return the pointer.
+        //Otherwise, construct a new execution context.
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Run{});
         for (auto& relation: ctx_ptr->manifest()){
             boost::context::fiber f{
@@ -120,7 +130,9 @@ namespace run{
                             boost::json::object jv;
                             boost::json::error_code ec;
                             for (auto& dep: *relation){
-                                boost::json::object val = boost::json::parse(dep->value(), ec).as_object();
+                                std::string value = dep->acquire_value();
+                                dep->release_value();
+                                boost::json::object val = boost::json::parse(value, ec).as_object();
                                 jv.emplace(dep->key(), val);
                             }
                             params = boost::json::serialize(jv);
@@ -129,16 +141,22 @@ namespace run{
                         if( write(downstream[1], params.data(), params.size()) == -1 ){
                             perror("Downstream write in the parent process failed.");
                         }
-                        int max_length = 65536;
-                        relation->value().resize(max_length);
-                        length = read(upstream[0], relation->value().data(), max_length);
-                        if ( length == -1 ){
-                            perror("Upstream read in the parent process failed.");
-                        }
-                        relation->value().resize(length);
+                        std::size_t max_length = 65536;
+                        std::size_t value_size = 0;
+                        std::string& value = relation->acquire_value();
+                        do {
+                            value.resize(max_length + value_size);
+                            length = read(upstream[0], (value.data() + value_size), max_length);
+                            if ( length == -1 ){
+                                throw "Upstream read in the parent process failed.";
+                            }
+                            value_size += length;
+                        } while( (value_size % max_length ) == 0 );
+                        value.resize(value_size);
                         #ifdef DEBUG
-                        std::cout << relation->value() << std::endl;
+                        std::cout << value << std::endl;
                         #endif
+                        relation->release_value();
                     }
                     if ( close(downstream[1]) == -1 ){
                         perror("closing the downstream write failed.");

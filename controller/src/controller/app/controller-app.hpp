@@ -20,7 +20,8 @@ namespace app{
         Relation(std::string&& key, std::string&& value, std::filesystem::path&& path, std::vector<std::shared_ptr<Relation> >&& dependencies);
 
         const std::string& key() const { return kvp_.first; }
-        std::string& value() { return kvp_.second; }
+        std::string& acquire_value() { mtx_.lock(); return kvp_.second; }
+        void release_value() { mtx_.unlock(); }
         const std::size_t& depth() const { return depth_; }
         const std::filesystem::path& path() const { return path_; }
 
@@ -41,6 +42,7 @@ namespace app{
         std::vector<std::shared_ptr<Relation> > dependencies_;
         std::size_t depth_;
         std::filesystem::path path_;
+        std::mutex mtx_;
     };
 
     class ActionManifest
@@ -77,8 +79,7 @@ namespace app{
             mtx_(std::make_unique<std::mutex>()), 
             cv_(std::make_unique<std::condition_variable>()), 
             signal_(std::make_unique<std::atomic<int> >()),
-            valid_(std::make_unique<std::atomic<bool> >(true)),
-            execution_context_idx_(std::make_unique<std::atomic<std::size_t> >(0))
+            valid_(std::make_unique<std::atomic<bool> >(true))
         {}
         pthread_t& tid() { return tid_; }
         std::atomic<int>& signal() { return *signal_; }
@@ -86,14 +87,14 @@ namespace app{
         void notify(std::size_t idx);
         const bool is_stopped() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & echo::Signals::SCHED_END) == echo::Signals::SCHED_END); }
         const bool is_valid() const { return valid_->load(std::memory_order::memory_order_relaxed); }
-        std::size_t invalidate() { valid_->store(false, std::memory_order::memory_order_relaxed); return execution_context_idx_->load(std::memory_order::memory_order_relaxed); }
+        std::vector<std::size_t> invalidate();
     private:
         pthread_t tid_;
         std::unique_ptr<std::mutex> mtx_;
         std::unique_ptr<std::condition_variable> cv_;
         std::unique_ptr<std::atomic<int> > signal_;
         std::unique_ptr<std::atomic<bool> > valid_;
-        std::unique_ptr<std::atomic<std::size_t> > execution_context_idx_;
+        std::vector<std::size_t> execution_context_idxs_;
     };
 
     class ExecutionContext
@@ -102,34 +103,36 @@ namespace app{
         struct Init{};
         struct Run{};
         
-        ExecutionContext(): execution_context_id_(UUID::uuid_create_v4()) {}
+        ExecutionContext(): execution_context_id_(UUID::uuid_create_v4()), execution_context_idx_stack_{0} {}
         explicit ExecutionContext(Init init);
         explicit ExecutionContext(Run run);
         // explicit ExecutionContext(Run run, UUID::uuid_t execution_context_id, std::size_t execution_context_idx);
         bool is_stopped();
-        Http::Request& req() { return req_; }
+        std::shared_ptr<Http::Request>& req() { return req_; }
         Http::Response& res() { return res_; }
         const UUID::uuid_t& execution_context_id() const noexcept { return execution_context_id_; }
         ActionManifest& manifest() { return manifest_; }
 
+        // Action Manifest members.
+        std::size_t pop_execution_idx();
+        void push_execution_idx(std::size_t idx);
+
         // Context data elements.
-        std::size_t& idx() { return execution_context_index_; }
         std::vector<boost::context::fiber>& acquire_fibers() { fiber_mtx_.lock(); return fibers_; }
         void release_fibers() { fiber_mtx_.unlock(); return; }
 
         // Thread Control Members
         std::vector<ThreadControls>& thread_controls() { return thread_controls_; }
     private:
-        Http::Request req_;
+        // TODO: Execution Contexts are capable of 
+        // storing many requests. Responses should be routed based on requests.
+        std::shared_ptr<Http::Request> req_;
         Http::Response res_;
         UUID::uuid_t execution_context_id_;
 
         // Action Manifest variables
         ActionManifest manifest_;
-
-        // TODO: this index will be used later to modify the behaviour of the 
-        // depth first search for the next incomplete dependency.
-        std::size_t execution_context_index_;
+        std::vector<std::size_t> execution_context_idx_stack_;
 
         // Context data elements.
         std::vector<boost::context::fiber> fibers_;
@@ -148,7 +151,7 @@ namespace app{
         Controller(std::shared_ptr<echo::MailBox> mbox_ptr, boost::asio::io_context& ioc);
         void start();
         void start_controller();
-        void route_request(Http::Request& req );
+        void route_request( const std::shared_ptr<Http::Request>& req );
         Http::Response create_response(ExecutionContext& ctx);
         void flush_wsk_logs() { std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; return;}
         void stop();

@@ -10,10 +10,13 @@ namespace resources{
 namespace run{
     class Request{
     public:
-        Request(boost::json::object obj);
+        Request(boost::json::object& obj);
         const boost::json::object& value() const { return value_; }
         const std::map<std::string, std::string>& env() const { return env_; }
     private:
+        UUID::uuid_t execution_context_id_;
+        std::size_t execution_context_idx_;
+        std::vector<std::string> peers_;
         boost::json::object value_;
         std::map<std::string, std::string> env_;
     };

@@ -37,6 +37,7 @@ namespace init{
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Init{});
         boost::context::fiber f{
             [&, req, ctx_ptr](boost::context::fiber&& g){
+                g = std::move(g).resume();
                 if ( setenv("__OW_ACTION_ENTRY_POINT", req.value().main().c_str(), 1) == -1 ){
                     perror("Setting the action entry point environment variable faield.");
                 }
@@ -86,7 +87,7 @@ namespace init{
         {
             //Anonymous scope is to ensure the fibers reference is immediately invalidated.
             std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
-            fibers.push_back(std::move(f));
+            fibers.push_back(std::move(f).resume());
             ctx_ptr->release_fibers();
         }
         return ctx_ptr;

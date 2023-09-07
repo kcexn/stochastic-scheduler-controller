@@ -46,8 +46,8 @@ namespace Http{
     // stored in these HTTP::Sessions.
     public:
         Session(const std::shared_ptr<UnixServer::Session>& session_ptr);
-        const Request& read_request();
-        Request& request() { return request_; }
+        const std::shared_ptr<Request>& read_request();
+        std::shared_ptr<Request>& request() { return request_; }
         std::shared_ptr<UnixServer::Session>& unix_session(){ return session_ptr_; }
 
 
@@ -62,8 +62,8 @@ namespace Http{
 
     private:
         std::shared_ptr<UnixServer::Session> session_ptr_;
-        Request request_;
-        Response response_;
+        std::shared_ptr<Request> request_;
+        std::shared_ptr<Response> response_;
     };
 
     class Server
