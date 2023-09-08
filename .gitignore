@@ -13,3 +13,4 @@ controller/objects/*
 *.http
 action-runtimes/python3/functions/__pycache__/
 lib/
+*.tgz

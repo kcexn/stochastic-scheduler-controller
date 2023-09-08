@@ -1,7 +1,9 @@
 FROM debian:stable-slim
 
 WORKDIR /root
-RUN apt-get update && apt-get install -y nginx curl coreutils procps lua5.4 lua5.4-dev
+RUN apt-get update && apt-get install -y nginx curl coreutils procps lua5.4
+
+# lua5.4-dev
 
 # Set up the lua environment
 ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
@@ -34,7 +36,7 @@ RUN mkdir -p /usr/local/lib/ && \
     mkdir -p /run/controller
 COPY lib/ /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib
-COPY controller/controller /usr/local/bin/
+COPY controller/bin/controller /usr/local/bin/
 
 # Install init script
 COPY Docker/init.sh /usr/local/bin/

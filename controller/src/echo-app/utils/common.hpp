@@ -2,7 +2,7 @@
 #define ECHO_COMMON_HPP
 #include <mutex>
 #include <condition_variable>
-#include "../../utils/uuid.hpp"
+#include "uuid.hpp"
 #include "../../unix-server/unix-server.hpp"
 #include "../../sctp-server/sctp-server.hpp"
 
@@ -54,11 +54,8 @@ namespace echo{
         ExecutionContext(const sctp::assoc_t& assoc_id, const sctp::sid_t& sid)
           : assoc_id_{assoc_id},
             sid_{sid},
-            execution_context_(UUID::uuid_create_v4()) 
+            execution_context_(UUID::Uuid(UUID::Uuid::v4)) 
         {
-            if ((execution_context_.time_hi_and_version & UUID::UUID_V4) != UUID::UUID_V4){
-                throw;
-            }
             #ifdef DEBUG
             std::cout << execution_context_ << std::endl;
             #endif
@@ -82,7 +79,7 @@ namespace echo{
     private:
         sctp::assoc_t assoc_id_;
         sctp::sid_t sid_;
-        UUID::uuid_t execution_context_;
+        UUID::Uuid execution_context_;
 
         // TIDs should be considered opaque blocks of memory (not portable) and so
         // equality checks should be made ONLY if we are sure that the tid

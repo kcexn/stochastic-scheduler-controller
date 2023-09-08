@@ -17,8 +17,28 @@ namespace run{
         if (!value.contains("execution_context")){
             value_ = boost::json::object(value);
         } else {
-            // TODO: construct an execution context request.
+            boost::json::object& context = value.at("execution_context").as_object();
+            std::stringstream uuid(std::string(context.at("uuid").as_string()));
+            uuid >> execution_context_id_;
+            #ifdef DEBUG
+            std::cout << execution_context_id_ << std::endl;
+            #endif
+            boost::json::value& idx = context.at("idx");
+            if (idx.is_int64()){
+                execution_context_idx_ = idx.get_int64();
+            } else if (idx.is_uint64()){
+                execution_context_idx_ = idx.get_uint64();
+            } else {
+                throw "execution context index is too large.";
+            }
+            #ifdef DEBUG
+            std::cout << execution_context_idx_ << std::endl;
+            #endif
+
             value_ = boost::json::object(value.at("execution_context").as_object().at("value").as_object());
+            #ifdef DEBUG
+            std::cout << value_ << std::endl;
+            #endif
         }
         for ( auto& kvp: obj ){
             std::string key(kvp.key());
@@ -44,12 +64,32 @@ namespace run{
         }
     }
 
-    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req){
+    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs){
         //TODO: check request for a signature that notifies the controller that this execution context already exists on this controller.
         //If the execution context already exists, instead of constructing a new execution context, instead of constructing a new context, just find the context in the list
         //of contexts, and return the pointer.
         //Otherwise, construct a new execution context.
-        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Run{});
+        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr;
+        if(req.execution_context_id() != UUID::Uuid()){
+            #ifdef DEBUG
+            std::cout << "Request Context index: " << req.idx() << std::endl;
+            std::cout << "Request Execution Context ID: " << req.execution_context_id() << std::endl;
+            #endif
+            auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                return (ctx_ptr->execution_context_id() == req.execution_context_id());
+            });
+            if( it != ctx_ptrs.end()){
+                #ifdef DEBUG
+                std::cout << "Iterator does not equal end()." << std::endl;
+                #endif
+                (*it)->push_execution_idx(req.idx());
+                return std::shared_ptr<controller::app::ExecutionContext>(*it);
+            }else{
+                ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run, req.execution_context_id());
+            }
+        } else {
+            ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run);
+        }
         for (auto& relation: ctx_ptr->manifest()){
             boost::context::fiber f{
                 [&, req, ctx_ptr, relation](boost::context::fiber&& g) {
@@ -101,63 +141,87 @@ namespace run{
                         }
                         execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
                         exit(1);
-                    } else {
-                        //Parent Process.
-                        if( close(downstream[0]) == -1 ){
-                            perror("closing the downstream read in the parent process failed.");
-                        }
-                        if ( close(upstream[1]) == -1 ){
-                            perror("closing the upstream write in the parent process failed.");
-                        }
-
-                        char ready[1] = {};
-                        int length = read(upstream[0], ready, 1);
-                        if( length == -1 ){
-                            perror("Upstream read in the parent process failed.");
-                        }
-                        if (kill(pid, SIGSTOP) == -1){
-                            perror("Pausing the child process failed.");
-                        }
-                        g = std::move(g).resume();
-                        if (kill(pid, SIGCONT) == -1 ){
-                            perror("Parent process failed to unpause child process.");
-                        }
-                        if(relation->size() == 0){
-                            // continue to use params if the relation has no dependencies.
-                            params.append("\n");
-                        } else {
-                            // Override params with emplaced parameters.
-                            boost::json::object jv;
-                            boost::json::error_code ec;
-                            for (auto& dep: *relation){
-                                std::string value = dep->acquire_value();
-                                dep->release_value();
-                                boost::json::object val = boost::json::parse(value, ec).as_object();
-                                jv.emplace(dep->key(), val);
-                            }
-                            params = boost::json::serialize(jv);
-                            params.append("\n");
-                        }
-                        if( write(downstream[1], params.data(), params.size()) == -1 ){
-                            perror("Downstream write in the parent process failed.");
-                        }
-                        std::size_t max_length = 65536;
-                        std::size_t value_size = 0;
-                        std::string& value = relation->acquire_value();
-                        do {
-                            value.resize(max_length + value_size);
-                            length = read(upstream[0], (value.data() + value_size), max_length);
-                            if ( length == -1 ){
-                                throw "Upstream read in the parent process failed.";
-                            }
-                            value_size += length;
-                        } while( (value_size % max_length ) == 0 );
-                        value.resize(value_size);
-                        #ifdef DEBUG
-                        std::cout << value << std::endl;
-                        #endif
-                        relation->release_value();
                     }
+                    //Parent Process.
+                    if( close(downstream[0]) == -1 ){
+                        perror("closing the downstream read in the parent process failed.");
+                    }
+                    if ( close(upstream[1]) == -1 ){
+                        perror("closing the upstream write in the parent process failed.");
+                    }
+
+                    #ifdef DEBUG
+                    std::cout << "Parent process awaiting child: " << pid << ", to notify readiness." << std::endl;
+                    #endif
+
+                    char ready[1] = {};
+                    int length = read(upstream[0], ready, 1);
+                    if( length == -1 ){
+                        perror("Upstream read in the parent process failed.");
+                    }
+                    if (kill(pid, SIGSTOP) == -1){
+                        perror("Pausing the child process failed.");
+                    }
+
+                    #ifdef DEBUG
+                    std::cout << "Child process: " << ", notified parent of readiness, and paused awaiting a future signal." << std::endl;
+                    #endif
+
+                    g = std::move(g).resume();
+
+                    #ifdef DEBUG
+                    std::cout << "Child process: " << pid << ", to be resumed." << std::endl;
+                    #endif
+                    if (kill(pid, SIGCONT) == -1 ){
+                        perror("Parent process failed to unpause child process.");
+                    }
+                    if(relation->size() == 0){
+                        // continue to use params if the relation has no dependencies.
+                        params.append("\n");
+                    } else {
+                        // Override params with emplaced parameters.
+                        boost::json::object jv;
+                        boost::json::error_code ec;
+                        for (auto& dep: *relation){
+                            std::string value = dep->acquire_value();
+                            dep->release_value();
+                            boost::json::object val = boost::json::parse(value, ec).as_object();
+                            jv.emplace(dep->key(), val);
+                        }
+                        params = boost::json::serialize(jv);
+                        params.append("\n");
+                    }
+
+                    #ifdef DEBUG
+                    std::cout << "Child process: " << pid << ", having params: " << params << std::flush;
+                    #endif
+                    if( write(downstream[1], params.data(), params.size()) == -1 ){
+                        std::cerr << "Downstream write in the parent failed." << std::endl;
+                    }
+                    #ifdef DEBUG
+                    std::cout << "Write to child process: " << pid << ", successful." << std::endl;
+                    #endif
+
+                    std::size_t max_length = 65536;
+                    std::size_t value_size = 0;
+                    std::string val;         
+                    do {
+                        #ifdef DEBUG
+                        std::cout << "Start a read from the child process." << std::endl;
+                        #endif
+                        val.resize(max_length + value_size);
+                        length = read(upstream[0], (val.data() + value_size), max_length);
+                        if ( length == -1 ){
+                            std::cerr << "Upstream read in the parent process failed." << std::endl;
+                        }
+                        value_size += length;
+                    } while( (value_size % max_length ) == 0 );
+                    val.resize(value_size);
+                    #ifdef DEBUG
+                    std::cout << val << std::endl;
+                    #endif
+                    relation->acquire_value() = val;
+                    relation->release_value();
                     if ( close(downstream[1]) == -1 ){
                         perror("closing the downstream write failed.");
                     }
@@ -166,6 +230,11 @@ namespace run{
                     }
                     int status;
                     pid_t child_returned = waitpid( pid, &status, WNOHANG);
+
+                    #ifdef DEBUG
+                    std::cout << "Child: " << child_returned << ", returned with status: " << status << std::endl;
+                    #endif
+
                     switch (child_returned){
                         case 0:
                             // Child Process with specified PID exists, but has not exited normally yet.
@@ -187,13 +256,8 @@ namespace run{
                     return std::move(g);
                 }
             };
-            {
-                //Anonymous scope is to ensure that fibers reference is immediately invalidated.
-                std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
-                fibers.push_back(std::move(f));
-                ctx_ptr->release_fibers();
-            }
-
+            ctx_ptr->thread_controls().emplace_back();
+            ctx_ptr->thread_controls().back().f() = std::move(f);
         }
         return ctx_ptr;
     }

@@ -8,7 +8,7 @@ local function msg0(args)
 end
 
 local function msg1(args)
-	sleep(5)
+	sleep(20)
 	return { ["msg1"]="Hello World!" }
 end
 

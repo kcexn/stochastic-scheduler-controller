@@ -84,12 +84,8 @@ namespace init{
                 return std::move(g);      
             }
         };
-        {
-            //Anonymous scope is to ensure the fibers reference is immediately invalidated.
-            std::vector<boost::context::fiber>& fibers = ctx_ptr->acquire_fibers();
-            fibers.push_back(std::move(f).resume());
-            ctx_ptr->release_fibers();
-        }
+        ctx_ptr->thread_controls().emplace_back();
+        ctx_ptr->thread_controls().back().f() = std::move(f).resume();
         return ctx_ptr;
     }
 

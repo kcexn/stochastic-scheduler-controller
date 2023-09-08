@@ -1,7 +1,7 @@
 # Test Hello World
 
 This test contains two hello world lua functions that return after sleeping for 
-10 and 5 seconds respectively.
+10 and 20 seconds respectively.
 
 local function sleep(n)
 	os.execute("/usr/bin/sleep " .. tonumber(n))
@@ -13,7 +13,7 @@ local function msg0(args)
 end
 
 local function msg1(args)
-	sleep(5)
+	sleep(20)
 	return { ["msg1"]="Hello World!" }
 end
 
