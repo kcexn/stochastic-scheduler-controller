@@ -1,6 +1,5 @@
 #ifndef EXECUTION_CONTEXT_HPP
 #define EXECUTION_CONTEXT_HPP
-#include <boost/context/fiber.hpp>
 #include "../../http-server/http-server.hpp"
 #include "action-manifest.hpp"
 #include "thread-controls.hpp"
