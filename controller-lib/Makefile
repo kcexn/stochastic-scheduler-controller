@@ -12,7 +12,7 @@ BIN_DIR = ./bin
 VPATH = $(SRC_DIR)/ $(sort $(dir $(wildcard $(SRC_DIR)/*/))) $(sort $(dir $(wildcard $(SRC_DIR)/*/*/))) $(sort $(dir $(wildcard $(TESTS_DIR)/*/))) $(sort $(dir $(wildcard $(TESTS_DIR)/*/*/)))
 
 OBJECTS = uuid unix-server
-TESTS = uuid-tests
+TESTS = uuid-tests server-tests
 TARGET = owcontroller_utils
 
 # DEBUG SETTINGS
@@ -56,7 +56,8 @@ shared: $(INCLUDE_DIR) $(LIB_DIR)
 
 $(INCLUDE_DIR): $(SHARED_TARGET) $(STATIC_TARGET)
 	mkdir -p $(INCLUDE_DIR)
-	cp $(SRC_DIR)/**/*.hpp $(INCLUDE_DIR)/
+	cp -r $(SRC_DIR)/* $(INCLUDE_DIR)
+	find $(INCLUDE_DIR)/ -name "*.cpp" -delete
 
 $(SHARED_TARGET): $(SHARED_OBJECTS)
 	$(CXX) -shared $^ -o $@

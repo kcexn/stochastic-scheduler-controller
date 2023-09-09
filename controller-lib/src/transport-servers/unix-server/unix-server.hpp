@@ -5,6 +5,8 @@
 #include <sstream>
 #include <boost/asio.hpp>
 
+#include "../server/server.hpp"
+
 #ifdef DEBUG
 #include <iostream>
 #endif
@@ -58,6 +60,31 @@ namespace UnixServer{
         private:  
             boost::asio::io_context& ioc_;
             boost::asio::local::stream_protocol::acceptor acceptor_;
+    };
+
+    class unix_session : public server::Session
+    {
+    public:
+        unix_session(boost::asio::io_context& ioc): socket_(ioc) {}
+        unix_session(boost::asio::local::stream_protocol::socket&& socket): socket_(std::move(socket)) {}
+        void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) override;
+        void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) override;
+        void close() override;
+    
+    private:
+        boost::asio::local::stream_protocol::socket socket_;
+    };
+
+    class unix_server : public server::Server
+    {
+    public:
+        unix_server(boost::asio::io_context& ioc);
+        unix_server(boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint);
+        void accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn);
+        void stop() { acceptor_.close(); return; }
+            
+    private:
+        boost::asio::local::stream_protocol::acceptor acceptor_;
     };
 
 }//Namespace UnixServer
