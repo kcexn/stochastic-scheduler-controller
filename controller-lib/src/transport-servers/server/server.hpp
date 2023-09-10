@@ -12,7 +12,7 @@ namespace server
     // each unique stream as a Session.
     // Servers track the number of unique sessions, and maintain
     // the lifetime of sessions.
-    class Server: public std::vector<std::shared_ptr<Session> >
+    class Server: public std::vector<std::shared_ptr<Session> >, public std::enable_shared_from_this<Server>
     {
     public:
         // Server constructors accept an asio io_context.

@@ -6,6 +6,9 @@
 // Transport layer is dependent on boost/asio.
 namespace server
 {
+    /*Forward declarations*/
+    class Server;
+
     // Sessions own a low level interface to the unerlying transport 
     // byte stream. 
     // Sessions present an iostream of bytes for higher level presentation
@@ -17,19 +20,23 @@ namespace server
     {
     public:
         const static std::size_t max_buflen = 65536;
-        Session(): buf_(), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app), stop_signal_() {}
+        Session(Server& server): stop_signal_(), server_(server), buf_(), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app)  {}
 
         inline std::array<char, max_buflen>& buf() { return buf_; }
         inline std::stringstream& stream() {return stream_; }
         inline void cancel() { stop_signal_.emit(boost::asio::cancellation_type::total); }
+        void erase();
 
-        inline bool operator==(const Session& other) { return this == &other; }
-    protected:
         virtual void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) =0;
         virtual void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) =0;
         virtual void close() = 0;
+
+        inline bool operator==(const Session& other) { return this == &other; }
+    protected:
         boost::asio::cancellation_signal stop_signal_;
+        
     private:
+        server::Server& server_;
         std::array<char, max_buflen> buf_;
         std::stringstream stream_;
     };

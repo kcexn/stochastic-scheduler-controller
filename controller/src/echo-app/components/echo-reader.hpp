@@ -1,7 +1,6 @@
 #ifndef ECHO_READER_HPP
 #define ECHO_READER_HPP
 #include "../utils/common.hpp"
-#include "../../unix-server/unix-server.hpp"
 
 namespace echo{   
     class EchoReader
@@ -19,8 +18,6 @@ namespace echo{
         #endif
         void start();
         void async_sctp_read();
-        void async_unix_read(std::shared_ptr<UnixServer::Session> session);
-        void async_unix_accept();
         void request_cancel() { cancel_signal_.emit(boost::asio::cancellation_type::total); }
     private:
         boost::asio::cancellation_signal cancel_signal_;

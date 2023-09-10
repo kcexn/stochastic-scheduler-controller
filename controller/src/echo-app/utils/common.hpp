@@ -2,9 +2,9 @@
 #define ECHO_COMMON_HPP
 #include <mutex>
 #include <condition_variable>
-#include "uuid.hpp"
-#include "../../unix-server/unix-server.hpp"
+#include "uuid/uuid.hpp"
 #include "../../sctp-server/sctp-server.hpp"
+#include "transport-servers/unix-server/unix-server.hpp"
 
 namespace echo{
     // Enum identifying signal source/destination. 
@@ -45,7 +45,7 @@ namespace echo{
         sctp::sctp_message rcvdmsg = {};
         sctp::sctp_message sndmsg = {};
         std::shared_ptr<std::vector<char> > payload_buffer_ptr;
-        std::shared_ptr<UnixServer::Session> session_ptr;
+        std::shared_ptr<server::Session> session;
     };
 
     class ExecutionContext

@@ -1,6 +1,6 @@
 #ifndef HTTP_SERVER_HPP
 #define HTTP_SERVER_HPP
-#include "../unix-server/unix-server.hpp"
+#include "transport-servers/unix-server/unix-server.hpp"
 #include <memory>
 #include <istream>
 #include <string>
@@ -45,10 +45,13 @@ namespace Http{
     // Layer. All of the logic to serialize and deserialize HTTP should be 
     // stored in these HTTP::Sessions.
     public:
-        Session(const std::shared_ptr<UnixServer::Session>& session_ptr);
+        // Session(const std::shared_ptr<UnixServer::Session>& session_ptr);
+        Session(const std::shared_ptr<server::Session>& session_ptr);
+
+
         const std::shared_ptr<Request>& read_request();
         std::shared_ptr<Request>& request() { return request_; }
-        std::shared_ptr<UnixServer::Session>& unix_session(){ return session_ptr_; }
+        std::shared_ptr<server::Session>& session(){ return session_ptr_; }
 
 
         #ifdef DEBUG
@@ -61,7 +64,7 @@ namespace Http{
         }
 
     private:
-        std::shared_ptr<UnixServer::Session> session_ptr_;
+        std::shared_ptr<server::Session> session_ptr_;
         std::shared_ptr<Request> request_;
         std::shared_ptr<Response> response_;
     };

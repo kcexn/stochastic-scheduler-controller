@@ -9,13 +9,11 @@
 
 echo::EchoReader::EchoReader(
     std::shared_ptr<sctp_server::server> s_ptr,
-    // std::shared_ptr<UnixServer::Server> us_ptr,
     std::shared_ptr<std::mutex> signal_mtx_ptr,
     std::shared_ptr<echo::MailBox> read_mbox_ptr,
     std::shared_ptr<std::atomic<int> > signal_ptr,
     std::shared_ptr<std::condition_variable> signal_cv_ptr
 ) : s_ptr_(s_ptr),
-    // us_ptr_(us_ptr),
     signal_mtx_ptr_(signal_mtx_ptr),
     read_mbox_ptr_(read_mbox_ptr),
     signal_ptr_(signal_ptr),

@@ -114,7 +114,7 @@ namespace Http{
         return http_sessions_;
     }
 
-    Session::Session(const std::shared_ptr<UnixServer::Session>& session)
+    Session::Session(const std::shared_ptr<server::Session>& session)
       : session_ptr_(session),
         request_(std::make_shared<Request>(Request{})),
         response_(std::make_shared<Response>(Response{}))

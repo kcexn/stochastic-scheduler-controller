@@ -4,7 +4,6 @@
 #include "echo-reader.hpp"
 #include "echo-writer.hpp"
 #include "echo-application.hpp"
-#include "../../unix-server/unix-server.hpp"
 #include "../../controller/app/controller-app.hpp"
 
 #ifdef DEBUG

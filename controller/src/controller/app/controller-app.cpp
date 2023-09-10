@@ -49,7 +49,7 @@ namespace app{
             thread_local_msg_flag = io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed);
             // Unset the msg box flag.
             io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
-            Http::Session http_session( io_mbox_ptr_->session_ptr );
+            Http::Session http_session( io_mbox_ptr_->session );
             lk.unlock();
 
             #ifdef DEBUG
@@ -110,12 +110,21 @@ namespace app{
                                 //Write the http response to the unix socket with a unique fd.
                                 std::string str(ss.str());
                                 boost::asio::const_buffer write_buffer(str.data(), str.size());
-                                io_.async_unix_write(write_buffer, session_it->unix_session(), 
-                                    [&](UnixServer::Session& unix_session){
-                                        unix_session.cancel_reads();
-                                        unix_session.shutdown_write();
+                                std::shared_ptr<server::Session>& session = session_it->session();
+                                session_it->session()->async_write(
+                                    write_buffer,
+                                    [&, session](){
+                                        session->cancel();
+                                        session->close();
+                                        session->erase();
                                     }
                                 );
+                                // io_.async_unix_write(write_buffer, session_it->session(), 
+                                //     [&](UnixServer::Session& unix_session){
+                                //         unix_session.cancel_reads();
+                                //         unix_session.shutdown_write();
+                                //     }
+                                // );
                                 server_.erase(session_it);
                             } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
                         }
@@ -288,12 +297,24 @@ namespace app{
                             std::string str(ss.str());
                             //Write the http response to the unix socket with a unique fd.
                             boost::asio::const_buffer write_buffer(str.data(), str.size());
-                            io_.async_unix_write(write_buffer, session_it->unix_session(), 
-                                [&](UnixServer::Session& unix_session){
-                                    unix_session.cancel_reads();
-                                    unix_session.shutdown_write();
+                            std::shared_ptr<server::Session>& session = session_it->session();
+                            session->async_write(
+                                write_buffer,
+                                [&, session](){
+                                    session->cancel();
+                                    session->erase();
+                                    session->close();
                                 }
                             );
+
+
+
+                            // io_.async_unix_write(write_buffer, session_it->unix_session(), 
+                            //     [&](UnixServer::Session& unix_session){
+                            //         unix_session.cancel_reads();
+                            //         unix_session.shutdown_write();
+                            //     }
+                            // );
                             server_.erase(session_it);
                         }
                     }
@@ -333,10 +354,13 @@ namespace app{
                         std::string str(ss.str());
                         //Write the http response to the unix socket with a unique fd.
                         boost::asio::const_buffer write_buffer(str.data(), str.size());
-                        io_.async_unix_write(write_buffer, it->unix_session(), 
-                            [&](UnixServer::Session& unix_session){
-                                unix_session.cancel_reads();
-                                unix_session.shutdown_write();
+                        std::shared_ptr<server::Session>& session = it->session();
+                        session->async_write(
+                            write_buffer,
+                            [&, session](){
+                                session->cancel();
+                                session->close();
+                                session->erase();
                             }
                         );
                         server_.erase(it);

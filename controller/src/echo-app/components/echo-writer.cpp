@@ -49,19 +49,7 @@ void echo::EchoWriter::start(){
             #endif
             pthread_exit(0);
         }
-        if ((signal & echo::Signals::UNIX_WRITE) == echo::Signals::UNIX_WRITE){
-            mbox_lk.lock();
-            std::shared_ptr<UnixServer::Session> session_ptr(write_mbox_ptr_->session_ptr);
-            mbox_lk.unlock();
-            
-            // Unset the write signals.
-            write_mbox_ptr_->signal.fetch_and(~echo::Signals::UNIX_WRITE, std::memory_order::memory_order_relaxed);
-            write_mbox_ptr_->msg_flag.store(false);
-            write_mbox_ptr_->mbx_cv.notify_all();
-
-            session_ptr->do_write(session_ptr->buflen());
-            
-        } else if ((signal & echo::Signals::SCTP_WRITE) == echo::Signals::SCTP_WRITE){
+        if ((signal & echo::Signals::SCTP_WRITE) == echo::Signals::SCTP_WRITE){
             mbox_lk.lock();
             sctp::sctp_message sndmsg(write_mbox_ptr_->sndmsg);
             mbox_lk.unlock();
