@@ -81,7 +81,7 @@ namespace init{
                     std::ofstream file(path.string());
                     file << code;
                 }
-                return std::move(g);      
+                return std::move(g);
             }
         };
         ctx_ptr->thread_controls().emplace_back();
@@ -90,7 +90,7 @@ namespace init{
     }
 
     void base64extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2], const Request& req){
-        int status = 0;
+        int wstatus = 0;
         //syscall return two pipes.
         if (pipe(pipefd_down) == -1){
             perror("Downstream pipe failed to open.");
@@ -106,47 +106,39 @@ namespace init{
             if ( close(pipefd_up[0]) == -1 ){
                 perror("closing the upstream read in the child process failed.");
             }
+            if (close(pipefd_up[1]) == -1){
+                perror("closing the upstream write in the child process faild.");
+            }
             if (dup2(pipefd_down[0], STDIN_FILENO) == -1){
                 perror("Failed to map the downstream read to STDIN.");
             }
-            if (dup2(pipefd_up[1], STDOUT_FILENO) == -1){
-                perror("Failed to map the upstream write to STDOUT.");
+            int fd = open(filename.c_str(), O_CREAT | O_WRONLY | O_TRUNC);
+            if (dup2(fd, STDOUT_FILENO) == -1){
+                perror("Failed to map the filepath to STDOUT.");
             }
             std::vector<const char*> argv{"/usr/bin/base64", "-d", NULL};
             execve("/usr/bin/base64", const_cast<char* const*>(argv.data()), environ);
             exit(1);
-        } else {
-            if ( close(pipefd_up[1]) == -1 ){
-                perror("Parent closing the upstream write failed.");
-            }
-            if ( close(pipefd_down[0]) == -1 ){
-                perror("Parent closing the downstream read failed.");
-            }
-            int length = write(pipefd_down[1], req.value().code().data(), req.value().code().size());
-            if ( length == -1 ){
-                perror ("Write base64 encoded text to /usr/bin/base64 failed.");
-            }
-            if (close(pipefd_down[1]) == -1){
-                perror("Parent closing the downstream write failed.");
-            }
-            std::vector<char> binary(req.value().code().size());
-            length = read(pipefd_up[0], binary.data(), binary.size());
-            if ( length == -1 ){
-                perror("Read decoded binary file from /usr/bin/base64 failed.");
-            }
-            if ( close(pipefd_up[0]) == -1){
-                perror("Parent closing the read pipe failed.");
-            }
-            binary.resize(length);
-            std::ofstream file(filename);
-            file.write(binary.data(), binary.size());
-            waitpid(pid, &status, 0);
-            if ( status != 0 ){
-                std::stringstream ss;
-                ss << "base64 decode failed with status code: " << status << std::endl;
-                throw ss.str();
-            }
         }
+        if ( close(pipefd_up[1]) == -1 ){
+            perror("Parent closing the upstream write failed.");
+        }
+        if(close(pipefd_up[0]) == -1){
+            perror("Parent closing the upstream read failed.");
+        }
+        if ( close(pipefd_down[0]) == -1 ){
+            perror("Parent closing the downstream read failed.");
+        }
+        int length = write(pipefd_down[1], req.value().code().data(), req.value().code().size());
+        if ( length == -1 ){
+            perror ("Write base64 encoded text to /usr/bin/base64 failed.");
+        }
+        if (close(pipefd_down[1]) == -1){
+            perror("Parent closing the downstream write failed.");
+        }
+        // Block until base64 is done, but don't care about the return value since
+        // the clean up will be handled first by trapping SIGCHLD.
+        waitpid(pid,&wstatus,0);
     }
 
     void tar_extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2]){
@@ -163,15 +155,10 @@ namespace init{
             std::vector<const char*> argv{"/usr/bin/tar", "-C", fn_path.c_str(), "-xf", filename.c_str(), NULL};
             execve("/usr/bin/tar", const_cast<char* const*>(argv.data()), environ);
             exit(1);               
-        } else {
-            waitpid(pid, &status, 0);
-            if ( status != 0 ){
-                std::stringstream ss;
-                ss << "tar extraction failed with status code: " << status << std::endl;
-                throw ss.str();
-            }
-
         }
+        // block until tar has completed, but don't really care about the return status.
+        // since the waitpid will otherwise be handled by trapping SIGCHLD.
+        waitpid(pid, &status, 0);
     }
 }// namespace init
 }// namespace resources

@@ -80,7 +80,6 @@ namespace app{
                 #endif
             }
             if ( (thread_local_signal & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
-
                 // Find a context that has a valid stopped thread.
                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
                     auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
@@ -89,7 +88,8 @@ namespace app{
                     return (tmp == ctx_ptr->thread_controls().end())? false : true;
                 });
 
-                while( it != ctx_ptrs.end() ){
+                // While there are stopped threads.
+                while(it != ctx_ptrs.end()){
                     // Check to see if the context is stopped.
                     if ((*it)->is_stopped()){
                         // create the response.
@@ -119,12 +119,6 @@ namespace app{
                                         session->erase();
                                     }
                                 );
-                                // io_.async_unix_write(write_buffer, session_it->session(), 
-                                //     [&](UnixServer::Session& unix_session){
-                                //         unix_session.cancel_reads();
-                                //         unix_session.shutdown_write();
-                                //     }
-                                // );
                                 server_.erase(session_it);
                             } // else the request is no longer in the http sessions table, so we erase the context, and do nothing.
                         }
@@ -306,15 +300,6 @@ namespace app{
                                     session->close();
                                 }
                             );
-
-
-
-                            // io_.async_unix_write(write_buffer, session_it->unix_session(), 
-                            //     [&](UnixServer::Session& unix_session){
-                            //         unix_session.cancel_reads();
-                            //         unix_session.shutdown_write();
-                            //     }
-                            // );
                             server_.erase(session_it);
                         }
                     }

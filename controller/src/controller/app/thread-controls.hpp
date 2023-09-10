@@ -9,6 +9,7 @@ namespace app{
     {
     public:
         explicit ThreadControls(): 
+            pid_{0},
             mtx_(std::make_unique<std::mutex>()), 
             cv_(std::make_unique<std::condition_variable>()), 
             signal_(std::make_unique<std::atomic<int> >()),
@@ -24,8 +25,10 @@ namespace app{
         boost::context::fiber& f() { return f_; }
         void resume();
         void invalidate_fiber();
+        pid_t& pid() { return pid_; }
     private:
         pthread_t tid_;
+        pid_t pid_;
         std::unique_ptr<std::mutex> mtx_;
         std::unique_ptr<std::condition_variable> cv_;
         std::unique_ptr<std::atomic<int> > signal_;

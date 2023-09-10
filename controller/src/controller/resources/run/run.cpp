@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cctype>
-#include <sys/wait.h>
+#include <cerrno>
 
 #ifdef DEBUG
 #include <iostream>
@@ -93,6 +93,10 @@ namespace run{
         for (auto& relation: ctx_ptr->manifest()){
             boost::context::fiber f{
                 [&, req, ctx_ptr, relation](boost::context::fiber&& g) {
+                    // Get the index of the relation.
+                    auto it = std::find(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), relation);
+                    std::ptrdiff_t idx = it - ctx_ptr->manifest().begin();
+
                     boost::json::value jv;
                     jv = req.value();
                     std::string params = boost::json::serialize(jv);
@@ -142,6 +146,9 @@ namespace run{
                         execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
                         exit(1);
                     }
+                    // Save the PID in the relevant thread control.
+                    ctx_ptr->thread_controls()[idx].pid() = pid;
+
                     //Parent Process.
                     if( close(downstream[0]) == -1 ){
                         perror("closing the downstream read in the parent process failed.");
@@ -196,7 +203,10 @@ namespace run{
                     std::cout << "Child process: " << pid << ", having params: " << params << std::flush;
                     #endif
                     if( write(downstream[1], params.data(), params.size()) == -1 ){
-                        std::cerr << "Downstream write in the parent failed." << std::endl;
+                        perror("Downstream write in the parent failed");
+                    }
+                    if (close(downstream[1]) == -1){
+                        perror("closing the downstream write failed.");
                     }
                     #ifdef DEBUG
                     std::cout << "Write to child process: " << pid << ", successful." << std::endl;
@@ -204,55 +214,31 @@ namespace run{
 
                     std::size_t max_length = 65536;
                     std::size_t value_size = 0;
+                    int errsv = 0;
                     std::string val;         
                     do {
+                        errsv = 0;
                         #ifdef DEBUG
                         std::cout << "Start a read from the child process." << std::endl;
                         #endif
                         val.resize(max_length + value_size);
                         length = read(upstream[0], (val.data() + value_size), max_length);
-                        if ( length == -1 ){
-                            std::cerr << "Upstream read in the parent process failed." << std::endl;
+                        if (length != -1){
+                            value_size += length;
+                        } else {
+                            errsv = errno;
                         }
-                        value_size += length;
-                    } while( (value_size % max_length ) == 0 );
+                    } while( (value_size % max_length ) == 0 || errsv == EINTR);
+                    if (close(upstream[0]) == -1){
+                        perror("closing the upstream read failed.");
+                    }
                     val.resize(value_size);
                     #ifdef DEBUG
                     std::cout << val << std::endl;
                     #endif
                     relation->acquire_value() = val;
                     relation->release_value();
-                    if ( close(downstream[1]) == -1 ){
-                        perror("closing the downstream write failed.");
-                    }
-                    if ( close(upstream[0]) == -1 ){
-                        perror("closing the upstream read failed.");
-                    }
-                    int status;
-                    pid_t child_returned = waitpid( pid, &status, WNOHANG);
-
-                    #ifdef DEBUG
-                    std::cout << "Child: " << child_returned << ", returned with status: " << status << std::endl;
-                    #endif
-
-                    switch (child_returned){
-                        case 0:
-                            // Child Process with specified PID exists, but has not exited normally yet.
-                            // At this stage in the thread though, the output from the process has already been collected.
-                            // The only reason we would be in this state is if the application is hanging for some reason.
-                            // For example, `cat' glues STDIN to STDOUT and stays running until it receives a signal.
-                            // The scheduler thread at this stage will send a SIGTERM to the child process, and performa a blocking wait.
-                            if ( kill(pid, SIGTERM) == -1 ){
-                                perror("child process failed to terminate.");
-                            }
-                            if ( waitpid( pid, &status, 0) == -1 ){
-                                perror("Wait on child has failed.");
-                            }
-                            break;
-                        case -1:
-                            perror("Wait on child pid failed.");
-                            break;
-                    }
+                    // waitpid is handled by trapping SIGCHLD
                     return std::move(g);
                 }
             };

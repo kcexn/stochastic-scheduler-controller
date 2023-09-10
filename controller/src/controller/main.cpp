@@ -1,17 +1,27 @@
 #include "../echo-app/echo.hpp"
 #include <csignal>
 #include <unistd.h>
+#include <sys/wait.h>
 
 // Global Scheduler Signals.
 std::shared_ptr<std::mutex> SIGNAL_MTX_PTR;
 std::shared_ptr<std::atomic<int> > SIGNAL_PTR;
 std::shared_ptr<std::condition_variable> SIGNAL_CV_PTR;
 
-extern "C" {
-    void sigterm_handler(int signum){
-        if (signum == SIGTERM){
-            SIGNAL_PTR->fetch_or(echo::Signals::TERMINATE, std::memory_order::memory_order_relaxed);
-            SIGNAL_CV_PTR->notify_all();
+extern "C"{
+    void handler(int signum){
+        switch(signum){
+            case SIGTERM:
+                SIGNAL_PTR->fetch_or(echo::Signals::TERMINATE, std::memory_order::memory_order_relaxed);
+                SIGNAL_CV_PTR->notify_all();
+                break;
+            case SIGCHLD:
+                int wstatus = 0;
+                pid_t pid = 0;
+                do{
+                    pid = waitpid(0, &wstatus, WNOHANG);
+                } while(pid > 0);
+                break;
         }
     }
 }
@@ -23,10 +33,11 @@ int main(int argc, char* argv[])
     SIGNAL_CV_PTR = std::make_shared<std::condition_variable>();
 
     struct sigaction new_action = {};
-    new_action.sa_handler = sigterm_handler;
+    new_action.sa_handler = handler;
     sigemptyset(&(new_action.sa_mask));
     new_action.sa_flags=0;
     sigaction(SIGTERM, &new_action, NULL);
+    sigaction(SIGCHLD, &new_action, NULL);
 
     boost::asio::io_context ioc;
     echo::app echo_app(
