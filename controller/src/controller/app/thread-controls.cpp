@@ -26,8 +26,10 @@ namespace app{
     }
 
     std::vector<std::size_t> ThreadControls::invalidate() {
-        if((signal_->load(std::memory_order::memory_order_relaxed)&echo::Signals::SCHED_END) == 0){
+        if(!is_stopped()){
             pthread_cancel(tid_);
+            invalidate_fiber();
+            // Stop the thread.
             signal_->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
             if(pid_ > 0){
                 kill(pid_, SIGTERM);
