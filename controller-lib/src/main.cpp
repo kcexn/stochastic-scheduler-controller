@@ -1,9 +1,11 @@
 #include "../tests/uuid/uuid-tests.hpp"
 #include "../tests/transport-servers/unix-server/server-tests.hpp"
+#include "../tests/application-servers/http/http-requests-tests.hpp"
 #include <filesystem>
 
 int main(int argc, char* argv[]){
     {
+        // UUID tests.
         tests::Uuid default_uuid;
         if (default_uuid){
             std::cout << "default uuid tests passed." << std::endl;
@@ -12,6 +14,7 @@ int main(int argc, char* argv[]){
         }
     }
     {
+        // UNIX sockets tests.
         boost::asio::io_context ioc;
         std::filesystem::path p("/run/controller/controller.sock");
         boost::asio::local::stream_protocol::endpoint endpoint(p.string());
@@ -97,6 +100,25 @@ int main(int argc, char* argv[]){
             }
             std::filesystem::remove(p);
             ioc.restart();
+        }
+    }
+    {
+        // HTTP tests.
+        {
+            tests::HttpRequestsTests test_max_size(tests::HttpRequestsTests::test_max_chunk_size);
+            if(test_max_size){
+                std::cout << "Http request test 1 passed." << std::endl;
+            } else {
+                std::cerr << "Http request test 1 failed." << std::endl;
+            }
+        }
+        {
+            tests::HttpRequestsTests test_read_chunk(tests::HttpRequestsTests::test_read_chunk);
+            if(test_read_chunk){
+                std::cout << "Http request test 2 passed." << std::endl;
+            } else {
+                std::cerr << "Http request test 2 failed." << std::endl;
+            }
         }
     }
     return 0;

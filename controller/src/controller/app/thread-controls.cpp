@@ -39,6 +39,9 @@ namespace app{
         mtx_->lock();
         std::vector<std::size_t> tmp(execution_context_idxs_.size());
         std::memcpy(tmp.data(), execution_context_idxs_.data(), execution_context_idxs_.size());
+        // Clear the execution context idx vector so that subsequent invalidates do not
+        // receive a list of executions indexes to assign work to.
+        execution_context_idxs_.clear();
         mtx_->unlock();
         return tmp;
     }
