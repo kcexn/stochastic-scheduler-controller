@@ -53,6 +53,7 @@ namespace http{
     };
     // Http chunks are extracted from input streams.
     std::istream& operator>>(std::istream& is, HttpChunk& chunk);
+    // TODO: Http chunks need to be stream insertable.
 
     struct HttpHeaders
     {

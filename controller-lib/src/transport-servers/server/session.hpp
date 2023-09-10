@@ -31,12 +31,13 @@ namespace server
 
         virtual void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) =0;
         virtual void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) =0;
-        virtual void close() = 0;
+        virtual void close() =0;
 
         inline bool operator==(const Session& other) { return this == &other; }
+        
     protected:
         boost::asio::cancellation_signal stop_signal_;
-        
+
     private:
         server::Server& server_;
         std::array<char, max_buflen> buf_;
