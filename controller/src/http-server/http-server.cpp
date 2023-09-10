@@ -125,7 +125,8 @@ namespace Http{
     }
 
     const std::shared_ptr<Request>& Session::read_request() {
-        session_ptr_->stream() >> *request_;
+        session_ptr_->acquire_stream() >> *request_;
+        session_ptr_->release_stream();
         return request_;
     }
 }//namespace Http

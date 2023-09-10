@@ -24,6 +24,8 @@ namespace server
 
         inline std::array<char, max_buflen>& buf() { return buf_; }
         inline std::stringstream& stream() {return stream_; }
+        inline std::stringstream& acquire_stream(){ stream_mtx_.lock(); return stream_; }
+        inline void release_stream(){ stream_mtx_.unlock(); }
         inline void cancel() { stop_signal_.emit(boost::asio::cancellation_type::total); }
         void erase();
 
@@ -39,6 +41,7 @@ namespace server
         server::Server& server_;
         std::array<char, max_buflen> buf_;
         std::stringstream stream_;
+        std::mutex stream_mtx_;
     };
 }
 #endif
