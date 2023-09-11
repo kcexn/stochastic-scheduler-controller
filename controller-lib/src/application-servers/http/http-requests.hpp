@@ -33,6 +33,7 @@ namespace http{
     class HttpBigNum: public std::vector<std::size_t>
     {
     public:
+        HttpBigNum(): std::vector<std::size_t>{0} {}
         HttpBigNum(std::initializer_list<std::size_t> init): std::vector<std::size_t>(init){}
         HttpBigNum(const std::vector<std::size_t>& init): std::vector<std::size_t>(init){}
         HttpBigNum(const std::string& hex_str);
@@ -61,33 +62,29 @@ namespace http{
        
     private:
     };
+    std::ostream& operator<<(std::ostream& os, HttpBigNum& num);
 
 
     struct HttpChunk
     {
-        // chunk_size is transmitted as a 1*HEX digit.
-        const static std::size_t max_chunk_size{std::numeric_limits<std::size_t>::max()};
-        const static std::size_t max_hex_str_width{2*sizeof(std::size_t)};
-        // If the the chunk size has more than max_hex_str_width characters, then the chunk is too large
-        // to be represented by a size_t integer.
-        // If the chunk is too large to be represented by a size_t integer, then our application will
-        // reject the message (I am not sure that this is compliant with the RFC, but it is sufficient for our application).
-        // We do not handle leading 0s in the hex string (this would not be an efficient thing to do anyway since we are wasting bytes on no information).
-        std::size_t chunk_size;
-        std::string chunk_header;
+        HttpBigNum chunk_size;
         std::string chunk_data;
 
+        // Flags and buffers to help with processing HTTP chunks.
+        HttpBigNum received_bytes;
+        std::string chunk_header;
         // Set to true if the chunk size has been parsed already.
         // Is set to false by default.
         bool chunk_size_found;
-        // Set this flag to true if we have finished parsing the chunk.
-        // By default it is false.
+        bool chunk_body_start;
+        // Chunk complete guards against ingesting bytes from the stream
+        // that do not belong to this chunk.
         bool chunk_complete;
     };
     // Http chunks are extracted from input streams.
     std::istream& operator>>(std::istream& is, HttpChunk& chunk);
-    // TODO: Http chunks need to be stream insertable.
-
+    std::ostream& operator<<(std::ostream& os, HttpChunk& chunk);
+    
     struct HttpHeaders
     {
         HttpHeaderField field_name;

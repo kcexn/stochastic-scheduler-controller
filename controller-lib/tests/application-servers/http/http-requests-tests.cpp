@@ -3,49 +3,41 @@
 #include <charconv>
 namespace tests
 {
-    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::MaxChunkSize)
-      : passed_{false},
-        req_{},
-        chunk_{}
-    {
-        std::string hex_str(2*sizeof(std::size_t), '\0');
-        std::string str_cmp(2*sizeof(std::size_t), 'f');
-        std::to_chars_result res = std::to_chars(hex_str.data(), hex_str.data()+hex_str.size(), http::HttpChunk::max_chunk_size, 16);
-        if( hex_str == str_cmp ){
-            passed_ = true;
-        }
-    }
-
     HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::ReadChunk)
       : passed_{false},
         req_{},
         chunk_{}
     {
-        std::stringstream ss("16\r\n{\"msg\":\"Hello World!\"}\r\n");
-        ss >> chunk_;
-        std::cout << std::hex << chunk_.chunk_size << std::endl;
-        std::cout << chunk_.chunk_data << std::endl;
+        std::stringstream ss1("16\r\n{\"msg\":\"Hello World!\"}\r\n");
+        std::string cmp("{\"msg\":\"Hello World!\"}");
+        ss1 >> chunk_;
+        if(chunk_.chunk_data != cmp){
+            return;
+        }
 
+        
         http::HttpChunk last_chunk{};
         std::stringstream last_ss("0\r\n\r\n");
+        cmp.clear();
         last_ss >> last_chunk;
-        std::cout << std::hex << last_chunk.chunk_size << std::endl;
-        std::cout << last_chunk.chunk_data << std::endl;
+        if(last_chunk.chunk_data != cmp){
+            return;
+        }
 
 
         http::HttpChunk multiple_stream{};
-        std::stringstream first_ss("16\r\n{\"msg\"", std::ios_base::in | std::ios_base::out | std::ios_base::app);
-        std::string second_ss(":\"Hello World!\"}\r\n");
-        first_ss >> multiple_stream;
-        first_ss << second_ss;
-        first_ss >> multiple_stream;
-
-        std::cout << std::hex << multiple_stream.chunk_size << std::endl;
-        std::cout << multiple_stream.chunk_data << std::endl;
-
-        if (multiple_stream.chunk_complete && last_chunk.chunk_complete && chunk_.chunk_complete){
-            passed_ = true;
+        std::stringstream ss(std::ios_base::in | std::ios_base::out | std::ios_base::app);
+        std::string first("16\r\n{\"msg\"");
+        std::string second(":\"Hello World!\"}\r\n");
+        cmp = "{\"msg\":\"Hello World!\"}";
+        ss << first;
+        ss >> multiple_stream;
+        ss << second;
+        ss >> multiple_stream;
+        if(cmp != multiple_stream.chunk_data){
+            return;
         }
+        passed_ = true;
     }
 
     HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::BigNum)
@@ -99,6 +91,12 @@ namespace tests
         num1 = {1,1};
         num2 = {1,2};
         if(++num1 != num2){
+            return;
+        }
+
+        http::HttpBigNum tmp2;
+        num2 = {1};
+        if(++tmp2 != num2){
             return;
         }
 
@@ -261,6 +259,23 @@ namespace tests
             return;
         }
 
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::WriteChunk)
+      : passed_{false},
+        req_{},
+        chunk_{
+            {22},
+            std::string("{\"msg\":\"Hello World!\"}")
+        }
+    {
+        std::string cmp("16\r\n{\"msg\":\"Hello World!\"}\r\n");
+        std::stringstream ss;
+        ss << chunk_;
+        if( cmp != ss.str() ){
+            return;
+        }
         passed_ = true;
     }
 }

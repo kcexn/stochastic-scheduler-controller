@@ -6,13 +6,13 @@ namespace tests
     class HttpRequestsTests
     {
     public:
-        constexpr static struct MaxChunkSize{} test_max_chunk_size{};
         constexpr static struct ReadChunk{} test_read_chunk{};
         constexpr static struct BigNum{} test_big_num{};
+        constexpr static struct WriteChunk{} test_write_chunk{};
 
-        explicit HttpRequestsTests(MaxChunkSize);
         explicit HttpRequestsTests(ReadChunk);
         explicit HttpRequestsTests(BigNum);
+        explicit HttpRequestsTests(WriteChunk);
 
         operator bool(){ return passed_; }
     private:
