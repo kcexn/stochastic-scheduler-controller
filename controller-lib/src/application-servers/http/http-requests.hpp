@@ -29,7 +29,40 @@ namespace http{
         TRANSFER_ENCODING
     };
 
-    //
+    // This represents arbitrarily large Http Chunk Size numbers.
+    class HttpBigNum: public std::vector<std::size_t>
+    {
+    public:
+        HttpBigNum(std::initializer_list<std::size_t> init): std::vector<std::size_t>(init){}
+        HttpBigNum(const std::vector<std::size_t>& init): std::vector<std::size_t>(init){}
+        HttpBigNum(const std::string& hex_str);
+
+        bool operator==(const HttpBigNum& rhs);
+        bool operator!=(const HttpBigNum& rhs);
+        bool operator<(const HttpBigNum& rhs);
+        bool operator<=(const HttpBigNum& rhs);
+        bool operator>(const HttpBigNum& rhs);
+        bool operator>=(const HttpBigNum& rhs);
+
+        HttpBigNum& operator++();
+        HttpBigNum operator++(int);
+        HttpBigNum& operator--();
+        HttpBigNum operator--(int);
+
+        HttpBigNum& operator+=(const HttpBigNum& rhs);
+        HttpBigNum& operator+=(const std::size_t& rhs);
+        friend HttpBigNum operator+(HttpBigNum lhs, const HttpBigNum& rhs);
+        friend HttpBigNum operator+(HttpBigNum lhs, const std::size_t& rhs);
+
+        HttpBigNum& operator-=(const HttpBigNum& rhs);
+        HttpBigNum& operator-=(const std::size_t& rhs);
+        friend HttpBigNum operator-(HttpBigNum lhs, const HttpBigNum& rhs);
+        friend HttpBigNum operator-(HttpBigNum lhs, const std::size_t& rhs);
+       
+    private:
+    };
+
+
     struct HttpChunk
     {
         // chunk_size is transmitted as a 1*HEX digit.

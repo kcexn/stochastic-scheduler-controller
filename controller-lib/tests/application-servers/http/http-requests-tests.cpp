@@ -47,4 +47,220 @@ namespace tests
             passed_ = true;
         }
     }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::BigNum)
+      : passed_{false},
+        req_{},
+        chunk_{}
+    {
+        http::HttpBigNum num1{};
+        http::HttpBigNum num2{};
+        const std::size_t max = std::numeric_limits<std::size_t>::max();
+
+        // check equality overloads.
+        num1 = {25};
+        num2 = {25};
+        if(num1 != num2){
+            return;
+        }
+
+        num1 = {25, 25};
+        num2 = {25};
+        if(num1 == num2){
+            return;
+        }
+
+        num1 = {25,24};
+        num2 = {25};
+        if(num1 == num2){
+            return;
+        }
+
+        // check inequality overloads.
+        num1 = {24};
+        num2 = {25};
+        if(num1 > num2 || num1 >= num2){
+            return;
+        }
+
+        num1 = {24, 25};
+        num2 = {25};
+        if(num1 < num2 || num1 <= num2){
+            return;
+        }
+
+        num1 = {25, 24};
+        num2 = {25};
+        if(num1 < num2 || num1 <= num2){
+            return;
+        }
+
+        //check pre and post increments.
+        num1 = {1,1};
+        num2 = {1,2};
+        if(++num1 != num2){
+            return;
+        }
+
+        num1 = {max};
+        num2 = {1,0};
+        if(++num1 != num2){
+            return;
+        }
+
+        num1 = {1,1};
+        num2 = {1,2};
+        if(num1++ != num2){
+            return;
+        }
+
+        num1 = {max};
+        num2 = {1,0};
+        if(num1++ != num2){
+            return;
+        }
+
+        //check pre and post decrements.
+        num1 = {1,1};
+        num2 = {1,0};
+        if(--num1 != num2){
+            return;
+        }
+
+        num1 = {1,0};
+        num2 = {max};
+        if(--num1 != num2){
+            return;
+        }
+
+        num1 = {1,1};
+        num2 = {1,0};
+        if(num1-- != num2){
+            return;
+        }
+
+        num1 = {1,0};
+        num2 = {max};
+        if(num1-- != num2){
+            return;
+        }
+
+        // Check unary integer addition.
+        num1 = {1,0};
+        num2 = {1,2};
+        num1 += 2;
+        if(num1 != num2){
+            return;
+        }
+
+        num1 = {max-1};
+        num2 = {1,0};
+        num1 += 2;
+        if(num1 != num2){
+            return;
+        }
+
+        // check unary vector addition.
+        num1 = {1,0};
+        num2 = {2,1};
+        http::HttpBigNum tmp{1,1};
+        num1 += tmp;
+        if(num1 != num2){
+            return;
+        }
+
+        num1 = {max};
+        tmp = {max,max};
+        num2 = {1, 0, max-1};
+        num1 += tmp;
+        if(num1 != num2){
+            return;
+        }
+
+        // check binary addition.
+        num1 = {1,0};
+        tmp = {1,1};
+        num2 = {2,1};
+        if( (num1 + tmp) != num2 ){
+            return;
+        }
+
+        num1 = {max};
+        tmp = {max,max};
+        num2 = {1, 0, max-1};
+        if( (num1 + tmp) != num2){
+            return;
+        }
+
+        num1 = {1,0};
+        num2 = {1,2};
+        if( (num1 + 2) != num2){
+            return;
+        }
+
+        num1 = {max-1};
+        num2 = {1,0};
+        if( (num1 + 2) != num2){
+            return;
+        }
+
+        // check unary subtraction.
+        num1 = {1,1};
+        tmp = {1,2};
+        num1 -= tmp;
+        num2 = {0};
+        if(num1 != num2){
+            return;
+        }
+
+        num1 = {1,1};
+        tmp = {9};
+        num1 -= tmp;
+        num2 = {max-8};
+        if(num1 != num2){
+            return;
+        }
+
+        num1 = {1,1};
+        num2 = {max-8};
+        num1 -= 9;
+        if(num1 != num2){
+            return;
+        }
+
+        // check binary subtraction.
+        num1 = {1,1};
+        tmp = {1,2};
+        num2 = {0};
+        if( (num1 - tmp) != num2){
+            return;
+        }
+
+        tmp = {9};
+        num2 = {max-8};
+        if( (num1 - tmp) != num2){
+            return;
+        }
+
+        if( (num1 - 9) != num2){
+            return;
+        }
+
+        // Check hex string constructor.
+        std::string hexstr("3E8");
+        http::HttpBigNum num_from_hex(hexstr);
+        num2 = {1000};
+        if(num_from_hex != num2){
+            return;
+        }
+
+        hexstr = std::string("1FFFFFFFFFFFFFFFF");
+        http::HttpBigNum num_from_hex2(hexstr);
+        num2 = {1, max};
+        if(num_from_hex2 != num2){
+            return;
+        }
+
+        passed_ = true;
+    }
 }

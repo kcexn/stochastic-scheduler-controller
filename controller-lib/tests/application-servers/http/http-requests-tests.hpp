@@ -8,8 +8,11 @@ namespace tests
     public:
         constexpr static struct MaxChunkSize{} test_max_chunk_size{};
         constexpr static struct ReadChunk{} test_read_chunk{};
+        constexpr static struct BigNum{} test_big_num{};
+
         explicit HttpRequestsTests(MaxChunkSize);
         explicit HttpRequestsTests(ReadChunk);
+        explicit HttpRequestsTests(BigNum);
 
         operator bool(){ return passed_; }
     private:
