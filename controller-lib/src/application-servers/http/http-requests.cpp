@@ -1,6 +1,7 @@
 #include "http-requests.hpp"
 #include <charconv>
 #include <cstring>
+#include <algorithm>
 #include <iomanip>
 
 namespace http
@@ -263,7 +264,7 @@ namespace http
     HttpBigNum& HttpBigNum::operator-=(const HttpBigNum& rhs){
         if(*this <= rhs){
             // For the HTTP use case:
-            // if subtraction overflows we set the number
+            // if subtraction underflows we set the number
             // to be equal to 0.
             *this = {0};
             return *this;
@@ -385,7 +386,6 @@ namespace http
     }
 
     std::istream& operator>>(std::istream& is, HttpChunk& chunk){
-        // Store the start position of the current stream extraction attempt.
         // Get the stream locale for parsing.
         std::locale loc = is.getloc();
         std::streamsize bytes_available = is.rdbuf()->in_avail();
@@ -423,10 +423,11 @@ namespace http
                         }
                     }
                     if(chunk.chunk_size_found){
-                        // Set the chunk size, set the chunk size found flag
+                        // Set the chunk size.
                         chunk.chunk_size = HttpBigNum(chunk.chunk_header);
                         // free the memory in the chunk header.
-                        chunk.chunk_header = std::string();
+                        chunk.chunk_header.clear();
+                        chunk.chunk_header.shrink_to_fit();
                     }
                 }
                 // The chunk size has been found at this point, now we just need to seek the stream until we find a new line.
@@ -448,7 +449,6 @@ namespace http
                     chunk.chunk_data.push_back(cur);
                     ++(chunk.received_bytes);
                 }
-                // std::cout << chunk.chunk_data << std::endl;
             } else {
                 // There is a distinct possibility that there is still more data appended to the chunk past the end of chunk size.
                 // In this particular case we will keep seeking the stream until we find a new line, and set the get pointer to that position.
@@ -472,4 +472,150 @@ namespace http
            << chunk.chunk_data << "\r\n";
         return os;
     }
+
+    std::istream& operator>>(std::istream& is, HttpHeader& header){
+        // Get the stream locale for parsing.
+        std::locale loc = is.getloc();
+        std::streamsize bytes_available = is.rdbuf()->in_avail();
+        // While there are bytes available in the input stream, keep parsing.
+        while(bytes_available > 0 && !header.header_complete){
+            if(!header.field_name_found){
+                char cur;
+                while(bytes_available > 0){
+                    //Seek until either a non-white space character, or a new line.
+                    if(!header.not_last){
+                        is.get(cur);
+                        --bytes_available;
+                        if(cur == '\n'){
+                            // A new line was found without finding any
+                            // non-whitespace characters. Therefore this is the last header.
+                            // Mark it as the last header, and break.
+                            header.field_name_found = true;
+                            header.field_name = HttpHeaderField::END_OF_HEADERS;
+                            header.header_complete = true;
+                            break;
+                        } else if(!std::isspace(cur, loc)){
+                            // a non-whitespace character was found;
+                            // therefore; this is not the last header.
+                            header.not_last = true;
+                            // start pushing characters onto the buffer.
+                            header.buf.push_back(cur);
+                        }
+                    } else {
+                        // A non-whitespace character was found.
+                        // This is a valid header, but we still haven't found
+                        // the header field name.
+
+                         is.get(cur);
+                        --bytes_available;                       
+                        // Push all of the subsequent non white-space and non-delimter ':'
+                        // characters onto the buffer.
+                        if(!(std::isspace(cur,loc) || cur == ':')){
+                            header.buf.push_back(cur);
+                        } else {
+                            // White space or the delimiter ':' has been found.
+
+                            // If the delimiter ':' has been found, then mark it.
+                            if(cur == ':'){
+                                header.field_delimiter_found = true;
+                            }
+                            // Else we have found white space between the delimiter
+                            // and the header field name. This is technically
+                            // not allowed by the new RFC, RFC 9112, as 
+                            // incorrect handling of this white space has lead to security faults
+                            // in the past.
+                            
+                            // This means that the header field name has been found.
+                            header.field_name_found = true;
+
+                            // Normalize the header field name to upper case values.
+                            // This way the header fields become case insensitive.
+                            std::transform(header.buf.cbegin(), header.buf.cend(), header.buf.begin(), [](unsigned char c){ return std::toupper(c); });
+                            // Set the header field name.
+                            if(header.buf == "CONTENT-TYPE"){
+                                header.field_name = HttpHeaderField::CONTENT_TYPE;
+                            } else if (header.buf == "CONTENT-LENGTH"){
+                                header.field_name = HttpHeaderField::CONTENT_LENGTH;
+                            } else if (header.buf == "ACCEPT"){
+                                header.field_name = HttpHeaderField::ACCEPT;
+                            } else if (header.buf == "HOST"){
+                                header.field_name = HttpHeaderField::HOST;
+                            } else if (header.buf == "TRANSFER-ENCODING"){
+                                header.field_name = HttpHeaderField::TRANSFER_ENCODING;
+                            } else if (header.buf == "CONNECT") {
+                                header.field_name = HttpHeaderField::CONNECT;
+                            } else {
+                                header.field_name = HttpHeaderField::UNKNOWN;
+                            }
+                            // Free the memory in the header buffer.
+                            header.buf.clear();
+                            header.buf.shrink_to_fit();
+                            break;
+                        }
+                    }
+                }
+            } else {
+                // header field name has been found.
+                char c;
+                while(bytes_available > 0){
+                    // First, if the header field delimiter ':' has not been found yet, we need to seek for it.
+                    is.get(c);
+                    --bytes_available;
+                    if (!header.field_delimiter_found && c == ':'){
+                        // We have found the delimiter.
+                        header.field_delimiter_found = true;
+                    } else {
+                        // Seek for the first non-white space character.
+                        // OR a new line character, which marks the end of the header field value (i.e.; empty header field).
+                        if(c == '\n'){
+                            // The newline character marks the end of the header field value.
+                            // Technically, there is an exception for the message/http media type that delimited line folding is allowed.
+                            // However for the purposes of my application, I am only planning on implementing the application/json media type.
+                            header.header_complete = true;
+                            break;
+                        } else if(!std::isspace(c,loc) && !header.field_value_started){
+                            // The first non-whitespace character marks the beginning of the field falues.
+                            header.field_value_started = true;
+                            header.field_value.push_back(c);
+                        } else if(header.field_value_started && !header.field_value_ended){
+                            // The first non-white space character has been found,
+                            // that means that all visible ASCII character + spaces + tabs 
+                            // are part of the header field value, otherwise, the field 
+                            // value has finished.
+                            if(!std::isspace(c,loc) || c == ' ' || c == '\t'){
+                                header.field_value.push_back(c);
+                            } else {
+                                header.field_value_ended = true;
+                            }
+                        }
+                    }
+                }
+            }
+            bytes_available = is.rdbuf()->in_avail();
+        }
+        return is;
+    }
+
+    std::ostream& operator<<(std::ostream& os, HttpHeader& header){
+        switch(header.field_name)
+        {
+            case HttpHeaderField::CONTENT_TYPE:
+                os << "Content-Type: ";
+            case HttpHeaderField::CONTENT_LENGTH:
+                os << "Content-Length: ";
+            case HttpHeaderField::ACCEPT:
+                os << "Accept: ";
+            case HttpHeaderField::HOST:
+                os << "Host: ";
+            case HttpHeaderField::TRANSFER_ENCODING:
+                os << "Transfer-Encoding: ";
+            case HttpHeaderField::CONNECT:
+                os << "Connect: ";
+            default:
+                return os;
+        }
+        os << header.field_value << "\r\n";
+        return os;
+    }
+
 }

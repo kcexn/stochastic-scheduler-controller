@@ -4,7 +4,6 @@
 #include <string>
 #include <vector>
 #include <iostream>
-#include <regex>
 
 namespace http{
     enum class HttpVerb
@@ -26,7 +25,10 @@ namespace http{
         CONTENT_LENGTH,
         ACCEPT,
         HOST,
-        TRANSFER_ENCODING
+        TRANSFER_ENCODING,
+        END_OF_HEADERS,
+        UNKNOWN,
+        CONNECT
     };
 
     // This represents arbitrarily large Http Chunk Size numbers.
@@ -85,11 +87,22 @@ namespace http{
     std::istream& operator>>(std::istream& is, HttpChunk& chunk);
     std::ostream& operator<<(std::ostream& os, HttpChunk& chunk);
     
-    struct HttpHeaders
+    struct HttpHeader
     {
         HttpHeaderField field_name;
         std::string field_value;
+
+        //Flags and buffers to help with processing Http Headers.
+        std::string buf;
+        bool field_name_found;
+        bool field_delimiter_found;
+        bool field_value_started;
+        bool field_value_ended;
+        bool header_complete;
+        bool not_last;
     };
+    std::istream& operator>>(std::istream& is, HttpHeader& header);
+    std::ostream& operator<<(std::ostream& os, HttpHeader& header);
 
     // This is an HTTP1.1 Request Structure.
     // It is not comprehensive, and it only partially complies with the
@@ -101,7 +114,7 @@ namespace http{
         // required for an Http Request.
         HttpVerb verb;
         std::string route;
-        std::vector<HttpHeaders> headers;
+        std::vector<HttpHeader> headers;
         std::vector<HttpChunk> chunks;
 
         // Request processing flags and pointers.

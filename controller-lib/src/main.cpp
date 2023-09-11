@@ -128,6 +128,22 @@ int main(int argc, char* argv[]){
                 std::cerr << "Http request test 3 failed." << std::endl;
             }
         }
+        {
+            tests::HttpRequestsTests test_read_header(tests::HttpRequestsTests::test_read_header);
+            if(test_read_header){
+                std::cout << "Http request test 4 passed." << std::endl;
+            } else {
+                std::cerr << "Http request test 4 passed." << std::endl;
+            }
+        }
+        {
+            tests::HttpRequestsTests test_write_header(tests::HttpRequestsTests::test_write_header);
+            if(test_write_header){
+                std::cout << "Http request test 5 passed." << std::endl;
+            } else {
+                std::cerr << "Http request test 5 passed." << std::endl;
+            }
+        }
     }
     return 0;
 }

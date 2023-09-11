@@ -1,6 +1,7 @@
 #include "http-requests-tests.hpp"
 #include <iostream>
 #include <charconv>
+#include <sstream>
 namespace tests
 {
     HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::ReadChunk)
@@ -274,6 +275,78 @@ namespace tests
         std::stringstream ss;
         ss << chunk_;
         if( cmp != ss.str() ){
+            return;
+        }
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::ReadHeader)
+      : passed_{false},
+        req_{},
+        chunk_{}
+    {
+
+        // Simple header parsing test.
+        http::HttpHeader header{};
+        std::stringstream ss("Content-Type: application/json\r\n");
+        http::HttpHeaderField name_cmp = http::HttpHeaderField::CONTENT_TYPE;
+        std::string cmp("application/json");
+        ss >> header;
+        if(!(header.field_name == name_cmp) || !(header.field_value == cmp)){
+            return;
+        }
+
+        // Unknown header field.
+        std::stringstream ss1("  Unknown  : unknown  fields\r\n");
+        header = {};
+        ss1 >> header;
+        if(!(header.field_name == http::HttpHeaderField::UNKNOWN) || !(header.field_value == "unknown  fields")){
+            return;
+        }
+
+        // Header field name trailing spaces with known header field name.
+        std::stringstream ss2("   Accept  : application/json\r\n");
+        header = {};
+        ss2 >> header;
+        if(!(header.field_name == http::HttpHeaderField::ACCEPT) || !(header.field_value == "application/json")){
+            return;
+        }
+
+        // Last header.
+        std::stringstream ss3("         \r\n");
+        header = {};
+        ss3 >> header;
+        if(!(header.field_name == http::HttpHeaderField::END_OF_HEADERS) || !(header.field_value == "")){
+            return;
+        }
+
+        // Multistream header.
+        std::stringstream ss4;
+        std::string first("     Accept        ");
+        std::string second(":    application/json\r\n");
+        header = {};
+        ss4 << first;
+        ss4 >> header;
+        ss4 << second;
+        ss4 >> header;
+        if(!(header.field_name == http::HttpHeaderField::ACCEPT) || !(header.field_value == "application/json")){
+            return;
+        }
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::WriteHeader)
+      : passed_{false},
+        req_{},
+        chunk_{}
+    {
+        http::HttpHeader header{
+            http::HttpHeaderField::CONTENT_TYPE,
+            std::string("application/json")
+        };
+        std::stringstream ss;
+        ss << header;
+        if(!(ss.str() == "Content-Type: application/json\r\n")){
             return;
         }
         passed_ = true;
