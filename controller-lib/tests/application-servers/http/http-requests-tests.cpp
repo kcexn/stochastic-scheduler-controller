@@ -245,21 +245,35 @@ namespace tests
             return;
         }
 
+
         // Check hex string constructor.
         std::string hexstr("3E8");
-        http::HttpBigNum num_from_hex(hexstr);
+        http::HttpBigNum num_from_hex(http::HttpBigNum::hex, hexstr);
         num2 = {1000};
         if(num_from_hex != num2){
             return;
         }
 
         hexstr = std::string("1FFFFFFFFFFFFFFFF");
-        http::HttpBigNum num_from_hex2(hexstr);
+        http::HttpBigNum num_from_hex2(http::HttpBigNum::hex, hexstr);
         num2 = {1, max};
         if(num_from_hex2 != num2){
             return;
         }
 
+        std::string decstr("300");
+        http::HttpBigNum num_from_hex3(http::HttpBigNum::dec, decstr);
+        num2 = {300};
+        if(num_from_hex3 != num2){
+            return;
+        }
+
+        decstr = "300000000000000000000";
+        http::HttpBigNum num_from_hex4(http::HttpBigNum::dec, decstr);
+        num2 = {16, 4852094820647174144};
+        if(num_from_hex4 != num2){
+            return;
+        }
         passed_ = true;
     }
 
@@ -347,6 +361,110 @@ namespace tests
         std::stringstream ss;
         ss << header;
         if(!(ss.str() == "Content-Type: application/json\r\n")){
+            return;
+        }
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::ReadRequest)
+      : passed_{false},
+        req_{},
+        chunk_{}
+    {
+        http::HttpRequest req{};
+        std::stringstream ss("GET /run HTTP/1.1\r\nContent-Length: 22\r\nContent-Type: application/json\r\n\r\n{\"msg\":\"Hello World!\"}");
+        ss >> req;
+        if(req.verb != http::HttpVerb::GET 
+                || req.route != "/run" 
+                || req.headers[0].field_name != http::HttpHeaderField::CONTENT_LENGTH
+                || req.headers[1].field_name != http::HttpHeaderField::CONTENT_TYPE
+                || req.chunks[0].chunk_size != http::HttpBigNum{22}
+                || req.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"
+        ){
+            return;
+        }
+
+        // Multiple stream.
+        req = http::HttpRequest{};
+        std::stringstream ss1;
+        std::string first("POST ");
+        std::string second("/run HTTP/1.1\r\n");
+        std::string third("Content-Length: 22\r\nContent-Type: application/json\r\n");
+        std::string fourth("\r\n");
+        std::string fifth("{\"msg\":\"Hello");
+        std::string sixth(" World!\"}");
+        ss1 << first;
+        ss1 >> req;
+        ss1 << second;
+        ss1 >> req;
+        ss1 << third;
+        ss1 >> req;
+        ss1 << fourth;
+        ss1 >> req;
+        ss1 << fifth;
+        ss1 >> req;
+        ss1 << sixth;
+        ss1 >> req;
+        if(req.verb != http::HttpVerb::POST
+                || req.route != "/run"
+                || req.headers[0].field_name != http::HttpHeaderField::CONTENT_LENGTH
+                || req.headers[1].field_name != http::HttpHeaderField::CONTENT_TYPE
+                || req.chunks[0].chunk_size != http::HttpBigNum{22}
+                || req.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"
+        ){
+            return;
+        }
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::WriteRequest)
+      : passed_{false},
+        req_{},
+        chunk_{}
+    {
+        http::HttpRequest req{
+            http::HttpVerb::GET,
+            "/run",
+            http::HttpVersion::V1_1,
+            {
+                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                {http::HttpHeaderField::CONTENT_LENGTH, "22"},
+                {http::HttpHeaderField::END_OF_HEADERS, ""}
+            },
+            {
+                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+            }
+        };
+        std::stringstream ss;
+        ss << req;
+        std::string cmp("GET /run HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 22\r\n\r\n{\"msg\":\"Hello World!\"}");
+        if(ss.str() != cmp){
+            return;
+        }
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::WriteResponse)
+      : passed_{false},
+        req_{},
+        chunk_{}
+    {
+        http::HttpResponse res{
+            http::HttpVersion::V1_1,
+            http::HttpStatus::OK,
+            {
+                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                {http::HttpHeaderField::CONTENT_LENGTH, "22"},
+                {http::HttpHeaderField::END_OF_HEADERS, ""}
+            },
+            {
+                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+            }
+        };
+        std::stringstream ss;
+        ss << res;
+        std::string cmp("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 22\r\n\r\n{\"msg\":\"Hello World!\"}");
+        if(ss.str() != cmp){
             return;
         }
         passed_ = true;

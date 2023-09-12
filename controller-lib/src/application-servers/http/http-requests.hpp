@@ -6,14 +6,37 @@
 #include <iostream>
 
 namespace http{
+    enum class HttpVersion
+    {
+        V1,
+        V1_1,
+        V2,
+        V3,
+        V0_9
+    };
+
     enum class HttpVerb
     {
+        UNKNOWN,
         GET,
         POST,
         PATCH,
         PUT,
         TRACE,
-        DELETE
+        DELETE,
+        CONNECT
+    };
+
+    // This is a non exhaustive list of status codes.
+    enum class HttpStatus
+    {
+        OK = 200,
+        NOT_FOUND = 404,
+        CONFLICT = 409,
+        METHOD_NOT_ALLOWED = 405,
+        INTERNAL_SERVER_ERROR = 500,
+        CREATED = 201,
+        ACCEPTED = 202
     };
 
     // This is a non-exhaustive list of HTTP
@@ -21,24 +44,29 @@ namespace http{
     // we care about in our application.
     enum class HttpHeaderField
     {
+        UNKNOWN,
         CONTENT_TYPE,
         CONTENT_LENGTH,
         ACCEPT,
         HOST,
         TRANSFER_ENCODING,
         END_OF_HEADERS,
-        UNKNOWN,
-        CONNECT
+        CONNECTION
     };
 
     // This represents arbitrarily large Http Chunk Size numbers.
     class HttpBigNum: public std::vector<std::size_t>
     {
     public:
+        constexpr static struct Dec{} dec{};
+        constexpr static struct Hex{} hex{};
+
+
         HttpBigNum(): std::vector<std::size_t>{0} {}
         HttpBigNum(std::initializer_list<std::size_t> init): std::vector<std::size_t>(init){}
         HttpBigNum(const std::vector<std::size_t>& init): std::vector<std::size_t>(init){}
-        HttpBigNum(const std::string& hex_str);
+        explicit HttpBigNum(Hex, const std::string& hex_str);
+        explicit HttpBigNum(Dec, const std::string& dec_str);
 
         bool operator==(const HttpBigNum& rhs);
         bool operator!=(const HttpBigNum& rhs);
@@ -114,6 +142,7 @@ namespace http{
         // required for an Http Request.
         HttpVerb verb;
         std::string route;
+        HttpVersion version;
         std::vector<HttpHeader> headers;
         std::vector<HttpChunk> chunks;
 
@@ -138,11 +167,62 @@ namespace http{
         // be processed (the request body is complete, any further data that)
         // arrives in the stream should be disregarded.
         std::size_t num_chunks;
+        // This is a helper member that can be used by
+        // applications to keep track of the index of the last
+        // chunked processed.
+        std::size_t pos;
+
+        // flags to track the status of the route string buffer.
+        bool route_started;
+        bool route_finished;
+
+        //flags and buffers to track the status of the version string.
+        std::string version_buf;
+        std::size_t find_version_state;
+        const static std::size_t max_find_state = 5;
+        bool version_finished;
+
+        // flags and buffers to track the status of the HttpVerb string.
+        std::string verb_buf;
+        bool verb_started;
+        bool verb_finished;
 
         // If this flag is true, then Content-Length header field must be present.
         // Otherwise chunked transfer encoding is assumed.
         // By default, chunked transfer encoding is assumed.
         bool not_chunked_transfer;
+
+        // Overall stream control flags.
+        bool http_request_line_complete;
     };
+    std::istream& operator>>(std::istream& is, HttpRequest& req);
+    std::ostream& operator<<(std::ostream& os, HttpRequest& req);
+
+    // Http responses do not support stream extraction,
+    // as they are constructed server side.
+    struct HttpResponse
+    {
+        HttpVersion version;
+        HttpStatus status;
+        std::vector<HttpHeader> headers;
+        std::vector<HttpChunk> chunks;
+
+        // Gives the index of the next http chunk to be processed.
+        // If next_chunk == chunks.size(), then there is no more 
+        // data to be processed.
+        std::size_t next_chunk;
+        // Gives the total number of chunks in the HTTP1.1 request.
+        // If next_chunk == num_chunks then no more data should
+        // be processed (the request body is complete, any further data that)
+        // arrives in the stream should be disregarded.
+        std::size_t num_chunks;
+
+        // If this flag is true, then Content-Length header field must be present.
+        // Otherwise chunked transfer encoding is assumed.
+        // By default, chunked transfer encoding is assumed.
+        bool not_chunked_transfer;     
+    };
+    std::ostream& operator<<(std::ostream& os, HttpResponse& res);
+
 }
 #endif

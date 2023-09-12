@@ -11,12 +11,18 @@ namespace tests
         constexpr static struct WriteChunk{} test_write_chunk{};
         constexpr static struct ReadHeader{} test_read_header{};
         constexpr static struct WriteHeader{} test_write_header{};
+        constexpr static struct ReadRequest{} test_read_request{};
+        constexpr static struct WriteRequest{} test_write_request{};
+        constexpr static struct WriteResponse{} test_write_response{};
 
         explicit HttpRequestsTests(ReadChunk);
         explicit HttpRequestsTests(BigNum);
         explicit HttpRequestsTests(WriteChunk);
         explicit HttpRequestsTests(ReadHeader);
         explicit HttpRequestsTests(WriteHeader);
+        explicit HttpRequestsTests(ReadRequest);
+        explicit HttpRequestsTests(WriteRequest);
+        explicit HttpRequestsTests(WriteResponse);
 
         operator bool(){ return passed_; }
     private:
