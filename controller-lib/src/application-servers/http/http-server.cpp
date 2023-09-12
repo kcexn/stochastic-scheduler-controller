@@ -7,33 +7,7 @@
 #ifdef DEBUG
 #include <iostream>
 #endif
-
 namespace http{
-        void HttpSession::read()
-        {
-            HttpRequest& req = acquire_request();
-            t_session_->acquire_stream() >> req;
-            t_session_->release_stream();
-            release_request();
-        }
-
-        void HttpSession::write(const std::function<void()>& fn)
-        {
-            std::stringstream ss;
-            ss << acquire_response();
-            release_response();
-            std::string data_buf(ss.str());
-            boost::asio::const_buffer buf(data_buf.data(), data_buf.size());
-            t_session_->async_write(buf, fn);
-        }
-
-        void HttpSession::close()
-        {
-            t_session_->cancel();
-            t_session_->close();
-            t_session_->erase();
-            erase();
-        }
 
 
 

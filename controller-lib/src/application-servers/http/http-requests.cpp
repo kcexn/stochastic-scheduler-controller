@@ -630,7 +630,7 @@ namespace http
                 os << "Transfer-Encoding: ";
                 break;
             case HttpHeaderField::CONNECTION:
-                os << "Connect: ";
+                os << "Connection: ";
                 break;
             default:
                 return os;

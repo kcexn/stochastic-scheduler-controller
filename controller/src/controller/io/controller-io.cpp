@@ -30,7 +30,8 @@ namespace io{
             if (!ec){
                 std::shared_ptr<UnixServer::unix_session> session = std::make_shared<UnixServer::unix_session>(std::move(socket), us_);
                 std::function<void(boost::system::error_code ec, std::size_t length)> g = [&, session](boost::system::error_code ec, std::size_t length){
-                    session->stream().write(session->buf().data(), length);
+                    session->acquire_stream().write(session->buf().data(), length);
+                    session->release_stream();
                     std::unique_lock<std::mutex> lk(mbox_ptr_->mbx_mtx);
                     mbox_ptr_->mbx_cv.wait(lk, [&]{ return (mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)==false || mbox_ptr_->signal.load(std::memory_order::memory_order_relaxed) !=0); });
                     int thread_local_signal = mbox_ptr_->signal.load(std::memory_order::memory_order_relaxed);

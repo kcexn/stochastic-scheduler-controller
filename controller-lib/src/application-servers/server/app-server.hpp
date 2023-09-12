@@ -6,10 +6,6 @@ namespace app_server{
     // The application server is a container for managing
     // application sessions.
     template<class... Types>
-    class Server: public std::enable_shared_from_this<Server<Types...> >, public std::vector<std::shared_ptr<Session<Types...> > >
-    {
-    public:
-    private:
-    };
+    class Server: public std::vector<std::shared_ptr<Session<Types...> > >, public std::enable_shared_from_this<Server<Types...> >{};
 }//namespace app_server
 #endif
