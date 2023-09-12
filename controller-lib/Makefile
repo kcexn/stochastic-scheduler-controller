@@ -11,8 +11,8 @@ OBJ_DIR = ./objects
 BIN_DIR = ./bin
 VPATH = $(SRC_DIR)/ $(sort $(dir $(wildcard $(SRC_DIR)/*/))) $(sort $(dir $(wildcard $(SRC_DIR)/*/*/))) $(sort $(dir $(wildcard $(TESTS_DIR)/*/))) $(sort $(dir $(wildcard $(TESTS_DIR)/*/*/)))
 
-OBJECTS = uuid unix-server session http-requests
-TESTS = uuid-tests server-tests http-requests-tests
+OBJECTS = uuid unix-server session http-requests http-server
+TESTS = uuid-tests server-tests http-requests-tests http-server-tests
 TARGET = owcontroller_utils
 
 # DEBUG SETTINGS

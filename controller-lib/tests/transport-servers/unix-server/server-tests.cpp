@@ -63,7 +63,8 @@ namespace tests{
                 std::shared_ptr<UnixServer::unix_session> session = std::make_shared<UnixServer::unix_session>(std::move(socket), server_);
                 session->async_read(
                     [&, session](const boost::system::error_code& ec, std::size_t bytes_transferred){
-                        session->stream().write(session->buf().data(), bytes_transferred);
+                        session->acquire_stream().write(session->buf().data(), bytes_transferred);
+                        session->release_stream();
                         boost::asio::const_buffer buf(session->buf().data(), bytes_transferred);
                         session->async_write(
                             buf,
@@ -90,7 +91,8 @@ namespace tests{
                 std::shared_ptr<UnixServer::unix_session> session = std::make_shared<UnixServer::unix_session>(std::move(socket), server_);
                 session->async_read(
                     [&, session](const boost::system::error_code& ec, std::size_t bytes_transferred){
-                        session->stream().write(session->buf().data(), bytes_transferred);
+                        session->acquire_stream().write(session->buf().data(), bytes_transferred);
+                        session->release_stream();
                         boost::asio::const_buffer buf(session->buf().data(), bytes_transferred);
                         session->async_write(
                             buf,

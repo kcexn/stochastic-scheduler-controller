@@ -23,7 +23,6 @@ namespace server
         Session(Server& server): stop_signal_(), server_(server), buf_(), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app)  {}
 
         inline std::array<char, max_buflen>& buf() { return buf_; }
-        inline std::stringstream& stream() {return stream_; }
         inline std::stringstream& acquire_stream(){ stream_mtx_.lock(); return stream_; }
         inline void release_stream(){ stream_mtx_.unlock(); }
         inline void cancel() { stop_signal_.emit(boost::asio::cancellation_type::total); }
