@@ -157,6 +157,9 @@ namespace app{
         #endif
         http::HttpReqRes req_res = session->get();
         http::HttpRequest& req = std::get<http::HttpRequest>(req_res);
+        #ifdef DEBUG
+        std::cout << req << std::endl;
+        #endif
         // Start processing chunks, iff next_chunk > 0.
         if(req.next_chunk > 0){
             if(req.route == "/run" || req.route == "/init"){
