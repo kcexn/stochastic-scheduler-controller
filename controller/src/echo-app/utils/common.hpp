@@ -2,9 +2,9 @@
 #define ECHO_COMMON_HPP
 #include <mutex>
 #include <condition_variable>
-#include "uuid/uuid.hpp"
+#include <uuid/uuid.hpp>
+#include <transport-servers/unix-server/unix-server.hpp>
 #include "../../sctp-server/sctp-server.hpp"
-#include "transport-servers/unix-server/unix-server.hpp"
 
 namespace echo{
     // Enum identifying signal source/destination. 

@@ -3,7 +3,6 @@
 #include "execution-context.hpp"
 #include <application-servers/http/http-server.hpp>
 #include <application-servers/http/http-session.hpp>
-#include "../../http-server/http-server.hpp"
 #include "../io/controller-io.hpp"
 
 namespace controller{
@@ -20,7 +19,6 @@ namespace app{
         void stop();
         ~Controller();
     private:
-        Http::Server server_;
         http::HttpServer hs_;
         // Controller Thread ID.
         pthread_t tid_;

@@ -10,7 +10,7 @@ VPATH = $(sort $(dir $(wildcard $(SRC_DIR)/*/))) $(sort $(dir $(wildcard $(SRC_D
 
 TARGET = controller
 OBJECTS = echo echo-worker echo-reader echo-writer sctp-server \
-echo-scheduler echo-application http-server controller-app run init \
+echo-scheduler echo-application controller-app run init \
 controller-io execution-context action-manifest action-relation thread-controls
 
 # DEBUG SETTINGS
