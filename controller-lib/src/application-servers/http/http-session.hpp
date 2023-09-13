@@ -1,10 +1,11 @@
-#ifndef HTTP_SESSION_HPP
-#define HTTP_SESSION_HPP
+#ifndef OWLIB_HTTP_SESSION_HPP
+#define OWLIB_HTTP_SESSION_HPP
 #include "../server/app-session.hpp"
 #include "http-requests.hpp"
 #include "http-server.hpp"
 
 namespace http{
+    typedef std::tuple<HttpRequest, HttpResponse> HttpReqRes;
     typedef app_server::Session<HttpRequest, HttpResponse> http_session;
 
     //Http Sessions Contain a single request, and a single response.
@@ -16,7 +17,14 @@ namespace http{
 
         void read() override;
         void write(const std::function<void()>& fn) override;
+        void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
         void close() override;
+
+        ~HttpSession() {             
+            if(t_session_){
+                t_session_->erase();
+            }
+        }
     };
 }
 #endif

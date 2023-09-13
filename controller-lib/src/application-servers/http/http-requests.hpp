@@ -1,5 +1,5 @@
-#ifndef HTTP_REQUESTS_HPP
-#define HTTP_REQUESTS_HPP
+#ifndef OWLIB_HTTP_REQUESTS_HPP
+#define OWLIB_HTTP_REQUESTS_HPP
 #include <limits>
 #include <string>
 #include <vector>
@@ -31,6 +31,7 @@ namespace http{
     enum class HttpStatus
     {
         OK = 200,
+        NO_CONTENT = 204,
         NOT_FOUND = 404,
         CONFLICT = 409,
         METHOD_NOT_ALLOWED = 405,
@@ -92,7 +93,7 @@ namespace http{
        
     private:
     };
-    std::ostream& operator<<(std::ostream& os, HttpBigNum& num);
+    std::ostream& operator<<(std::ostream& os, const HttpBigNum& num);
 
 
     struct HttpChunk
@@ -113,7 +114,7 @@ namespace http{
     };
     // Http chunks are extracted from input streams.
     std::istream& operator>>(std::istream& is, HttpChunk& chunk);
-    std::ostream& operator<<(std::ostream& os, HttpChunk& chunk);
+    std::ostream& operator<<(std::ostream& os, const HttpChunk& chunk);
     
     struct HttpHeader
     {
@@ -130,7 +131,7 @@ namespace http{
         bool not_last;
     };
     std::istream& operator>>(std::istream& is, HttpHeader& header);
-    std::ostream& operator<<(std::ostream& os, HttpHeader& header);
+    std::ostream& operator<<(std::ostream& os, const HttpHeader& header);
 
     // This is an HTTP1.1 Request Structure.
     // It is not comprehensive, and it only partially complies with the
@@ -196,7 +197,7 @@ namespace http{
         bool http_request_line_complete;
     };
     std::istream& operator>>(std::istream& is, HttpRequest& req);
-    std::ostream& operator<<(std::ostream& os, HttpRequest& req);
+    std::ostream& operator<<(std::ostream& os, const HttpRequest& req);
 
     // Http responses do not support stream extraction,
     // as they are constructed server side.
@@ -222,7 +223,7 @@ namespace http{
         // By default, chunked transfer encoding is assumed.
         bool not_chunked_transfer;     
     };
-    std::ostream& operator<<(std::ostream& os, HttpResponse& res);
+    std::ostream& operator<<(std::ostream& os, const HttpResponse& res);
 
 }
 #endif

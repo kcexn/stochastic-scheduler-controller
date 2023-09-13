@@ -16,6 +16,9 @@ namespace UnixServer{
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) override;
         void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) override;
         void close() override;
+        ~unix_session() {
+            cancel();
+        }
     
     private:
         boost::asio::local::stream_protocol::socket socket_;

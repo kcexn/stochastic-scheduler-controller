@@ -21,6 +21,8 @@ namespace server
         
         template<typename Rep, typename Period>
         std::size_t run_for(const boost::asio::chrono::duration<Rep, Period>& rel_time) { return ioc_.run_for(rel_time); }
+
+        virtual ~Server() = default;
     private:
         // Servers keep a reference to a global io_context.
         boost::asio::io_context& ioc_;

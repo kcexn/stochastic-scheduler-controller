@@ -59,10 +59,6 @@ namespace io{
 
     void IO::stop(){
         ioc_.stop();
-        for (auto session: us_){
-            session->cancel();
-            session->close();
-        }
         us_.clear();
 
         // Wait a reasonable amount of time for the IO thread to stop.

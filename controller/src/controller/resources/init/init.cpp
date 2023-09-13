@@ -34,7 +34,7 @@ namespace init{
       }
 
     std::shared_ptr<controller::app::ExecutionContext> handle( Request& req){
-        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::Init{});
+        std::shared_ptr<controller::app::ExecutionContext> ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::init);
         boost::context::fiber f{
             [&, req, ctx_ptr](boost::context::fiber&& g){
                 g = std::move(g).resume();

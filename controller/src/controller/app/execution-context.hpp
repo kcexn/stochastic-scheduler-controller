@@ -1,12 +1,23 @@
 #ifndef EXECUTION_CONTEXT_HPP
 #define EXECUTION_CONTEXT_HPP
+#include <application-servers/http/http-session.hpp>
 #include "../../http-server/http-server.hpp"
 #include "action-manifest.hpp"
 #include "thread-controls.hpp"
 
 namespace controller{
+namespace resources{
+    enum class Routes 
+    {
+        RUN,
+        INIT
+    };
+}// resources
+}// controller
+
+namespace controller{
 namespace app{
-class ExecutionContext
+    class ExecutionContext
     {
     public:
         constexpr static struct Init{} init{};
@@ -17,10 +28,12 @@ class ExecutionContext
         explicit ExecutionContext(Run run);
         explicit ExecutionContext(Run run, const UUID::Uuid& uuid);
         bool is_stopped();
+        std::vector<std::shared_ptr<http::HttpSession> >& sessions() { return http_session_ptrs_; }
         std::vector<std::shared_ptr<Http::Request> >& reqs() { return requests_; }
         Http::Response& res() { return res_; }
         const UUID::Uuid& execution_context_id() const noexcept { return execution_context_id_; }
         ActionManifest& manifest() { return manifest_; }
+        const controller::resources::Routes& route() { return route_; }
 
         // Action Manifest members.
         std::size_t pop_execution_idx();
@@ -30,8 +43,11 @@ class ExecutionContext
         std::vector<ThreadControls>& thread_controls() { return thread_controls_; }
     private:
         std::vector<std::shared_ptr<Http::Request> > requests_;
+        std::vector<std::shared_ptr<http::HttpSession> > http_session_ptrs_;
         Http::Response res_;
         UUID::Uuid execution_context_id_;
+
+        controller::resources::Routes route_;
 
         // Action Manifest variables
         ActionManifest manifest_;

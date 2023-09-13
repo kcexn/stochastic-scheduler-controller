@@ -6,12 +6,14 @@ namespace app{
     // Execution Context
     ExecutionContext::ExecutionContext(ExecutionContext::Init init)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
-        execution_context_idx_stack_{0}
+        execution_context_idx_stack_{0},
+        route_{controller::resources::Routes::INIT}
     {}
 
     ExecutionContext::ExecutionContext(ExecutionContext::Run run)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
-        execution_context_idx_stack_{0}
+        execution_context_idx_stack_{0},
+        route_{controller::resources::Routes::RUN}
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
@@ -85,7 +87,8 @@ namespace app{
 
     ExecutionContext::ExecutionContext(ExecutionContext::Run run, const UUID::Uuid& uuid)
       : execution_context_id_(uuid),
-        execution_context_idx_stack_{0}
+        execution_context_idx_stack_{0},
+        route_{controller::resources::Routes::RUN}
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){

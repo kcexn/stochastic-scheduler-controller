@@ -1,6 +1,8 @@
 #ifndef CONTROLLER_APP_HPP
 #define CONTROLLER_APP_HPP
 #include "execution-context.hpp"
+#include <application-servers/http/http-server.hpp>
+#include <application-servers/http/http-session.hpp>
 #include "../../http-server/http-server.hpp"
 #include "../io/controller-io.hpp"
 
@@ -9,17 +11,17 @@ namespace app{
     class Controller
     {
     public:
-        // Controller(std::shared_ptr<echo::MailBox> mbox_ptr);
         Controller(std::shared_ptr<echo::MailBox> mbox_ptr, boost::asio::io_context& ioc);
         void start();
         void start_controller();
-        void route_request( const std::shared_ptr<Http::Request>& req );
-        Http::Response create_response(ExecutionContext& ctx);
+        void route_request(std::shared_ptr<http::HttpSession>& session);
+        http::HttpResponse create_response(ExecutionContext& ctx, boost::json::value& val);
         void flush_wsk_logs() { std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; return;}
         void stop();
         ~Controller();
     private:
         Http::Server server_;
+        http::HttpServer hs_;
         // Controller Thread ID.
         pthread_t tid_;
         // Global Signals.

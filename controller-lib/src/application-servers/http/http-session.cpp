@@ -17,8 +17,21 @@ namespace http{
             ss << std::get<HttpResponse>(*this);
             release_lock();
             std::string data_buf(ss.str());
-            boost::asio::const_buffer buf(data_buf.data(), data_buf.size());
-            t_session_->async_write(buf, fn);
+            t_session_->async_write(
+                boost::asio::const_buffer(data_buf.data(), data_buf.size()), 
+                fn
+            );
+        }
+
+        void HttpSession::write(const HttpReqRes& req_res, const std::function<void()>& fn)
+        {
+            std::stringstream ss;
+            ss << std::get<HttpResponse>(req_res);
+            std::string data_buf(ss.str());
+            t_session_->async_write(
+                boost::asio::const_buffer(data_buf.data(), data_buf.size()),
+                fn
+            );
         }
 
         void HttpSession::close()

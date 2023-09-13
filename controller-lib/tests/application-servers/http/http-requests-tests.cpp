@@ -427,20 +427,65 @@ namespace tests
             "/run",
             http::HttpVersion::V1_1,
             {
-                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
-                {http::HttpHeaderField::CONTENT_LENGTH, "22"},
+                {http::HttpHeaderField::HOST, "localhost"},
+                {http::HttpHeaderField::ACCEPT, "*/*"},
                 {http::HttpHeaderField::END_OF_HEADERS, ""}
+            },
+            {
+                {http::HttpBigNum{0}, ""}
+            }
+        };
+        std::stringstream ss;
+        ss << req;
+        std::string cmp("GET /run HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\n\r\n");
+        if(ss.str() != cmp){
+            return;
+        }
+
+        ss.seekp(0);
+        ss.seekg(0);
+
+        req = {
+            http::HttpVerb::DELETE,
+            "/init",
+            http::HttpVersion::V1,
+            {
+                {http::HttpHeaderField::HOST, "localhost"},
+                {http::HttpHeaderField::ACCEPT, "*/*"},
+                {http::HttpHeaderField::END_OF_HEADERS, ""}           
             },
             {
                 {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
             }
         };
-        std::stringstream ss;
         ss << req;
-        std::string cmp("GET /run HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 22\r\n\r\n{\"msg\":\"Hello World!\"}");
+        cmp = "DELETE /init HTTP/1.0\r\nHost: localhost\r\nAccept: */*\r\n\r\n";
         if(ss.str() != cmp){
             return;
         }
+
+        ss.seekp(0);
+        ss.seekg(0);
+
+        req = {
+            http::HttpVerb::TRACE,
+            "/health-check",
+            http::HttpVersion::V1_1,
+            {
+                {http::HttpHeaderField::HOST, "localhost"},
+                {http::HttpHeaderField::ACCEPT, "*/*"},
+                {http::HttpHeaderField::END_OF_HEADERS, ""}           
+            },
+            {
+                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+            }
+        };
+        ss << req;
+        cmp = "TRACE /health-check HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\n\r\n";
+        if(ss.str() != cmp){
+            return;
+        }
+
         passed_ = true;
     }
 

@@ -1,11 +1,19 @@
-#ifndef CONTROLLER_RUN_HPP
-#define CONTROLLER_RUN_HPP
+#ifndef CONTROLLER_RESOURCES_RUN_HPP
+#define CONTROLLER_RESOURCES_RUN_HPP
 #include <boost/json.hpp>
 #include <string>
 #include <map>
-#include "../../app/controller-app.hpp"
+#include "../../app/execution-context.hpp"
+
+
 
 namespace controller{
+namespace app{
+    /*Forward Declarations*/
+    class ExecutionContext;
+
+}// namespace app
+
 namespace resources{
 namespace run{
     class Request{

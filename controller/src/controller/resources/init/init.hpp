@@ -1,11 +1,11 @@
-#ifndef CONTROLLER_INIT_HPP
-#define CONTROLLER_INIT_HPP
+#ifndef CONTROLLER_RESOURCES_INIT_HPP
+#define CONTROLLER_RESOURCES_INIT_HPP
+#include "../../app/execution-context.hpp"
 #include <cstdint>
 #include <string>
 #include <boost/json.hpp>
 #include <memory>
 #include <map>
-#include "../../app/controller-app.hpp"
 
 
 namespace controller{
@@ -25,7 +25,7 @@ namespace init{
             binary_(binary)
         {}
 
-        std::string& name() { return name_; }
+        const std::string& name() const { return name_; }
         const std::string& main() const { return main_; }
         const std::string& code() const { return code_; }
         const bool& binary() const { return binary_; }

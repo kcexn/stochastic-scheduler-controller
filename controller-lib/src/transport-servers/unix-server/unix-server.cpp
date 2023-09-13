@@ -57,6 +57,7 @@ namespace UnixServer{
     }
 
     unix_server::~unix_server(){
+        clear();
         std::filesystem::path p(endpoint_.path());
         std::filesystem::remove(p);
     }

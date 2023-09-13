@@ -403,7 +403,7 @@ namespace http
         return lhs;
     }
 
-    std::ostream& operator<<(std::ostream& os, HttpBigNum& rhs){
+    std::ostream& operator<<(std::ostream& os, const HttpBigNum& rhs){
         auto it = rhs.begin();
         os << std::hex << *it;
         ++it;
@@ -496,7 +496,7 @@ namespace http
         return is;
     }
 
-    std::ostream& operator<<(std::ostream& os, HttpChunk& chunk){
+    std::ostream& operator<<(std::ostream& os, const HttpChunk& chunk){
         os << chunk.chunk_size << "\r\n"
            << chunk.chunk_data << "\r\n";
         return os;
@@ -611,7 +611,7 @@ namespace http
         return is;
     }
 
-    std::ostream& operator<<(std::ostream& os, HttpHeader& header){
+    std::ostream& operator<<(std::ostream& os, const HttpHeader& header){
         switch(header.field_name)
         {
             case HttpHeaderField::CONTENT_TYPE:
@@ -842,7 +842,7 @@ namespace http
         return is;
     }
 
-    std::ostream& operator<<(std::ostream& os, HttpRequest& req){
+    std::ostream& operator<<(std::ostream& os, const HttpRequest& req){
         switch(req.verb){
             case HttpVerb::GET:
                 os << "GET ";
@@ -892,20 +892,22 @@ namespace http
                 os << header;
             }
         }
-        auto it = std::find_if(req.headers.begin(), req.headers.end(), [](auto& header){
-            return header.field_name == HttpHeaderField::CONTENT_LENGTH;
-        });
-        if(it != req.headers.end()){
-            os << req.chunks[0].chunk_data;
-        } else {
-            for(auto& chunk: req.chunks){
-                os << chunk;
+        if(req.verb != HttpVerb::GET && req.verb != HttpVerb::DELETE && req.verb != HttpVerb::TRACE){
+            auto it = std::find_if(req.headers.begin(), req.headers.end(), [](auto& header){
+                return header.field_name == HttpHeaderField::CONTENT_LENGTH;
+            });
+            if(it != req.headers.end()){
+                os << req.chunks[0].chunk_data;
+            } else {
+                for(auto& chunk: req.chunks){
+                    os << chunk;
+                }
             }
         }
         return os;
     }
 
-    std::ostream& operator<<(std::ostream& os, HttpResponse& res){
+    std::ostream& operator<<(std::ostream& os, const HttpResponse& res){
         switch(res.version)
         {
             case HttpVersion::V1:

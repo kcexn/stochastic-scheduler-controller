@@ -81,10 +81,80 @@ namespace tests{
                         hs.back()->write(
                             [&, session](){
                                 hs.back()->close();
-                                session->cancel();
-                                session->close();
-                                session->erase();
-                                passed_ = true;
+                            }
+                        );
+                    }
+                );
+                us.push_back(std::move(session));
+            }
+        );
+        us.run();
+        ioc.restart();
+        us.accept(
+            [&](const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket){
+                std::shared_ptr<UnixServer::unix_session> session = std::make_shared<UnixServer::unix_session>(std::move(socket), us);
+                hs.push_back(std::make_shared<http::HttpSession>(hs, session));
+                session->async_read(
+                    [&, session](const boost::system::error_code& ec, std::size_t bytes_transferred){
+                        session->acquire_stream().write(session->buf().data(), bytes_transferred);
+                        session->release_stream();
+                        hs.back()->read();
+                        http::HttpReqRes req_res;
+                        http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
+                        res = {
+                            http::HttpVersion::V1_1,
+                            http::HttpStatus::OK,
+                            {
+                                {http::HttpHeaderField::CONNECTION, "close"},
+                                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                                {http::HttpHeaderField::CONTENT_LENGTH, "22"},
+                                {http::HttpHeaderField::END_OF_HEADERS, ""}
+                            },
+                            {
+                                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+                            }                            
+                        };
+                        hs.back()->write(
+                            req_res,
+                            [&, session](){
+                                hs.back()->close();
+                            }
+                        );
+                    }
+                );
+                us.push_back(std::move(session));
+            }
+        );
+        us.run();
+        ioc.restart();
+        us.accept(
+            [&](const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket){
+                std::shared_ptr<UnixServer::unix_session> session = std::make_shared<UnixServer::unix_session>(std::move(socket), us);
+                hs.push_back(std::make_shared<http::HttpSession>(hs, session));
+                session->async_read(
+                    [&, session](const boost::system::error_code& ec, std::size_t bytes_transferred){
+                        session->acquire_stream().write(session->buf().data(), bytes_transferred);
+                        session->release_stream();
+                        hs.back()->read();
+                        http::HttpReqRes req_res = hs.back()->get();
+                        http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
+                        res = {
+                            http::HttpVersion::V1_1,
+                            http::HttpStatus::OK,
+                            {
+                                {http::HttpHeaderField::CONNECTION, "close"},
+                                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                                {http::HttpHeaderField::CONTENT_LENGTH, "22"},
+                                {http::HttpHeaderField::END_OF_HEADERS, ""}
+                            },
+                            {
+                                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+                            }                            
+                        };
+                        (*hs.back()) = req_res;
+                        hs.back()->write(
+                            [&, session](){
+                                hs.back()->close();
                             }
                         );
                     }
@@ -95,6 +165,5 @@ namespace tests{
         us.run();
         passed_ = true;
     }
-
 
 }// namespace tests.

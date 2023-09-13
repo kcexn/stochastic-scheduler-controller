@@ -20,12 +20,13 @@ namespace server
     {
     public:
         const static std::size_t max_buflen = 65536;
-        Session(Server& server): stop_signal_(), server_(server), buf_(), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app)  {}
-
+        Session(Server& server): server_(server), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app){}
         inline std::array<char, max_buflen>& buf() { return buf_; }
         inline std::stringstream& acquire_stream(){ stream_mtx_.lock(); return stream_; }
         inline void release_stream(){ stream_mtx_.unlock(); }
-        inline void cancel() { stop_signal_.emit(boost::asio::cancellation_type::total); }
+        inline void cancel() { 
+            stop_signal_.emit(boost::asio::cancellation_type::total);
+        }
         void erase();
 
         virtual void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) =0;
@@ -33,6 +34,8 @@ namespace server
         virtual void close() =0;
 
         inline bool operator==(const Session& other) { return this == &other; }
+
+        virtual ~Session() = default;
         
     protected:
         boost::asio::cancellation_signal stop_signal_;

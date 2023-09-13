@@ -23,7 +23,7 @@ namespace app_server{
     class Session: public std::tuple<Types...>, public std::enable_shared_from_this<Session<Types...> >
     {
     public:
-        Session(Server<Types...>& server): server_(server){}
+        Session(Server<Types...>& server): server_(server) {}
         Session(Server<Types...>& server, const std::shared_ptr<server::Session>& t_session_ptr): server_(server), t_session_(t_session_ptr) {}
         void erase()
         {        
@@ -39,9 +39,14 @@ namespace app_server{
 
         virtual void read() = 0;
         virtual void write(const std::function<void()>& fn) = 0;
+        virtual void write(const std::tuple<Types...>& t, const std::function<void()>& fn) = 0;
         virtual void close() = 0;
 
+        Session& operator=(const std::tuple<Types...>& other){ std::tuple<Types...>::operator=(other); return *this; }
+        Session& operator=(std::tuple<Types...>&& other){ std::tuple<Types...>::operator=(std::move(other)); return *this; }
+        bool operator==(const std::shared_ptr<server::Session>& t){ return t_session_ == t;}
 
+        virtual ~Session() = default;
 
     protected:
         std::shared_ptr<server::Session> t_session_;
