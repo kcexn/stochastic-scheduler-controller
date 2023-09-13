@@ -2,6 +2,7 @@
 #include <iostream>
 #include <charconv>
 #include <sstream>
+#include <limits>
 namespace tests
 {
     HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::ReadChunk)

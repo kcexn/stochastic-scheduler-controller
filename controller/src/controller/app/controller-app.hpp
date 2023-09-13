@@ -1,9 +1,28 @@
 #ifndef CONTROLLER_APP_HPP
 #define CONTROLLER_APP_HPP
-#include "execution-context.hpp"
+#include <memory>
+#include <boost/json.hpp>
 #include <application-servers/http/http-server.hpp>
-#include <application-servers/http/http-session.hpp>
 #include "../io/controller-io.hpp"
+#include <iostream>
+
+
+/*Forward Declarations*/
+namespace boost{
+    
+}
+namespace controller{
+namespace app{
+    class ExecutionContext;
+}
+}
+namespace http{
+    class HttpSession;
+    class HttpResponse;
+}
+namespace echo{
+    class MailBox;
+}
 
 namespace controller{
 namespace app{
@@ -34,5 +53,4 @@ namespace app{
     };
 }// namespace app
 }// namespace controller
-
 #endif

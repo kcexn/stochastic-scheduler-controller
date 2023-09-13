@@ -1,8 +1,19 @@
 #ifndef CONTROLLER_IO_HPP
 #define CONTROLLER_IO_HPP
-#include "../../echo-app/utils/common.hpp"
-#include "transport-servers/unix-server/unix-server.hpp"
-#include <thread>
+#include <memory>
+#include <transport-servers/unix-server/unix-server.hpp>
+
+/*Forward Declarations*/
+namespace boost{
+namespace asio{
+    class io_context;
+}
+}
+
+namespace echo{
+    class MailBox;
+}
+
 namespace controller{
 namespace io{
     // This class encapsulates all of the io operations we need for the 
@@ -15,7 +26,6 @@ namespace io{
         IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
         void start();
         void stop();
-
         ~IO();
     private:
         std::shared_ptr<echo::MailBox> mbox_ptr_;

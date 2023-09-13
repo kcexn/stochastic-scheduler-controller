@@ -1,7 +1,7 @@
 #ifndef OWLIB_HTTP_SESSION_HPP
 #define OWLIB_HTTP_SESSION_HPP
-#include "../server/app-session.hpp"
 #include "http-requests.hpp"
+#include "../server/app-session.hpp"
 #include "http-server.hpp"
 
 namespace http{

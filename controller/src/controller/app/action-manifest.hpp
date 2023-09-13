@@ -1,7 +1,23 @@
 #ifndef ACTION_MANIFEST_HPP
 #define ACTION_MANIFEST_HPP
-#include <boost/json.hpp>
-#include "action-relation.hpp"
+#include <string>
+#include <memory>
+#include <vector>
+
+/* Forward Declarations */
+namespace boost{
+namespace json{
+    class object;
+}
+}
+namespace controller{
+namespace app{
+    class Relation;
+}
+}
+namespace http{
+    class HttpSession;
+}
 
 namespace controller{
 namespace app{

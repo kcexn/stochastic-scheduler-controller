@@ -1,5 +1,12 @@
 #include "echo-scheduler.hpp"
+#include "../utils/common.hpp"
+#include "../../controller/io/controller-io.hpp"
+#include "../../controller/app/controller-app.hpp"
 #include <filesystem>
+
+#ifdef DEBUG
+#include <iostream>
+#endif
 
 namespace echo{
     Scheduler::Scheduler(

@@ -1,8 +1,6 @@
 #include "http-server-tests.hpp"
 #include <filesystem>
 
-
-
 namespace tests{
     HttpServerTests::HttpServerTests(HttpServerTests::ConstructServer)
       : passed_{false}

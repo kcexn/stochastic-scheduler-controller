@@ -1,6 +1,8 @@
 #ifndef EXECUTION_CONTEXT_HPP
 #define EXECUTION_CONTEXT_HPP
-#include <application-servers/http/http-session.hpp>
+#include <vector>
+#include <memory>
+#include <uuid/uuid.hpp>
 #include "action-manifest.hpp"
 #include "thread-controls.hpp"
 

@@ -1,8 +1,10 @@
 #include "http-requests.hpp"
 #include <charconv>
-#include <cstring>
-#include <algorithm>
+#include <limits>
+#include <ios>
+#include <ostream>
 #include <iomanip>
+#include <algorithm>
 
 namespace http
 {

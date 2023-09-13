@@ -1,12 +1,15 @@
 #ifndef CONTROLLER_RESOURCES_INIT_HPP
 #define CONTROLLER_RESOURCES_INIT_HPP
-#include "../../app/execution-context.hpp"
-#include <cstdint>
-#include <string>
 #include <boost/json.hpp>
-#include <memory>
 #include <map>
+#include <memory>
 
+/* Forward Declarations */
+namespace controller{
+namespace app{
+    class ExecutionContext;
+}
+}
 
 namespace controller{
 namespace resources{
@@ -48,7 +51,6 @@ namespace init{
         InitValue value_;
     };
 
-    // Http::Response handle( Request& req );
     std::shared_ptr<controller::app::ExecutionContext> handle( Request& req);
     void base64extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2], const Request& req);
     void tar_extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2]);

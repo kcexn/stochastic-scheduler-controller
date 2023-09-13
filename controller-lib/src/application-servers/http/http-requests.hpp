@@ -1,9 +1,7 @@
 #ifndef OWLIB_HTTP_REQUESTS_HPP
 #define OWLIB_HTTP_REQUESTS_HPP
-#include <limits>
-#include <string>
 #include <vector>
-#include <iostream>
+#include <string>
 
 namespace http{
     enum class HttpVersion

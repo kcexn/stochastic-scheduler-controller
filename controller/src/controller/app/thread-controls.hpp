@@ -1,7 +1,12 @@
 #ifndef THREAD_CONTROLS_HPP
 #define THREAD_CONTROLS_HPP
-#include "../../echo-app/utils/common.hpp"
+#include <thread>
+#include <atomic>
+#include <vector>
 #include <boost/context/fiber.hpp>
+#include <mutex>
+#include <condition_variable>
+#include "../../echo-app/utils/common.hpp"
 
 namespace controller{
 namespace app{

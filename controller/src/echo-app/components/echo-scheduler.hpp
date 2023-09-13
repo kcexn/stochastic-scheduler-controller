@@ -1,14 +1,14 @@
 #ifndef ECHO_SCHEDULER_HPP
 #define ECHO_SCHEDULER_HPP
-#include "../utils/common.hpp"
 #include "echo-reader.hpp"
 #include "echo-writer.hpp"
 #include "echo-application.hpp"
-#include "../../controller/app/controller-app.hpp"
-
-#ifdef DEBUG
-#include <iostream>
-#endif
+/*Forward Declarations*/
+namespace controller{
+namespace app{
+    class Controller;
+}
+}
 
 namespace echo {
     class Scheduler : public std::enable_shared_from_this<Scheduler>
@@ -38,15 +38,15 @@ namespace echo {
         // Reader and Writer Threads.
         std::shared_ptr<MailBox> read_mbox_ptr_;
         std::shared_ptr<MailBox> write_mbox_ptr_;
-        echo::EchoReader echo_reader_;
-        echo::EchoWriter echo_writer_;
+        EchoReader echo_reader_;
+        EchoWriter echo_writer_;
 
         // Controller Application
         std::shared_ptr<MailBox> controller_mbox_ptr_;
         std::shared_ptr<controller::app::Controller> controller_ptr_;
 
         // Echo Application.
-        echo::App app_;
+        App app_;
         std::vector<std::shared_ptr<MailBox> > results_;
         std::vector<echo::ExecutionContext> context_table_;
 

@@ -1,7 +1,5 @@
 #ifndef ECHO_COMMON_HPP
 #define ECHO_COMMON_HPP
-#include <mutex>
-#include <condition_variable>
 #include <uuid/uuid.hpp>
 #include <transport-servers/unix-server/unix-server.hpp>
 #include "../../sctp-server/sctp-server.hpp"
