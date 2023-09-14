@@ -9,12 +9,10 @@ namespace sctp_transport{
     public:
         SctpServer(boost::asio::io_context& ioc);
         SctpServer(boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint);
-
-        
+   
         void init(std::function<void(const boost::system::error_code& ec)>);
         void stop();
         
-
         ~SctpServer();
     private:
         void read(std::function<void(const boost::system::error_code& ec)>, const boost::system::error_code& ec);
@@ -24,6 +22,5 @@ namespace sctp_transport{
         std::array<char, buflen_> cbuf_;
         transport::protocols::sctp::socket socket_;
     };
-    
 }
 #endif

@@ -13,6 +13,7 @@ namespace protocols{
     public:
         typedef boost::asio::ip::basic_endpoint<sctp> endpoint;
         typedef struct msghdr msghdr;
+        typedef struct sockaddr_in sockaddr_in;
         typedef struct iovec iov;
         typedef struct cmsghdr cmsghdr;
         typedef struct sctp_sndinfo sndinfo;
