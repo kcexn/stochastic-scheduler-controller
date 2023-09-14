@@ -418,7 +418,7 @@ namespace http
 
     std::istream& operator>>(std::istream& is, HttpChunk& chunk){
         // Get the stream locale for parsing.
-        std::locale loc = is.getloc();
+        // std::locale loc = is.getloc();
         std::streamsize bytes_available = is.rdbuf()->in_avail();
         // While there are bytes available in the input stream, keep parsing.
         while(bytes_available > 0 && !chunk.chunk_complete){
@@ -429,9 +429,9 @@ namespace http
                     // according to the current locale.
                     char first_char;
                     while(bytes_available > 0){
-                        is.get(first_char);
+                        first_char = is.rdbuf()->sbumpc();
                         --bytes_available;
-                        if(!std::isspace(first_char,loc)){
+                        if(!std::isspace(first_char)){
                             break;
                         }
                     }
@@ -442,9 +442,9 @@ namespace http
                     // Push back all of the next non-white space characters.
                     char last_char;
                     while(bytes_available > 0){
-                        is.get(last_char);
+                        last_char = is.rdbuf()->sbumpc();
                         --bytes_available;
-                        if(!std::isspace(last_char,loc)){
+                        if(!std::isspace(last_char)){
                             chunk.chunk_header.push_back(last_char);
                         } else {
                             //last_char now points to the first white space character after the
@@ -459,7 +459,7 @@ namespace http
                 // The chunk size has been found at this point, now we just need to seek the stream until we find a new line.
                 char cur;
                 while(bytes_available > 0){
-                    is.get(cur);
+                    cur = is.rdbuf()->sbumpc();
                     --bytes_available;
                     if(cur == '\n'){
                         chunk.chunk_body_start = true;
@@ -470,7 +470,7 @@ namespace http
                 // Fill the buffer with chunk-size bytes.
                 char cur;
                 while(bytes_available > 0 && chunk.received_bytes < chunk.chunk_size){
-                    is.get(cur);
+                    cur = is.rdbuf()->sbumpc();
                     --bytes_available;
                     chunk.chunk_data.push_back(cur);
                     ++(chunk.received_bytes);
@@ -485,7 +485,7 @@ namespace http
                 // the search for a new chunk header line.
                 char cur;
                 while(bytes_available > 0){
-                    is.get(cur);
+                    cur = is.rdbuf()->sbumpc();
                     --bytes_available;
                     if(cur == '\n'){
                         chunk.chunk_complete = true;
@@ -507,11 +507,11 @@ namespace http
     std::istream& operator>>(std::istream& is, HttpHeader& header){
         // Get the stream locale for parsing.
         char cur;
-        std::locale loc = is.getloc();
+        // std::locale loc = is.getloc();
         std::streamsize bytes_available = is.rdbuf()->in_avail();
         // While there are bytes available in the input stream, keep parsing.
         while(bytes_available > 0 && !header.header_complete){
-            is.get(cur);
+            cur = is.rdbuf()->sbumpc();
             --bytes_available;
             if(!header.field_name_found){
                 //Seek until either a non-white space character, or a new line.
@@ -524,7 +524,7 @@ namespace http
                         header.field_name = HttpHeaderField::END_OF_HEADERS;
                         header.header_complete = true;
                         break;
-                    } else if(!std::isspace(cur, loc)){
+                    } else if(!std::isspace(cur)){
                         // a non-whitespace character was found;
                         // therefore; this is not the last header.
                         header.not_last = true;
@@ -538,7 +538,7 @@ namespace http
 
                     // Push all of the subsequent non white-space and non-delimter ':'
                     // characters onto the buffer.
-                    if(!(std::isspace(cur,loc) || cur == ':')){
+                    if(!(std::isspace(cur) || cur == ':')){
                         header.buf.push_back(cur);
                     } else {
                         // White space or the delimiter ':' has been found.
@@ -591,7 +591,7 @@ namespace http
                         // However for the purposes of my application, I am only planning on implementing the application/json media type.
                         header.header_complete = true;
                         break;
-                    } else if(!std::isspace(cur,loc) && !header.field_value_started){
+                    } else if(!std::isspace(cur) && !header.field_value_started){
                         // The first non-whitespace character marks the beginning of the field falues.
                         header.field_value_started = true;
                         header.field_value.push_back(cur);
@@ -600,7 +600,7 @@ namespace http
                         // that means that all visible ASCII character + spaces + tabs 
                         // are part of the header field value, otherwise, the field 
                         // value has finished.
-                        if(!std::isspace(cur,loc) || cur == ' ' || cur == '\t'){
+                        if(!std::isspace(cur) || cur == ' ' || cur == '\t'){
                             header.field_value.push_back(cur);
                         } else {
                             header.field_value_ended = true;
@@ -643,7 +643,7 @@ namespace http
 
     std::istream& operator>>(std::istream& is, HttpRequest& req){
         // Get the stream locale for parsing.
-        std::locale loc = is.getloc();
+        // std::locale loc = is.getloc();
         std::streamsize bytes_available = is.rdbuf()->in_avail();
         char c;
         if(req.num_headers == 0 || req.num_chunks == 0 || req.verb == HttpVerb::UNKNOWN){
@@ -679,20 +679,20 @@ namespace http
                 // First parse the request line, which has a format of:
                 // VERB ROUTE HTTP/VERSION\r\n
                 while(bytes_available > 0 && !req.http_request_line_complete){
-                    is.get(c);
+                    c = is.rdbuf()->sbumpc();
                     --bytes_available;
                     if(!req.verb_started){
                         // Ignore all leading white space
                         // until we find a non-white space
                         // character that must be the verb.
-                        if(!std::isspace(c,loc)){
+                        if(!std::isspace(c)){
                             req.verb_started = true;
                             req.verb_buf.push_back(c);
                         }
                     } else if (!req.verb_finished){
                         // append all non-white space
                         // characters until we find the first white space character.
-                        if(!std::isspace(c,loc)){
+                        if(!std::isspace(c)){
                             req.verb_buf.push_back(c);
                         } else {
                             if(req.verb_buf == "GET"){
@@ -715,12 +715,12 @@ namespace http
                     } else if (!req.route_started){
                         // Seek through white space until we find 
                         // the first non-white space character.
-                        if(!std::isspace(c,loc)){
+                        if(!std::isspace(c)){
                             req.route_started = true;
                             req.route.push_back(c);
                         }
                     } else if (!req.route_finished){
-                        if(!std::isspace(c,loc)){
+                        if(!std::isspace(c)){
                             req.route.push_back(c);
                         } else {
                             req.route_finished = true;
@@ -767,7 +767,7 @@ namespace http
                     } else if (!req.version_finished){
                         // We have found the string 'HTTP/'. Now everything until the subsequent white
                         // space character is part of the version string.
-                        if(!std::isspace(c,loc)){
+                        if(!std::isspace(c)){
                             req.version_buf.push_back(c);
                         } else {
                             if(req.version_buf == "1.1"){
