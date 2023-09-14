@@ -46,7 +46,7 @@ namespace sctp_transport{
             sctp::sockaddr_in addr = {};
             sctp::msghdr msg = {
                 &addr,
-                sizeof(sockaddr_in),
+                sizeof(sctp::sockaddr_in),
                 &iobuf,
                 1,
                 cbuf_.data(),
