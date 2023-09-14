@@ -3,10 +3,6 @@
 #include <boost/asio.hpp>
 #include "../server/server.hpp"
 
-#ifdef DEBUG
-#include <iostream>
-#endif
-
 namespace UnixServer{
     class unix_session : public server::Session
     {

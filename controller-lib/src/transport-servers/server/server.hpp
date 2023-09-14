@@ -1,7 +1,13 @@
 #ifndef SERVER_HPP
 #define SERVER_HPP
-#include <boost/asio.hpp>
 #include "session.hpp"
+
+/* Forward Declarations*/
+namespace boost{
+namespace asio{
+    class io_context;
+}
+}
 
 // Transport layer is dependent on boost/asio.
 namespace server
@@ -17,10 +23,7 @@ namespace server
     public:
         // Server constructors accept an asio io_context.
         Server(boost::asio::io_context& ioc): ioc_(ioc){}
-        void run(){ ioc_.run(); return; }
-        
-        template<typename Rep, typename Period>
-        std::size_t run_for(const boost::asio::chrono::duration<Rep, Period>& rel_time) { return ioc_.run_for(rel_time); }
+        void run();
 
         virtual ~Server() = default;
     private:

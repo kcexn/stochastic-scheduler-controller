@@ -37,7 +37,9 @@ namespace app_server{
         }
 
         std::tuple<Types...> get(){ acquire_lock(); std::tuple<Types...> t = *this; release_lock(); return t; }
-        void set(std::tuple<Types...> t) {acquire_lock(); std::tuple<Types...>::operator=(t); release_lock(); }
+        void set(std::tuple<Types...> t) {acquire_lock(); std::tuple<Types...>::operator=(t); release_lock(); return; }
+        std::tuple<Types...>& acquire(){ acquire_lock(); return *this;}
+        void release(){ release_lock(); return;}
 
         virtual void read() = 0;
         virtual void write(const std::function<void()>& fn) = 0;
@@ -52,8 +54,8 @@ namespace app_server{
 
     protected:
         std::shared_ptr<server::Session> t_session_;
-        void acquire_lock(){ mtx_.lock(); }
-        void release_lock(){ mtx_.unlock();}
+        void acquire_lock(){ mtx_.lock(); return; }
+        void release_lock(){ mtx_.unlock(); return;}
 
     private:
         Server<Types...>& server_;

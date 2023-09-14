@@ -2,6 +2,7 @@
 #include "../tests/transport-servers/unix-server/server-tests.hpp"
 #include "../tests/application-servers/http/http-requests-tests.hpp"
 #include "../tests/application-servers/http/http-server-tests.hpp"
+#include "../tests/transport-servers/sctp-server/sctp-server-tests.hpp"
 #include <filesystem>
 
 int main(int argc, char* argv[]){
@@ -103,73 +104,73 @@ int main(int argc, char* argv[]){
     //         ioc.restart();
     //     }
     // }
-    {
-        // HTTP tests.
-        {
-            tests::HttpRequestsTests test_big_num(tests::HttpRequestsTests::test_big_num);
-            if(test_big_num){
-                std::cout << "Http request test 1 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 1 failed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_read_chunk(tests::HttpRequestsTests::test_read_chunk);
-            if(test_read_chunk){
-                std::cout << "Http request test 2 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 2 failed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_write_chunk(tests::HttpRequestsTests::test_write_chunk);
-            if(test_write_chunk){
-                std::cout << "Http request test 3 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 3 failed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_read_header(tests::HttpRequestsTests::test_read_header);
-            if(test_read_header){
-                std::cout << "Http request test 4 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 4 passed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_write_header(tests::HttpRequestsTests::test_write_header);
-            if(test_write_header){
-                std::cout << "Http request test 5 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 5 passed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_read_request(tests::HttpRequestsTests::test_read_request);
-            if(test_read_request){
-                std::cout << "Http request test 6 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 6 failed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_write_request(tests::HttpRequestsTests::test_write_request);
-            if(test_write_request){
-                std::cout << "Http request test 7 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 7 failed." << std::endl;
-            }
-        }
-        {
-            tests::HttpRequestsTests test_write_response(tests::HttpRequestsTests::test_write_response);
-            if(test_write_response){
-                std::cout << "Http requests test 8 passed." << std::endl;
-            } else {
-                std::cerr << "Http request test 8 failed." << std::endl;
-            }
-        }
-    }
+    // {
+    //     // HTTP tests.
+    //     {
+    //         tests::HttpRequestsTests test_big_num(tests::HttpRequestsTests::test_big_num);
+    //         if(test_big_num){
+    //             std::cout << "Http request test 1 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 1 failed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_read_chunk(tests::HttpRequestsTests::test_read_chunk);
+    //         if(test_read_chunk){
+    //             std::cout << "Http request test 2 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 2 failed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_write_chunk(tests::HttpRequestsTests::test_write_chunk);
+    //         if(test_write_chunk){
+    //             std::cout << "Http request test 3 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 3 failed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_read_header(tests::HttpRequestsTests::test_read_header);
+    //         if(test_read_header){
+    //             std::cout << "Http request test 4 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 4 passed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_write_header(tests::HttpRequestsTests::test_write_header);
+    //         if(test_write_header){
+    //             std::cout << "Http request test 5 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 5 passed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_read_request(tests::HttpRequestsTests::test_read_request);
+    //         if(test_read_request){
+    //             std::cout << "Http request test 6 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 6 failed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_write_request(tests::HttpRequestsTests::test_write_request);
+    //         if(test_write_request){
+    //             std::cout << "Http request test 7 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 7 failed." << std::endl;
+    //         }
+    //     }
+    //     {
+    //         tests::HttpRequestsTests test_write_response(tests::HttpRequestsTests::test_write_response);
+    //         if(test_write_response){
+    //             std::cout << "Http requests test 8 passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Http request test 8 failed." << std::endl;
+    //         }
+    //     }
+    // }
     // {
     //     //Http Server Tests.
     //     std::size_t test_num = 1;
@@ -210,5 +211,40 @@ int main(int argc, char* argv[]){
     //         ++test_num;
     //     }
     // }
+    {
+        boost::asio::io_context ioc;
+        transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
+        std::size_t test_num = 1;
+        {
+            using namespace tests;
+            SctpServerTests test_constructor(SctpServerTests::test_constructor, ioc);
+            if(test_constructor){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+        {
+            using namespace tests;
+            SctpServerTests test_socket_constructor(SctpServerTests::test_socket_constructor, ioc, endpoint);
+            if(test_socket_constructor){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+        {
+            using namespace tests;
+            SctpServerTests test_socket_read(SctpServerTests::test_socket_read, ioc, endpoint);
+            if(test_socket_read){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+    }
     return 0;
 }
