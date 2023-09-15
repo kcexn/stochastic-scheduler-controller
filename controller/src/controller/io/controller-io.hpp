@@ -3,14 +3,6 @@
 #include <memory>
 #include <transport-servers/sctp-server/sctp-server.hpp>
 #include <transport-servers/unix-server/unix-server.hpp>
-
-
-namespace sctp_transport{
-    class SctpServer;
-    class SctpSession;
-}
-
-
 /*Forward Declarations*/
 namespace boost{
 namespace asio{

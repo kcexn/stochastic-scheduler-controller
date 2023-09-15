@@ -1,5 +1,5 @@
-#ifndef SCTP_SESSION_HPP
-#define SCTP_SESSION_HPP
+#ifndef OWLIB_SCTP_SESSION_HPP
+#define OWLIB_SCTP_SESSION_HPP
 #include <boost/asio.hpp>
 #include <boost/context/fiber.hpp>
 #include "../server/session.hpp"

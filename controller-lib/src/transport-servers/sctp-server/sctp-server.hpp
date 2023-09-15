@@ -1,15 +1,12 @@
-#ifndef SCTP_SERVER_HPP
-#define SCTP_SERVER_HPP
+#ifndef OWLIB_SCTP_SERVER_HPP
+#define OWLIB_SCTP_SERVER_HPP
 #include "../server/server.hpp"
 #include "../server/session.hpp"
 #include "sctp.hpp"
 
-/* Forward Declarations */
 namespace sctp_transport{
     class SctpSession;
-}
 
-namespace sctp_transport{
     class SctpServer: public server::Server
     {
     public:
