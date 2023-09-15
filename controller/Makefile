@@ -9,8 +9,8 @@ OBJ_DIR = ./objects
 VPATH = $(sort $(dir $(wildcard $(SRC_DIR)/*/))) $(sort $(dir $(wildcard $(SRC_DIR)/*/*/))) $(sort $(dir $(wildcard $(SRC_DIR)/*/*/*/)))
 
 TARGET = controller
-OBJECTS = echo echo-worker echo-reader echo-writer sctp-server \
-echo-scheduler echo-application controller-app run init \
+OBJECTS = echo \
+echo-scheduler controller-app run init \
 controller-io execution-context action-manifest action-relation thread-controls
 
 # DEBUG SETTINGS

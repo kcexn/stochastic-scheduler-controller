@@ -2,8 +2,6 @@
 #define ECHO_COMMON_HPP
 #include <uuid/uuid.hpp>
 #include <transport-servers/unix-server/unix-server.hpp>
-#include "../../sctp-server/sctp.hpp"
-#include "../../sctp-server/sctp-server.hpp"
 
 namespace echo{
     // Enum identifying signal source/destination. 
@@ -41,52 +39,8 @@ namespace echo{
         std::shared_ptr<std::condition_variable> sched_signal_cv_ptr;
 
         // Payloads
-        echo::sctp::sctp_message rcvdmsg = {};
-        echo::sctp::sctp_message sndmsg = {};
         std::shared_ptr<std::vector<char> > payload_buffer_ptr;
         std::shared_ptr<server::Session> session;
-    };
-
-    class ExecutionContext
-    {
-    public:
-        ExecutionContext(const sctp::assoc_t& assoc_id, const sctp::sid_t& sid)
-          : assoc_id_{assoc_id},
-            sid_{sid},
-            execution_context_(UUID::Uuid(UUID::Uuid::v4)) 
-        {
-            #ifdef DEBUG
-            std::cout << execution_context_ << std::endl;
-            #endif
-        }
-        sctp::assoc_t assoc_id() { return assoc_id_; }
-        sctp::sid_t sid() { return sid_; }
-        void set_tid(pthread_t t_id) {
-            tid_ = {
-                t_id,
-                true
-            };
-        }
-        pthread_t get_tid(){
-            if(tid_.tid_set_) {
-                return tid_.id_;
-            } else {
-                return 0;
-            }
-        }
-        inline bool operator==(const ExecutionContext& other) { return (assoc_id_ == other.assoc_id_ && sid_ == other.sid_); }
-    private:
-        sctp::assoc_t assoc_id_;
-        sctp::sid_t sid_;
-        UUID::Uuid execution_context_;
-
-        // TIDs should be considered opaque blocks of memory (not portable) and so
-        // equality checks should be made ONLY if we are sure that the tid
-        // has been set. Equality checks should only be done with man(3) pthread_equal().
-        struct tid_t {
-            pthread_t id_;
-            bool tid_set_ = false;
-        } tid_;
     };
 }
 #endif

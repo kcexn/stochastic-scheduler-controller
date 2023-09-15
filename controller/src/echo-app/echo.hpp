@@ -9,7 +9,6 @@ namespace echo{
     public:
         app(
             boost::asio::io_context& ioc, 
-            short port,
             std::shared_ptr<std::mutex> signal_mtx_ptr,
             std::shared_ptr<std::atomic<int> > signal_ptr,
             std::shared_ptr<std::condition_variable> signal_cv_ptr

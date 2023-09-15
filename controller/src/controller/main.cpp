@@ -1,4 +1,5 @@
 #include "../echo-app/echo.hpp"
+#include "../echo-app/utils/common.hpp"
 #include <csignal>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -42,10 +43,13 @@ int main(int argc, char* argv[])
     boost::asio::io_context ioc;
     echo::app echo_app(
         ioc, 
-        5100,
         SIGNAL_MTX_PTR,
         SIGNAL_PTR,
         SIGNAL_CV_PTR
     );
+
+    std::unique_lock<std::mutex> lk(*SIGNAL_MTX_PTR);
+    SIGNAL_CV_PTR->wait(lk, [&]{ return (SIGNAL_PTR->load(std::memory_order::memory_order_relaxed) & echo::Signals::TERMINATE); });
+    lk.unlock();
     return 0;
 }
