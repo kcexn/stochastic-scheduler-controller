@@ -227,18 +227,28 @@ int main(int argc, char* argv[]){
         }
         {
             using namespace tests;
-            SctpServerTests test_socket_constructor(SctpServerTests::test_socket_constructor, ioc, endpoint);
-            if(test_socket_constructor){
+            SctpServerTests test_session_constructor(SctpServerTests::test_session_constructor, ioc, endpoint);
+            if(test_session_constructor){
                 std::cout << "Sctp server test " << test_num << " passed." << std::endl;
             } else {
                 std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
             }
             ++test_num;
         }
+        // {
+        //     using namespace tests;
+        //     SctpServerTests test_socket_read(SctpServerTests::test_socket_read, ioc, endpoint);
+        //     if(test_socket_read){
+        //         std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+        //     } else {
+        //         std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+        //     }
+        //     ++test_num;
+        // }
         {
             using namespace tests;
-            SctpServerTests test_socket_read(SctpServerTests::test_socket_read, ioc, endpoint);
-            if(test_socket_read){
+            SctpServerTests test_session_read_write(SctpServerTests::test_session_read_write, ioc, endpoint);
+            if(test_session_read_write){
                 std::cout << "Sctp server test " << test_num << " passed." << std::endl;
             } else {
                 std::cerr << "Sctp server test " << test_num << " failed." << std::endl;

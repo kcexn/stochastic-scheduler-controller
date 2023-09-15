@@ -24,9 +24,12 @@ namespace server
         // Server constructors accept an asio io_context.
         Server(boost::asio::io_context& ioc): ioc_(ioc){}
         void run();
+        void acquire(){ mtx_.lock(); return; }
+        void release(){ mtx_.unlock(); return; }
 
         virtual ~Server() = default;
     private:
+        std::mutex mtx_;
         // Servers keep a reference to a global io_context.
         boost::asio::io_context& ioc_;
     };

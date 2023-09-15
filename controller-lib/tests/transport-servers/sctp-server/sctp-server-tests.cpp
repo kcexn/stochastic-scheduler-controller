@@ -1,4 +1,6 @@
 #include "sctp-server-tests.hpp"
+#include "../../../src/transport-servers/sctp-server/sctp.hpp"
+#include "../../../src/transport-servers/sctp-server/sctp-session.hpp"
 #include <iostream>
 namespace tests{
     SctpServerTests::SctpServerTests(DefaultConstructor, boost::asio::io_context& ioc)
@@ -7,22 +9,60 @@ namespace tests{
         passed_ = true;
     }
 
-    SctpServerTests::SctpServerTests(SocketConstructor, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint)
-    {
-        sctp_transport::SctpServer sctp_server(ioc, endpoint);
-        passed_ = true;
-    }
-
     SctpServerTests::SctpServerTests(TestSocketRead, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint)
     {
         sctp_transport::SctpServer sctp_server(ioc,endpoint);
-        sctp_server.init([&](const boost::system::error_code& ec){
-            std::cout << "New Read!" << std::endl;
+        sctp_server.init([&](const boost::system::error_code& ec, std::shared_ptr<sctp_transport::SctpSession> session){
+            session->async_read([session](const boost::system::error_code& ec, const std::size_t& len){
+                if(!ec){
+                    std::cout << session->acquire_stream().str() << std::flush;
+                    session->release_stream();
+                }
+            });
         });
         ioc.run_for(std::chrono::duration<int>(5));
-        // sctp_server.stop();
-        // struct timespec ts = {5, 0};
-        // nanosleep(&ts, 0);
+        sctp_server.stop();
+        struct timespec ts = {1, 0};
+        nanosleep(&ts, 0);
+        passed_ = true;
+    }
+
+    SctpServerTests::SctpServerTests(TestSessionConstructor, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint)
+    {
+        sctp_transport::SctpServer sctp_server(ioc,endpoint);
+        transport::protocols::sctp::stream_t stream_id = {
+            1,
+            2
+        };
+        sctp_transport::SctpSession sctp_session(sctp_server, stream_id, sctp_server.socket());
+        sctp_transport::SctpSession sctp_session2(sctp_server, stream_id, sctp_server.socket());
+        if(sctp_session != sctp_session2){
+            return;
+        } else if (sctp_session != stream_id){
+            return;
+        } else if (sctp_session2 != stream_id){
+            return;
+        }
+        passed_ = true;
+    }
+
+    SctpServerTests::SctpServerTests(TestSessionReadWrite, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint)
+    {
+        sctp_transport::SctpServer sctp_server(ioc,endpoint);
+        sctp_server.init([&](const boost::system::error_code& ec, std::shared_ptr<sctp_transport::SctpSession> session){
+            session->async_read([session](const boost::system::error_code& ec, const std::size_t& len){
+                if(!ec){
+                    std::string echo(session->acquire_stream().str());
+                    session->release_stream();
+                    boost::asio::const_buffer buf(echo.data(), echo.size());
+                    session->async_write(buf, [&, session](){
+                        session->close();
+                    });
+                }
+            });
+        });
+        ioc.run_for(std::chrono::duration<int>(5));
+        sctp_server.stop();
         passed_ = true;
     }
 }

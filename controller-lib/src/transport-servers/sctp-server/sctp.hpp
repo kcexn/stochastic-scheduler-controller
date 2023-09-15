@@ -25,13 +25,14 @@ namespace protocols{
             sid_t sid;
         };
 
-        /* Settable Socket Options */
+        /* Socket Options */
         struct recvrcvinfo {
+            // Settable and Gettable
             static int level(const sctp& p){ return IPPROTO_SCTP; }
             static int name(const sctp& p){ return SCTP_RECVRCVINFO; }
             const void* data(const sctp& p) const { return &optval; }
             void* data(const sctp& p) { return &optval; }
-            void resize(const sctp& p, const std::size_t& s){ return; }
+            static void resize(const sctp& p, const std::size_t& s){ return; }
             static std::size_t size(const sctp& p) { return sizeof(int); }
             int optval = 0;
             recvrcvinfo(const int& opt){
@@ -40,6 +41,53 @@ namespace protocols{
             recvrcvinfo(){}
             int value(){ return optval; }
         };
+
+        // typedef struct sctp_event event;
+        // struct event_opt {
+        //     event optval;
+        //     static int level(const sctp& p){ return IPPROTO_SCTP; }
+        //     static int name(const sctp& p){ return SCTP_RECVRCVINFO; }
+        //     const void* data(const sctp& p) const { return &optval; }
+        //     void* data(const sctp& p) { return &optval; }
+        //     static void resize(const sctp& p, const std::size_t& s){ return; }
+        //     static std::size_t size(const sctp& p) { return sizeof(event); }
+        //     event_opt(const event& opt){
+        //         optval.se_assoc_id = opt.se_assoc_id;
+        //         optval.se_type = opt.se_type;
+        //         optval.se_on = opt.se_on;
+        //     }
+        //     event_opt(){}
+        //     event value() { return optval; }
+        //     // enum struct se_types{
+        //     //     assoc_change = SCTP_ASSOC_CHANGE,
+        //     //     peer_addr_change = SCTP_PEER_ADDR_CHANGE,
+        //     //     remote_error = SCTP_REMOTE_ERROR,
+        //     //     send_failed = SCTP_SEND_FAILED_EVENT,
+        //     //     shutdown = SCTP_SHUTDOWN_EVENT,
+        //     //     adaptation = SCTP_ADAPTATION_INDICATION,
+        //     //     partial_delivery = SCTP_PARTIAL_DELIVERY_EVENT,
+        //     //     authentication = SCTP_AUTHENTICATION_EVENT,
+        //     //     sender_dry = SCTP_SENDER_DRY_EVENT
+        //     // };
+        // };
+
+        /* SCTP Events Structs */
+        typedef struct sctp_assoc_change assoc_change_event;
+        /*    struct sctp_assoc_change {
+                    uint16_t sac_type;
+                    uint16_t sac_flags;
+                    uint32_t sac_length;
+                    uint16_t sac_state;
+                    uint16_t sac_error;
+                    uint16_t sac_outbound_streams;
+                    uint16_t sac_inbound_streams;
+                    sctp_assoc_t sac_assoc_id;
+                    uint8_t  sac_info[];
+                };
+        */
+
+
+
 
         static sctp v4() noexcept
         {
