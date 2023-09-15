@@ -9,7 +9,8 @@ namespace io{
     IO::IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
       : mbox_ptr_(mbox),
         ioc_(ioc),
-        us_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock"))
+        us_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock")),
+        ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), 5100))
     { 
         #ifdef DEBUG
         std::cout << "Endpoint Parameterized IO Constructor!" << std::endl;
@@ -50,6 +51,10 @@ namespace io{
             }
         };
         us_.accept(f);
+        
+
+
+
         ioc_.run();
         #ifdef DEBUG
         std::cout << "IO thread has stopped." << std::endl;

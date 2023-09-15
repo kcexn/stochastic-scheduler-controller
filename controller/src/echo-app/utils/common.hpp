@@ -2,6 +2,7 @@
 #define ECHO_COMMON_HPP
 #include <uuid/uuid.hpp>
 #include <transport-servers/unix-server/unix-server.hpp>
+#include "../../sctp-server/sctp.hpp"
 #include "../../sctp-server/sctp-server.hpp"
 
 namespace echo{
@@ -40,8 +41,8 @@ namespace echo{
         std::shared_ptr<std::condition_variable> sched_signal_cv_ptr;
 
         // Payloads
-        sctp::sctp_message rcvdmsg = {};
-        sctp::sctp_message sndmsg = {};
+        echo::sctp::sctp_message rcvdmsg = {};
+        echo::sctp::sctp_message sndmsg = {};
         std::shared_ptr<std::vector<char> > payload_buffer_ptr;
         std::shared_ptr<server::Session> session;
     };

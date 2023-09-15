@@ -8,25 +8,25 @@ namespace sctp_server{
     public:
         server(boost::asio::io_context& ioc, short port);
         ~server();
-        sctp::sctp_message do_read();
-        void shutdown_read(sctp::endpoint remote, sctp::assoc_t assoc_id_);
+        echo::sctp::sctp_message do_read();
+        void shutdown_read(echo::sctp::endpoint remote, echo::sctp::assoc_t assoc_id_);
         void stop();
         void start();
 
         void async_read(std::function<void(const boost::system::error_code& ec)>&& f);
-        void do_write(const sctp::sctp_message& msg);
+        void do_write(const echo::sctp::sctp_message& msg);
     private:
         enum { 
             buflen = 1024, /* each data buffer will be of length buflen */
             cbuflen = 1024, /* the control message buffer will be of length cbuflen, 1024 should be enough for even very large numbers of control headers.*/
             num_bufs = 1
         };
-        sctp::socket socket_;
-        sctp::buffer bufs[num_bufs];
+        echo::sctp::socket socket_;
+        echo::sctp::buffer bufs[num_bufs];
         boost::asio::io_context& ioc_;
 
         //Received message.
-        sctp::sctp_message rcvdmsg;
+        echo::sctp::sctp_message rcvdmsg;
         
         // read flags.
         int sctp_recvrcvinfo = 1;

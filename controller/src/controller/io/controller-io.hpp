@@ -1,7 +1,15 @@
 #ifndef CONTROLLER_IO_HPP
 #define CONTROLLER_IO_HPP
 #include <memory>
+#include <transport-servers/sctp-server/sctp-server.hpp>
 #include <transport-servers/unix-server/unix-server.hpp>
+
+
+namespace sctp_transport{
+    class SctpServer;
+    class SctpSession;
+}
+
 
 /*Forward Declarations*/
 namespace boost{
@@ -35,6 +43,9 @@ namespace io{
         
         // Unix Socket Server
         UnixServer::unix_server us_;
+
+        // SCTP Socket Server
+        sctp_transport::SctpServer ss_;
     };
 }// namespace io
 }// namespace controller

@@ -19,7 +19,7 @@ namespace echo{
         ~App();
         #endif
         // Schedule an Echo Application.
-        sctp::sctp_message schedule(sctp::sctp_message& rcvdmsg);
+        echo::sctp::sctp_message schedule(echo::sctp::sctp_message& rcvdmsg);
         void deschedule(echo::ExecutionContext context);
 
     private:

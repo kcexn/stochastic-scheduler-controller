@@ -8,11 +8,11 @@
 
 //Constructor
 sctp_server::server::server(boost::asio::io_context& ioc, short port)
-    : socket_(ioc, sctp::endpoint(sctp::v4(), port)), ioc_(ioc)
+    : socket_(ioc, echo::sctp::endpoint(echo::sctp::v4(), port)), ioc_(ioc)
 {
     // Initialize SCTP message buffers.
     for (int i = 0; i < num_bufs; ++i){
-        bufs[i].iov_base = static_cast<sctp::buffer*>(malloc(buflen));
+        bufs[i].iov_base = static_cast<echo::sctp::buffer*>(malloc(buflen));
         bufs[i].iov_len = buflen;
     }
 
@@ -52,7 +52,7 @@ sctp_server::server::~server(){
 }
 
 
-sctp::sctp_message sctp_server::server::do_read(){
+echo::sctp::sctp_message sctp_server::server::do_read(){
     //SCTP provides additional message metadata in the msghdr struct that is returned with recvmsg().
     //This struct is important for retrieving SCTP transport layer information such as:
     //Association ID, Stream ID, and the Stream Sequence Number. Boost.Asio does not 
@@ -65,7 +65,7 @@ sctp::sctp_message sctp_server::server::do_read(){
     struct sockaddr_in sin;
 
     //Initialize a message envelope
-    sctp::envelope msg = {
+    echo::sctp::envelope msg = {
         &sin,
         sizeof(sin),
         bufs,
@@ -82,7 +82,7 @@ sctp::sctp_message sctp_server::server::do_read(){
         boost::asio::const_buffer payload(bufs[0].iov_base, length);
 
         struct sctp_rcvinfo rcvinfo = {};
-        for( sctp::message_controls cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg) ){
+        for( echo::sctp::message_controls cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg) ){
             if (cmsg->cmsg_level == IPPROTO_SCTP && cmsg->cmsg_type == SCTP_RCVINFO){
                 std::memcpy(&rcvinfo, CMSG_DATA(cmsg), sizeof(rcvinfo));
                 break;
@@ -94,10 +94,10 @@ sctp::sctp_message sctp_server::server::do_read(){
         boost::asio::ip::address addr = boost::asio::ip::make_address(
             addr_string
         );
-        sctp::endpoint endpt( addr, port );
+        echo::sctp::endpoint endpt( addr, port );
 
         //Construct the SCTP Received Message.
-        sctp::sctp_message rcv_msg = {
+        echo::sctp::sctp_message rcv_msg = {
             {
                 endpt,
                 rcvinfo
@@ -123,7 +123,7 @@ sctp::sctp_message sctp_server::server::do_read(){
     throw "recvmsg has thrown an error.";
 }
 
-void sctp_server::server::do_write(const sctp::sctp_message& msg){
+void sctp_server::server::do_write(const echo::sctp::sctp_message& msg){
     //SCTP provides additional message metadata in the msghdr struct that is returned with recvmsg().
     //This struct is important for retrieving SCTP transport layer information such as:
     //Association ID, Stream ID, and the Stream Sequence Number. Boost.Asio does not 
@@ -138,12 +138,12 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
     #endif
 
     //Initialize a buffer for ancillary data.
-    char cbuf[CMSG_SPACE(sizeof(sctp::sndinfo))] = {};
+    char cbuf[CMSG_SPACE(sizeof(echo::sctp::sndinfo))] = {};
 
     //Initialize payload buffers for writing to the socket.
     std::vector<char> pbuf(msg.payload.size());
     std::memcpy(pbuf.data(), msg.payload.data(), msg.payload.size());
-    sctp::buffer pbufs[1] = {
+    echo::sctp::buffer pbufs[1] = {
         {
             pbuf.data(),
             pbuf.size()          
@@ -151,7 +151,7 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
     };
 
     //Initialize a message envelope
-    sctp::envelope sndmsg = {
+    echo::sctp::envelope sndmsg = {
         NULL,
         0,
         pbufs,
@@ -161,14 +161,14 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
         0
     };
 
-    sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
+    echo::sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
     if ( snd_cmsg == NULL ){
         perror("cmesg buffer error.");
     } else {
         snd_cmsg->cmsg_level = IPPROTO_SCTP;
         snd_cmsg->cmsg_type = SCTP_SNDINFO;
-        snd_cmsg->cmsg_len = CMSG_LEN(sizeof(sctp::sndinfo));
-        std::memcpy(CMSG_DATA(snd_cmsg), &msg.rmt_endpt.sndinfo, sizeof(sctp::sndinfo));
+        snd_cmsg->cmsg_len = CMSG_LEN(sizeof(echo::sctp::sndinfo));
+        std::memcpy(CMSG_DATA(snd_cmsg), &msg.rmt_endpt.sndinfo, sizeof(echo::sctp::sndinfo));
     }
 
     if(sendmsg(sockfd, &sndmsg, MSG_NOSIGNAL) == -1){
@@ -178,12 +178,12 @@ void sctp_server::server::do_write(const sctp::sctp_message& msg){
 
 void sctp_server::server::async_read(std::function<void(const boost::system::error_code& ec)>&& f){
     socket_.async_wait(
-        sctp::socket::wait_read,
+        echo::sctp::socket::wait_read,
         f
     );
 }
 
-void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t assoc_id_){
+void sctp_server::server::shutdown_read(echo::sctp::endpoint remote, echo::sctp::assoc_t assoc_id_){
     // TODO: Strictly speaking, this implementation of SCTP SHUTDOWN should use the 
     // kernel association address table which can be retrieved with a call to getsockopt,
     // and not the application address table.
@@ -198,7 +198,7 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
     int sockfd = socket_.native_handle();
 
     // Construct the sndinfo.
-    sctp::sndinfo shutdown = {
+    echo::sctp::sndinfo shutdown = {
         0,
         SCTP_EOF,
         0,
@@ -207,7 +207,7 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
     };
 
     //Initialize a buffer for ancillary data.
-    char cbuf[CMSG_SPACE(sizeof(sctp::sndinfo))] = {};
+    char cbuf[CMSG_SPACE(sizeof(echo::sctp::sndinfo))] = {};
 
     struct in_addr addr_v4 = {};
     inet_pton(AF_INET, remote.address().to_string().c_str(), &addr_v4);
@@ -219,7 +219,7 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
     };
 
     //Initialize a message envelope
-    sctp::envelope sndmsg = {
+    echo::sctp::envelope sndmsg = {
         &addr,
         sizeof(addr),
         nullptr,
@@ -230,14 +230,14 @@ void sctp_server::server::shutdown_read(sctp::endpoint remote, sctp::assoc_t ass
     };
 
 
-    sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
+    echo::sctp::message_controls snd_cmsg = CMSG_FIRSTHDR(&sndmsg);
     if ( snd_cmsg == NULL ){
         perror("cmesg buffer error.");
     } else {
         snd_cmsg->cmsg_level = IPPROTO_SCTP;
         snd_cmsg->cmsg_type = SCTP_SNDINFO;
-        snd_cmsg->cmsg_len = CMSG_LEN(sizeof(sctp::sndinfo));
-        std::memcpy(CMSG_DATA(snd_cmsg), &shutdown, sizeof(sctp::sndinfo));
+        snd_cmsg->cmsg_len = CMSG_LEN(sizeof(echo::sctp::sndinfo));
+        std::memcpy(CMSG_DATA(snd_cmsg), &shutdown, sizeof(echo::sctp::sndinfo));
     }
 
     if(sendmsg(sockfd, &sndmsg, 0) == -1){
