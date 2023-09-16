@@ -22,8 +22,8 @@ namespace server
         const static std::size_t max_buflen = 65536;
         Session(Server& server): server_(server), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app){}
         inline std::array<char, max_buflen>& buf() { return buf_; }
-        inline std::stringstream& acquire_stream(){ stream_mtx_.lock(); return stream_; }
-        inline void release_stream(){ stream_mtx_.unlock(); }
+        inline std::stringstream& acquire_stream(){ mtx_.lock(); return stream_; }
+        inline void release_stream(){ mtx_.unlock(); }
         inline void cancel() { 
             stop_signal_.emit(boost::asio::cancellation_type::total);
         }
@@ -39,12 +39,14 @@ namespace server
         
     protected:
         boost::asio::cancellation_signal stop_signal_;
+        void acquire() { mtx_.lock(); return; }
+        void release() { mtx_.unlock(); return; }
 
     private:
         server::Server& server_;
         std::array<char, max_buflen> buf_;
         std::stringstream stream_;
-        std::mutex stream_mtx_;
+        std::mutex mtx_;
     };
 }
 #endif

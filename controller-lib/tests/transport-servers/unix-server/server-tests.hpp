@@ -11,6 +11,7 @@ namespace tests{
         constexpr static struct TestContextRun{} test_context_run{};
         constexpr static struct TestReadWrite{} test_read_write{};
         constexpr static struct TestEraseSession{} test_erase_session{};
+        constexpr static struct TestUnixConnect{} test_unix_connect{};
 
         UnixServerTest(boost::asio::io_context& ioc); // minimal constructor test.
         UnixServerTest(boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint); // Open endpoint constructor.
@@ -19,6 +20,7 @@ namespace tests{
         explicit UnixServerTest(TestAcceptUnix, boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint);
         explicit UnixServerTest(TestReadWrite, boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint);
         explicit UnixServerTest(TestEraseSession, boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint);
+        explicit UnixServerTest(TestUnixConnect, boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint);
 
         operator bool(){ return passed_; }
     private:

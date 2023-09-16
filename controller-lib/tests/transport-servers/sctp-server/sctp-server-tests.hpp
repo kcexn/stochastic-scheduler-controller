@@ -11,11 +11,13 @@ namespace tests{
         constexpr static struct TestSocketRead{} test_socket_read{};
         constexpr static struct TestSessionConstructor{} test_session_constructor{};
         constexpr static struct TestSessionReadWrite{} test_session_read_write{};
+        constexpr static struct TestSessionConnect{} test_session_connect{};
 
         explicit SctpServerTests(DefaultConstructor, boost::asio::io_context& ioc);
         explicit SctpServerTests(TestSocketRead, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint);
         explicit SctpServerTests(TestSessionConstructor, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint);
         explicit SctpServerTests(TestSessionReadWrite, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint);
+        explicit SctpServerTests(TestSessionConnect, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint);
         
         operator bool(){ return passed_; }
     private:

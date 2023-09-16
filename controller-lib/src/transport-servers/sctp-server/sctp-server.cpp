@@ -48,7 +48,9 @@ namespace sctp_transport{
     }
 
     void SctpServer::stop(){
+        acquire();
         clear();
+        release();
     }
 
     std::shared_ptr<server::Session> SctpServer::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&)> fn){
@@ -59,7 +61,7 @@ namespace sctp_transport{
         std::memcpy(&(paddrinfo.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
         int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
         if(ec == -1){
-            if(errno = EINVAL){
+            if(errno == EINVAL){
                 /* remote address is not in the peer address table. */
                 transport::protocols::sctp::stream_t stream = {
                     SCTP_FUTURE_ASSOC,
@@ -70,20 +72,32 @@ namespace sctp_transport{
                     transport::protocols::sctp::socket::wait_type::wait_write,
                     [&, fn, addr, session](const boost::system::error_code& ec){
                         if(!ec){
-                            const struct sockaddr_in remote_addr = addr.tuple.remote_addr;
-                            const struct sockaddr* remote_addr_ptr = (const struct sockaddr*)(&remote_addr);
-                            int err = connect(socket_.native_handle(), remote_addr_ptr, sizeof(remote_addr));
-                            boost::system::error_code error(err, boost::system::system_category());
-                            if(err == 0){
-                                /* Get the Peer Assoc ID from the socket and assign it to the Transport session. */
+                            std::string data('\0',1);
+                            std::memcpy(buf_.data(), data.data(), data.size());
+                            transport::protocols::sctp::iov buf = {
+                                buf_.data(),
+                                1
+                            };
+                            transport::protocols::sctp::msghdr msg = {
+                                (void*)(&addr.tuple.remote_addr),
+                                sizeof(addr.tuple.remote_addr),
+                                &buf,
+                                1,
+                                nullptr,
+                                0,
+                                0
+                            };
+                            int err = connect(socket_.native_handle(), (const struct sockaddr*)(&addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+                            boost::system::error_code error;
+                            if(errno != EINPROGRESS){
+                                error = boost::system::error_code(errno, boost::system::system_category());
+                            } else {
                                 transport::protocols::sctp::paddrinfo paddrinfo = {};
                                 socklen_t paddrinfo_size = sizeof(paddrinfo);
                                 std::memcpy(&(paddrinfo.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
-                                int errcode = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
-                                if(errcode == -1){
-                                    throw "This shouldn't be possible.";
-                                }
-                                session->assoc() = paddrinfo.spinfo_assoc_id;
+                                int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
+                                transport::protocols::sctp::assoc_t assoc_id = paddrinfo.spinfo_assoc_id;
+                                session->set(assoc_id);
                             }
                             fn(error);
                         }

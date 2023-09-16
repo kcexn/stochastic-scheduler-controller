@@ -1,5 +1,6 @@
 #include "server-tests.hpp"
 #include <chrono>
+#include <iostream>
 namespace tests{
     UnixServerTest::UnixServerTest(boost::asio::io_context& ioc)
       : passed_{false},
@@ -125,4 +126,33 @@ namespace tests{
         passed_ = true;
     }
 
+    UnixServerTest::UnixServerTest(TestUnixConnect, boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint)
+      : passed_{false},
+        server_(ioc, endpoint)
+    {
+        server::Remote rmt;
+        rmt.hostname = {
+            server::AddressType::HOSTNAME,
+            {},
+            0,
+            "/run/controller/controller2.sock"
+        };
+        std::shared_ptr<server::Session> session = server_.async_connect(
+            rmt,
+            [&](const boost::system::error_code& ec){
+                if(!ec){
+                    std::string data("Hello World!\n");
+                    boost::asio::const_buffer buf(data.data(), data.size());
+                    session->async_write(
+                        buf,
+                        [&](){
+                            std::cout << "Hello World!" << std::endl;
+                            passed_ = true;
+                        }
+                    );
+                }
+            }
+        );
+        server_.run();
+    }
 }

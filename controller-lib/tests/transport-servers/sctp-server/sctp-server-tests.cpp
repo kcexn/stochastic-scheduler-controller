@@ -63,7 +63,40 @@ namespace tests{
             });
         });
         ioc.run_for(std::chrono::duration<int>(5));
-        sctp_server.stop();
         passed_ = true;
+    }
+
+    SctpServerTests::SctpServerTests(TestSessionConnect, boost::asio::io_context& ioc, const transport::protocols::sctp::endpoint& endpoint)
+    {
+        sctp_transport::SctpServer sctp_server(ioc, endpoint);
+        server::Remote rmt;
+        rmt.tuple = {
+            server::AddressType::TUPLE,
+            {},
+            IPPROTO_SCTP,
+            {
+                AF_INET,
+                htons(6100),
+                0
+            }
+        };
+        inet_aton("127.0.0.1", &rmt.tuple.remote_addr.sin_addr);
+        sctp_server.init([&](const boost::system::error_code& ec, std::shared_ptr<sctp_transport::SctpSession> session){ return; });
+        std::shared_ptr<server::Session> session = sctp_server.async_connect(
+            rmt,
+            [&](const boost::system::error_code& ec){
+                if(!ec){
+                    std::string data("Hello World!\n");
+                    boost::asio::const_buffer buf(data.data(), data.size());
+                    session->async_write(
+                        buf,
+                        [&]{
+                            passed_ = true;
+                        }
+                    );
+                }
+            }
+        );
+        ioc.run_for(std::chrono::duration<int>(5));
     }
 }
