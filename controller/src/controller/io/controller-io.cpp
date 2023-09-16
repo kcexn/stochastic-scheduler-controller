@@ -1,6 +1,6 @@
 #include "controller-io.hpp"
+#include "../controller-events.hpp"
 #include <transport-servers/sctp-server/sctp-session.hpp>
-#include "../../echo-app/utils/common.hpp"
 
 #ifdef DEBUG
 #include <iostream>
@@ -39,10 +39,10 @@ namespace io{
                     int thread_local_signal = mbox_ptr_->signal.load(std::memory_order::memory_order_relaxed);
                     mbox_ptr_->session = std::shared_ptr<UnixServer::unix_session>(session);
                     mbox_ptr_->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                    mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::UNIX_READ, std::memory_order::memory_order_relaxed);
+                    mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
                     lk.unlock();
                     mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                    if((thread_local_signal&echo::Signals::TERMINATE) == echo::Signals::TERMINATE){
+                    if((thread_local_signal & CTL_TERMINATE_EVENT)){
                         pthread_exit(0);
                     }
                 };
@@ -60,10 +60,10 @@ namespace io{
                 int thread_local_signal = mbox_ptr_->signal.load(std::memory_order::memory_order_relaxed);
                 mbox_ptr_->session = std::static_pointer_cast<server::Session>(session);
                 mbox_ptr_->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::UNIX_READ, std::memory_order::memory_order_relaxed);
+                mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
                 lk.unlock();
                 mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                if((thread_local_signal&echo::Signals::TERMINATE) == echo::Signals::TERMINATE){
+                if((thread_local_signal & CTL_TERMINATE_EVENT)){
                     pthread_exit(0);
                 }
             }
@@ -80,6 +80,7 @@ namespace io{
     void IO::stop(){
         ioc_.stop();
         us_.clear();
+        ss_.clear();
 
         // Wait a reasonable amount of time for the IO thread to stop.
         struct timespec ts = {0,50000000};
