@@ -1,6 +1,7 @@
 #include "run.hpp"
 #include "../../app/action-relation.hpp"
 #include "../../app/execution-context.hpp"
+#include <csignal>
 
 
 #ifdef DEBUG

@@ -1,5 +1,5 @@
 CXX = g++
-CXX_FLAGS = -Wpedantic
+CXX_FLAGS = -Wpedantic -pthread
 INCLUDE_PATH = -I../boost/boost_1_82_0/ -I../controller-lib/include/
 LIBRARY_PATH = -L/usr/local/lib/ -L../controller-lib/lib/
 LD_FLAGS = -l boost_system -l boost_json -l boost_context -l:libowcontroller_utils.a
@@ -9,8 +9,7 @@ OBJ_DIR = ./objects
 VPATH = $(sort $(dir $(wildcard $(SRC_DIR)/*/))) $(sort $(dir $(wildcard $(SRC_DIR)/*/*/))) $(sort $(dir $(wildcard $(SRC_DIR)/*/*/*/)))
 
 TARGET = controller
-OBJECTS = echo \
-echo-scheduler controller-app run init \
+OBJECTS = controller-app run init \
 controller-io execution-context action-manifest action-relation thread-controls
 
 # DEBUG SETTINGS

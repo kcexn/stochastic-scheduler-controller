@@ -1,5 +1,5 @@
 #include "controller-app.hpp"
-#include "../../echo-app/utils/common.hpp"
+#include "../controller-events.hpp"
 #include <application-servers/http/http-session.hpp>
 #include "execution-context.hpp"
 #include "action-relation.hpp"
@@ -7,10 +7,10 @@
 
 namespace controller{
 namespace app{
-    Controller::Controller(std::shared_ptr<echo::MailBox> mbox_ptr, boost::asio::io_context& ioc)
+    Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc)
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
-        io_mbox_ptr_(std::make_shared<echo::MailBox>()),
+        io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
         io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc)
     {
         #ifdef DEBUG
@@ -18,7 +18,7 @@ namespace app{
         #endif
         // Initialize parent controls
         io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
-        io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<int> >();
+        io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<std::uint16_t> >();
         io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
 
         std::thread application(
@@ -38,28 +38,25 @@ namespace app{
         bool thread_local_msg_flag;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
-        while( (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & echo::Signals::TERMINATE) != echo::Signals::TERMINATE ){
+        while( !(controller_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT) ){
             lk.lock();
-            io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) == true || io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) != 0); });
-            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            //Unset all of the scheduler signals except TERMINATE.
-            io_mbox_ptr_->sched_signal_ptr->fetch_and( ~(thread_local_signal & ~echo::Signals::TERMINATE), std::memory_order::memory_order_relaxed);
+            io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed)!=0)); });
             thread_local_msg_flag = io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed);
-            // Unset the msg box flag.
             io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
+            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
+            // Unset All of the scheduler signals.
+            io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
             std::shared_ptr<server::Session> server_session(std::move(io_mbox_ptr_->session));
             lk.unlock();
-
-            // Http::Session http_session( server_session );
+            if(thread_local_signal & CTL_TERMINATE_EVENT){
+                break;
+            }
 
             std::shared_ptr<http::HttpSession> http_session_ptr;
             auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
                 return *ptr == server_session;
             });
             if( http_session_it == hs_.end() ){
-                #ifdef DEBUG
-                std::cout << "Http Session pushed back onto hs_." << std::endl;
-                #endif
                 http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
                 hs_.push_back(http_session_ptr);
             } else {
@@ -71,13 +68,10 @@ namespace app{
             #endif
 
             if (thread_local_msg_flag){
-                if (( thread_local_signal & echo::Signals::TERMINATE) == echo::Signals::TERMINATE ){
-                    pthread_exit(0);
-                }
                 http_session_ptr->read();
                 route_request(http_session_ptr);
             }
-            if ( (thread_local_signal & echo::Signals::SCHED_END) == echo::Signals::SCHED_END ){
+            if ((thread_local_signal & CTL_IO_SCHED_END_EVENT)){
                 // Find a context that has a valid stopped thread.
                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
                     auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
@@ -233,7 +227,7 @@ namespace app{
                                     const std::size_t& manifest_size = ctx_ptr->manifest().size();
                                     for( std::size_t i = 0; i < manifest_size; ++i ){
                                         std::thread executor(
-                                            [&, ctx_ptr, i](std::shared_ptr<echo::MailBox> mbox_ptr){
+                                            [&, ctx_ptr, i](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
                                                 #ifdef DEBUG
                                                 std::cout << "Index: " << i << std::endl;
                                                 #endif
@@ -262,8 +256,8 @@ namespace app{
                                                 #endif
 
                                                 ctx_ptr->thread_controls()[i].resume();
-                                                ctx_ptr->thread_controls()[i].signal().fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
-                                                mbox_ptr->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                                ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                 mbox_ptr->sched_signal_cv_ptr->notify_all();
                                             }, io_mbox_ptr_
                                         );
@@ -275,14 +269,7 @@ namespace app{
                                 std::size_t manifest_size = ctx_ptr->manifest().size();
                                 // Get the starting relation.
                                 std::string start_key(ctx_ptr->manifest()[execution_idx % manifest_size]->key());
-                                #ifdef DEBUG
-                                std::cout << "Starting Key: " << start_key << std::endl;
-                                #endif
-
                                 std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
-                                #ifdef DEBUG
-                                std::cout << "Next Key: " << start->key() << std::endl;
-                                #endif
 
                                 // Find the index in the manifest of the starting relation.
                                 auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
@@ -291,7 +278,7 @@ namespace app{
                                 if (start_it == ctx_ptr->manifest().end()){
                                     // If the start key is past the end of the manifest, that means that
                                     // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
-                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                     io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                                     return;
                                 }
@@ -513,9 +500,7 @@ namespace app{
     }
 
     void Controller::stop(){
-        controller_mbox_ptr_->signal.fetch_or(echo::Signals::TERMINATE);
-        controller_mbox_ptr_->mbx_cv.notify_all();
-        io_mbox_ptr_->sched_signal_ptr->fetch_or(echo::Signals::TERMINATE);
+        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
 
         // Wait a reasonable amount of time for the threads to stop gracefully.

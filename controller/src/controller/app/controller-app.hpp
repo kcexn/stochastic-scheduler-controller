@@ -8,9 +8,6 @@
 
 
 /*Forward Declarations*/
-namespace boost{
-    
-}
 namespace controller{
 namespace app{
     class ExecutionContext;
@@ -20,16 +17,13 @@ namespace http{
     class HttpSession;
     class HttpResponse;
 }
-namespace echo{
-    class MailBox;
-}
 
 namespace controller{
 namespace app{
     class Controller
     {
     public:
-        Controller(std::shared_ptr<echo::MailBox> mbox_ptr, boost::asio::io_context& ioc);
+        Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc);
         void start();
         void start_controller();
         void route_request(std::shared_ptr<http::HttpSession>& session);
@@ -42,13 +36,13 @@ namespace app{
         // Controller Thread ID.
         pthread_t tid_;
         // Global Signals.
-        std::shared_ptr<echo::MailBox> controller_mbox_ptr_;
+        std::shared_ptr<controller::io::MessageBox> controller_mbox_ptr_;
         // Execution Context IDs.
         std::vector<std::shared_ptr<ExecutionContext> > ctx_ptrs;
         // OpenWhisk Action Proxy Initialized.
         bool initialized_;
         // IO
-        std::shared_ptr<echo::MailBox> io_mbox_ptr_;
+        std::shared_ptr<controller::io::MessageBox> io_mbox_ptr_;
         controller::io::IO io_;
     };
 }// namespace app

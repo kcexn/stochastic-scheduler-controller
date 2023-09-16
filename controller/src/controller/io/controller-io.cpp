@@ -7,7 +7,7 @@
 #endif
 namespace controller{
 namespace io{
-    IO::IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
+    IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
       : mbox_ptr_(mbox),
         ioc_(ioc),
         us_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock")),

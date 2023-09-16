@@ -9,10 +9,8 @@ namespace controller{
 namespace app{    
     // Thread Controls
     void ThreadControls::wait(){
-         std::unique_lock<std::mutex> lk(*mtx_); 
-         cv_->wait(lk, [&](){ 
-            return ((signal_->load(std::memory_order::memory_order_relaxed)&echo::Signals::SCHED_START)==echo::Signals::SCHED_START);
-        }); 
+        std::unique_lock<std::mutex> lk(*mtx_); 
+        cv_->wait(lk, [&]{ return (signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_START_EVENT); }); 
         return;
     }
 
@@ -20,7 +18,7 @@ namespace app{
         mtx_->lock();
         execution_context_idxs_.push_back(idx);
         mtx_->unlock();
-        signal_->fetch_or(echo::Signals::SCHED_START, std::memory_order::memory_order_relaxed); 
+        signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed); 
         cv_->notify_all(); 
         return; 
     }
@@ -30,7 +28,7 @@ namespace app{
             pthread_cancel(tid_);
             invalidate_fiber();
             // Stop the thread.
-            signal_->fetch_or(echo::Signals::SCHED_END, std::memory_order::memory_order_relaxed);
+            signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
             if(pid_ > 0){
                 kill(pid_, SIGTERM);
             }

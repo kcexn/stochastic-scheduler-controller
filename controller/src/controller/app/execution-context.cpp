@@ -32,9 +32,6 @@ namespace app{
             if (ec){
                 throw "boost json parse failed.";
             }
-            #ifdef DEBUG
-            std::cout << manifest << std::endl;
-            #endif
             // If the manifest is empty throw an exception.
             if(manifest.empty()){
                 throw "action-manifest.json can't be empty.";
