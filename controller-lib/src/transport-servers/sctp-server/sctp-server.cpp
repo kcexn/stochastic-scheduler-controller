@@ -74,6 +74,17 @@ namespace sctp_transport{
                             const struct sockaddr* remote_addr_ptr = (const struct sockaddr*)(&remote_addr);
                             int err = connect(socket_.native_handle(), remote_addr_ptr, sizeof(remote_addr));
                             boost::system::error_code error(err, boost::system::system_category());
+                            if(err == 0){
+                                /* Get the Peer Assoc ID from the socket and assign it to the Transport session. */
+                                transport::protocols::sctp::paddrinfo paddrinfo = {};
+                                socklen_t paddrinfo_size = sizeof(paddrinfo);
+                                std::memcpy(&(paddrinfo.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+                                int errcode = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
+                                if(errcode == -1){
+                                    throw "This shouldn't be possible.";
+                                }
+                                session->assoc() = paddrinfo.spinfo_assoc_id;
+                            }
                             fn(error);
                         }
                     }
