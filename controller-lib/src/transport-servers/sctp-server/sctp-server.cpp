@@ -1,5 +1,6 @@
 #include "sctp-server.hpp"
 #include "sctp-session.hpp"
+#include <cerrno>
 
 #ifdef DEBUG
 #include <iostream>
@@ -39,7 +40,7 @@ namespace sctp_transport{
         socket_.assign(transport::protocols::sctp::v4(), sockfd);
     }
 
-    void SctpServer::init(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)> fn){
+    void SctpServer::init(std::function<void(const boost::system::error_code&, std::shared_ptr<SctpSession>)> fn){
         socket_.async_wait(
             transport::protocols::sctp::socket::wait_type::wait_read,
             std::bind(&SctpServer::read, this, fn, std::placeholders::_1)
@@ -48,6 +49,66 @@ namespace sctp_transport{
 
     void SctpServer::stop(){
         clear();
+    }
+
+    std::shared_ptr<server::Session> SctpServer::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&)> fn){
+        std::shared_ptr<SctpSession> session;
+        /* Get assoc params from the socket. */
+        transport::protocols::sctp::paddrinfo paddrinfo = {};
+        socklen_t paddrinfo_size = sizeof(paddrinfo);
+        std::memcpy(&(paddrinfo.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+        int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
+        if(ec == -1){
+            if(errno = EINVAL){
+                /* remote address is not in the peer address table. */
+                transport::protocols::sctp::stream_t stream = {
+                    SCTP_FUTURE_ASSOC,
+                    0
+                };
+                session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
+                socket_.async_wait(
+                    transport::protocols::sctp::socket::wait_type::wait_write,
+                    [&, fn, addr, session](const boost::system::error_code& ec){
+                        if(!ec){
+                            const struct sockaddr_in remote_addr = addr.tuple.remote_addr;
+                            const struct sockaddr* remote_addr_ptr = (const struct sockaddr*)(&remote_addr);
+                            int err = connect(socket_.native_handle(), remote_addr_ptr, sizeof(remote_addr));
+                            boost::system::error_code error(err, boost::system::system_category());
+                            fn(error);
+                        }
+                    }
+                );
+                acquire();
+                push_back(session);
+                release();
+            } else {
+                perror("getsockopt failed");
+            }
+        } else {
+            /* Remote address is in the peer address table. */
+            transport::protocols::sctp::assoc_t assoc_id = paddrinfo.spinfo_assoc_id;
+            /* Look for the next available stream*/
+            transport::protocols::sctp::sid_t last_stream_no = 0;
+            acquire();
+            for(auto& ptr: *this){
+                if(std::static_pointer_cast<SctpSession>(ptr)->assoc() == assoc_id){
+                    if( (std::static_pointer_cast<SctpSession>(ptr)->sid() - last_stream_no) <= 1){
+                        last_stream_no = std::static_pointer_cast<SctpSession>(ptr)->sid();
+                    } else {
+                        break;
+                    }
+                }
+            }
+            ++last_stream_no;
+            transport::protocols::sctp::stream_t stream = {
+                assoc_id,
+                last_stream_no
+            };
+            session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
+            push_back(session);
+            release();
+        }
+        return session;
     }
 
     void SctpServer::read(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)> fn, const boost::system::error_code& ec){
@@ -83,7 +144,6 @@ namespace sctp_transport{
                         switch(sac->sac_state)
                         {
                             case SCTP_COMM_UP:
-                                // std::cout << sac->sac_inbound_streams << std::endl;
                                 break;
                             case SCTP_COMM_LOST:
                                 break;

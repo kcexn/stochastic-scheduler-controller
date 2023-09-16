@@ -16,13 +16,12 @@ namespace sctp_transport{
         void init(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)>);
         void stop();
 
-        #ifdef DEBUG
-        transport::protocols::sctp::socket& socket(){ return socket_; }
-        #endif
+        std::shared_ptr<server::Session> async_connect(server::Remote addr, std::function<void(const boost::system::error_code&)> fn);
         
         ~SctpServer();
     private:
         void read(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)>, const boost::system::error_code& ec);
+        std::vector<transport::protocols::sctp::assoc_t> assoc_table_;
 
         std::array<char, server::Session::max_buflen> buf_;
         std::array<char, server::Session::max_buflen> cbuf_;

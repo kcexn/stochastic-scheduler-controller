@@ -18,6 +18,10 @@ namespace sctp_transport{
         void close() override;
         ~SctpSession() = default; 
 
+        transport::protocols::sctp::assoc_t& assoc(){ return id_.assoc; }
+        transport::protocols::sctp::sid_t& sid() { return id_.sid; }
+
+
         bool operator==(const SctpSession& other);
         bool operator==(const transport::protocols::sctp::stream_t& stream);
         bool operator!=(const SctpSession& other);

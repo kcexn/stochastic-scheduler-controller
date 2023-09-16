@@ -34,8 +34,9 @@ namespace tests{
             1,
             2
         };
-        sctp_transport::SctpSession sctp_session(sctp_server, stream_id, sctp_server.socket());
-        sctp_transport::SctpSession sctp_session2(sctp_server, stream_id, sctp_server.socket());
+        transport::protocols::sctp::socket sock(ioc);
+        sctp_transport::SctpSession sctp_session(sctp_server, stream_id, sock);
+        sctp_transport::SctpSession sctp_session2(sctp_server, stream_id, sock);
         if(sctp_session != sctp_session2){
             return;
         } else if (sctp_session != stream_id){

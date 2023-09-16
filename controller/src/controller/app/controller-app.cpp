@@ -283,10 +283,6 @@ namespace app{
                                     return;
                                 }
                                 std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
-                                #ifdef DEBUG
-                                std::cout << "Select Index: " << start_idx << std::endl;
-                                std::cout << "Execution Index: " << execution_idx << std::endl;
-                                #endif
                                 ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                             } else {
                                 // invalidate the fibers.

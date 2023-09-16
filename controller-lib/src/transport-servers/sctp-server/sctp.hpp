@@ -20,6 +20,7 @@ namespace protocols{
         typedef struct sctp_rcvinfo rcvinfo;
         typedef sctp_assoc_t assoc_t;
         typedef std::uint16_t sid_t;
+        typedef struct sctp_paddrinfo paddrinfo;
         struct stream_t {
             assoc_t assoc;
             sid_t sid;
