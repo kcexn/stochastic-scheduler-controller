@@ -137,9 +137,9 @@ namespace tests{
             0,
             "/run/controller/controller2.sock"
         };
-        std::shared_ptr<server::Session> session = server_.async_connect(
+        server_.async_connect(
             rmt,
-            [&](const boost::system::error_code& ec){
+            [&](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& session){
                 if(!ec){
                     std::string data("Hello World!\n");
                     boost::asio::const_buffer buf(data.data(), data.size());

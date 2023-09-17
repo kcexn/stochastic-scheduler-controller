@@ -26,7 +26,7 @@ namespace UnixServer{
         unix_server(boost::asio::io_context& ioc);
         unix_server(boost::asio::io_context& ioc, const boost::asio::local::stream_protocol::endpoint& endpoint);
 
-        std::shared_ptr<server::Session> async_connect(server::Remote addr, std::function<void(const boost::system::error_code&)> fn) override;
+        void async_connect(server::Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn) override;
 
         void accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn);
         void stop() { acceptor_.close(); return; }
@@ -36,6 +36,5 @@ namespace UnixServer{
         boost::asio::local::stream_protocol::endpoint endpoint_;
         boost::asio::local::stream_protocol::acceptor acceptor_;
     };
-
 }//Namespace UnixServer
 #endif

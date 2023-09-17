@@ -26,12 +26,12 @@ namespace sctp_transport{
         transport::protocols::sctp::recvrcvinfo option(1);
         acceptor.set_option(option);
 
-        // struct sctp_event subscribe = {
-        //     SCTP_ALL_ASSOC,
-        //     SCTP_ASSOC_CHANGE,
-        //     1
-        // };
-        // int val = setsockopt(acceptor.native_handle(), IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe));
+        struct sctp_event subscribe = {
+            SCTP_ALL_ASSOC,
+            SCTP_ASSOC_CHANGE,
+            1
+        };
+        int val = setsockopt(acceptor.native_handle(), IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe));
 
 
         acceptor.listen();
@@ -53,7 +53,7 @@ namespace sctp_transport{
         release();
     }
 
-    std::shared_ptr<server::Session> SctpServer::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&)> fn){
+    void SctpServer::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn){
         std::shared_ptr<SctpSession> session;
         /* Get assoc params from the socket. */
         transport::protocols::sctp::paddrinfo paddrinfo = {};
@@ -68,44 +68,40 @@ namespace sctp_transport{
                     0
                 };
                 session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
+                acquire();
+                pending_connects_.emplace_back();
+                {
+                    auto& pending_connect = pending_connects_.back();
+                    pending_connect.session = session;
+                    pending_connect.cb = fn;
+                }
+                release();
                 socket_.async_wait(
                     transport::protocols::sctp::socket::wait_type::wait_write,
-                    [&, fn, addr, session](const boost::system::error_code& ec){
+                    [fn, addr, this, session](const boost::system::error_code& ec) mutable {
                         if(!ec){
-                            std::string data('\0',1);
-                            std::memcpy(buf_.data(), data.data(), data.size());
-                            transport::protocols::sctp::iov buf = {
-                                buf_.data(),
-                                1
-                            };
-                            transport::protocols::sctp::msghdr msg = {
-                                (void*)(&addr.tuple.remote_addr),
-                                sizeof(addr.tuple.remote_addr),
-                                &buf,
-                                1,
-                                nullptr,
-                                0,
-                                0
-                            };
-                            int err = connect(socket_.native_handle(), (const struct sockaddr*)(&addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+                            int err = connect(this->socket_.native_handle(), (const struct sockaddr*)(&addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
                             boost::system::error_code error;
                             if(errno != EINPROGRESS){
                                 error = boost::system::error_code(errno, boost::system::system_category());
+                                this->erase_pending_connect(session);
+                                fn(error, session);
                             } else {
-                                transport::protocols::sctp::paddrinfo paddrinfo = {};
-                                socklen_t paddrinfo_size = sizeof(paddrinfo);
-                                std::memcpy(&(paddrinfo.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
-                                int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
-                                transport::protocols::sctp::assoc_t assoc_id = paddrinfo.spinfo_assoc_id;
+                                transport::protocols::sctp::paddrinfo paddr;
+                                socklen_t paddr_size = sizeof(paddr);
+                                std::memcpy(&(paddr.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+                                int ec = getsockopt(this->socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddr, &paddr_size);
+                                if(ec == -1){
+                                    perror("getsockopt failed");
+                                    throw "This really shouldn't happen.";
+                                }
+                                transport::protocols::sctp::assoc_t assoc_id = paddr.spinfo_assoc_id;
                                 session->set(assoc_id);
                             }
-                            fn(error);
                         }
+                        return;
                     }
                 );
-                acquire();
-                push_back(session);
-                release();
             } else {
                 perror("getsockopt failed");
             }
@@ -132,9 +128,26 @@ namespace sctp_transport{
             session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
             push_back(session);
             release();
+            boost::system::error_code ec;
+            fn(ec, session);
         }
-        return session;
+        return;
     }
+
+    void SctpServer::erase_pending_connect(const std::shared_ptr<server::Session>& sctp_session)
+    { 
+        acquire();
+        auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+            return pending_connection.session == sctp_session;
+        });
+        if(it != pending_connects_.end()){
+            pending_connects_.erase(it);
+        }
+        release();
+        return;
+    }
+
+
 
     void SctpServer::read(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)> fn, const boost::system::error_code& ec){
         if(!ec){
@@ -166,10 +179,28 @@ namespace sctp_transport{
                     case SCTP_ASSOC_CHANGE:
                         struct sctp_assoc_change* sac;
                         sac = &snp->sn_assoc_change;
+                        transport::protocols::sctp::assoc_t association = sac->sac_assoc_id;
                         switch(sac->sac_state)
                         {
                             case SCTP_COMM_UP:
+                            {
+                                /* Search for the association in the pending connects table */
+                                acquire();
+                                auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                    return pending_connection.session->get_assoc() == association;
+                                });
+                                if(it != pending_connects_.end()){
+                                    /* This is a pending connection */
+                                    boost::system::error_code error;
+                                    const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
+                                    push_back(sctp_session);
+                                    pending_connects_.erase(it);
+                                    it->cb(error, sctp_session);
+                                }
+                                release();
+                                /* Otherwise it's a brand new incoming connection. */
                                 break;
+                            }
                             case SCTP_COMM_LOST:
                                 break;
                             case SCTP_RESTART:
@@ -177,7 +208,22 @@ namespace sctp_transport{
                             case SCTP_SHUTDOWN_COMP:
                                 break;
                             case SCTP_CANT_STR_ASSOC:
+                            {
+                                /* Search for the association in the pending connects table */
+                                acquire();
+                                auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](const auto& pending_connection){
+                                    return pending_connection.session->get_assoc() == association;
+                                });
+                                if(it != pending_connects_.cend()){
+                                    /* This is a pending connection */
+                                    boost::system::error_code error(ECONNREFUSED, boost::system::system_category());
+                                    const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
+                                    it->cb(error, it->session);
+                                    pending_connects_.erase(it);
+                                }
+                                release();
                                 break;
+                            }
                             default:
                                 break;
                         }

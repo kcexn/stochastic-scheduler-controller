@@ -82,9 +82,9 @@ namespace tests{
         };
         inet_aton("127.0.0.1", &rmt.tuple.remote_addr.sin_addr);
         sctp_server.init([&](const boost::system::error_code& ec, std::shared_ptr<sctp_transport::SctpSession> session){ return; });
-        std::shared_ptr<server::Session> session = sctp_server.async_connect(
+        sctp_server.async_connect(
             rmt,
-            [&](const boost::system::error_code& ec){
+            [&](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& session){
                 if(!ec){
                     std::string data("Hello World!\n");
                     boost::asio::const_buffer buf(data.data(), data.size());

@@ -19,6 +19,7 @@ namespace sctp_transport{
         ~SctpSession() = default; 
 
         void set(transport::protocols::sctp::assoc_t& assoc_id ) { acquire(); id_.assoc = assoc_id; release(); return; }
+        transport::protocols::sctp::assoc_t get_assoc() { acquire(); transport::protocols::sctp::assoc_t tmp = id_.assoc; release(); return tmp; }
         transport::protocols::sctp::assoc_t& assoc(){ return id_.assoc; }
         transport::protocols::sctp::sid_t& sid() { return id_.sid; }
 

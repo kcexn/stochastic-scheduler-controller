@@ -62,7 +62,7 @@ namespace server
 
         // Servers must implement a connect interface that returns a client 
         // session.
-        virtual std::shared_ptr<Session> async_connect(Remote addr, std::function<void(const boost::system::error_code&)> fn) = 0;
+        virtual void async_connect(Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<Session>&)> fn) = 0;
 
 
         virtual ~Server() = default;

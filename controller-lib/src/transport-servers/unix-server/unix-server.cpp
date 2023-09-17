@@ -52,12 +52,18 @@ namespace UnixServer{
         acceptor_(ioc, endpoint)
     {}
 
-    std::shared_ptr<server::Session> unix_server::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&)> fn) {
+    void unix_server::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn) {
         boost::asio::local::stream_protocol::socket sock(ioc_, boost::asio::local::stream_protocol().protocol());
         const char* path = addr.hostname.name;
         boost::asio::local::stream_protocol::endpoint endpoint(path);
-        sock.async_connect(endpoint, fn);
-        return std::make_shared<unix_session>(std::move(sock), *this);
+        std::shared_ptr<unix_session> session = std::make_shared<unix_session>(std::move(sock), *this);
+        sock.async_connect(endpoint, [&, fn, session](const boost::system::error_code& ec) {
+            if(!ec){
+                this->push_back(session);
+            }
+            fn(ec, session);
+        });
+        return;
     }
 
     void unix_server::accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn){
