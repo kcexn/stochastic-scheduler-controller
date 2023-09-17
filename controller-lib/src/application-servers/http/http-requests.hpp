@@ -197,14 +197,22 @@ namespace http{
     std::istream& operator>>(std::istream& is, HttpRequest& req);
     std::ostream& operator<<(std::ostream& os, const HttpRequest& req);
 
-    // Http responses do not support stream extraction,
-    // as they are constructed server side.
     struct HttpResponse
     {
         HttpVersion version;
         HttpStatus status;
         std::vector<HttpHeader> headers;
         std::vector<HttpChunk> chunks;
+
+        // Gives the index of the next http header to be processed.
+        // If next_header == headers.size(), then there are 
+        // no more headers to be processed.
+        std::size_t next_header;
+        // Gives the total number of headers in the HTTP1.1 request
+        // (that we care about at least). If next_header == num_headers
+        // then there are no more headers to be processed (the rest of the data is all)
+        // part of the request body.
+        std::size_t num_headers;
 
         // Gives the index of the next http chunk to be processed.
         // If next_chunk == chunks.size(), then there is no more 
@@ -215,6 +223,22 @@ namespace http{
         // be processed (the request body is complete, any further data that)
         // arrives in the stream should be disregarded.
         std::size_t num_chunks;
+        // This is a helper member that can be used by
+        // applications to keep track of the index of the last
+        // chunked processed.
+        std::size_t pos;
+
+        //flags and buffers to track the status of the version string.
+        std::string version_buf;
+        std::size_t find_version_state;
+        const static std::size_t max_find_state = 5;
+        bool version_finished;
+
+        // flags and buffers to track the status of the status string.
+        std::string status_buf;
+        bool status_started;
+        bool status_finished;
+        bool status_line_finished;
 
         // If this flag is true, then Content-Length header field must be present.
         // Otherwise chunked transfer encoding is assumed.
@@ -222,6 +246,7 @@ namespace http{
         bool not_chunked_transfer;     
     };
     std::ostream& operator<<(std::ostream& os, const HttpResponse& res);
+    std::istream& operator>>(std::istream& is, HttpResponse& res);
 
 }
 #endif

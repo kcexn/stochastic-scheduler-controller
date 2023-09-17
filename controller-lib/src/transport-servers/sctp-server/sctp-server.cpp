@@ -53,12 +53,12 @@ namespace sctp_transport{
         release();
     }
 
-    void SctpServer::async_connect(server::Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn){
+    void SctpServer::async_connect(server::Remote rmt, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn){
         std::shared_ptr<SctpSession> session;
         /* Get assoc params from the socket. */
         transport::protocols::sctp::paddrinfo paddrinfo = {};
         socklen_t paddrinfo_size = sizeof(paddrinfo);
-        std::memcpy(&(paddrinfo.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+        std::memcpy(&(paddrinfo.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
         int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
         if(ec == -1){
             if(errno == EINVAL){
@@ -78,9 +78,9 @@ namespace sctp_transport{
                 release();
                 socket_.async_wait(
                     transport::protocols::sctp::socket::wait_type::wait_write,
-                    [fn, addr, this, session](const boost::system::error_code& ec) mutable {
+                    [fn, rmt, this, session](const boost::system::error_code& ec) mutable {
                         if(!ec){
-                            int err = connect(this->socket_.native_handle(), (const struct sockaddr*)(&addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+                            int err = connect(this->socket_.native_handle(), (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                             boost::system::error_code error;
                             if(errno != EINPROGRESS){
                                 error = boost::system::error_code(errno, boost::system::system_category());
@@ -89,7 +89,7 @@ namespace sctp_transport{
                             } else {
                                 transport::protocols::sctp::paddrinfo paddr;
                                 socklen_t paddr_size = sizeof(paddr);
-                                std::memcpy(&(paddr.spinfo_address), &(addr.tuple.remote_addr), sizeof(addr.tuple.remote_addr));
+                                std::memcpy(&(paddr.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                                 int ec = getsockopt(this->socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddr, &paddr_size);
                                 if(ec == -1){
                                     perror("getsockopt failed");

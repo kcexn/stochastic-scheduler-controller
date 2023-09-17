@@ -131,10 +131,8 @@ namespace tests{
         server_(ioc, endpoint)
     {
         server::Remote rmt;
-        rmt.hostname = {
-            server::AddressType::HOSTNAME,
-            {},
-            0,
+        rmt.unix_addr.address = {
+            AF_UNIX,
             "/run/controller/controller2.sock"
         };
         server_.async_connect(
@@ -146,7 +144,6 @@ namespace tests{
                     session->async_write(
                         buf,
                         [&](){
-                            std::cout << "Hello World!" << std::endl;
                             passed_ = true;
                         }
                     );

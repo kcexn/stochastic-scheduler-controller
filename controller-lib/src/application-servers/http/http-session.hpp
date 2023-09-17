@@ -26,5 +26,23 @@ namespace http{
             }
         }
     };
+
+    //Http client sessions reverse the http server session logic.
+    class HttpClientSession: public http_session
+    {
+        HttpClientSession(HttpServer& server): http_session(server) {}
+        HttpClientSession(HttpServer& server, const std::shared_ptr<server::Session>& t_session_ptr): http_session(server, t_session_ptr) {}
+
+        void read() override;
+        void write(const std::function<void()>& fn) override;
+        void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
+        void close() override;
+
+        ~HttpClientSession() {             
+            if(t_session_){
+                t_session_->erase();
+            }
+        }        
+    };
 }
 #endif

@@ -70,17 +70,11 @@ namespace tests{
     {
         sctp_transport::SctpServer sctp_server(ioc, endpoint);
         server::Remote rmt;
-        rmt.tuple = {
-            server::AddressType::TUPLE,
-            {},
-            IPPROTO_SCTP,
-            {
-                AF_INET,
-                htons(6100),
-                0
-            }
+        rmt.ipv4_addr.address = {
+            AF_INET,
+            htons(6100)
         };
-        inet_aton("127.0.0.1", &rmt.tuple.remote_addr.sin_addr);
+        inet_aton("127.0.0.1", &rmt.ipv4_addr.address.sin_addr);
         sctp_server.init([&](const boost::system::error_code& ec, std::shared_ptr<sctp_transport::SctpSession> session){ return; });
         sctp_server.async_connect(
             rmt,

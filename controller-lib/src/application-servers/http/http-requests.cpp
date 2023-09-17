@@ -656,12 +656,6 @@ namespace http
             // (the chunk can also be empty i.e. "0\r\n\r\n").
             req.num_headers = 1;
             req.num_chunks = 1;
-            if(req.headers.size() != 0){
-                throw "req headers is of the wrong size.";
-            }
-            if(req.chunks.size() != 0){
-                throw "req chunks is of the wrong size.";
-            }
             req.headers.emplace_back();
             req.chunks.emplace_back();
 
@@ -910,53 +904,57 @@ namespace http
     }
 
     std::ostream& operator<<(std::ostream& os, const HttpResponse& res){
-        switch(res.version)
-        {
-            case HttpVersion::V1:
-                os << "HTTP/1.0 ";
-                break;
-            case HttpVersion::V1_1:
-                os << "HTTP/1.1 ";
-                break;
-            case HttpVersion::V2:
-                os << "HTTP/2 ";
-                break;
-            case HttpVersion::V3:
-                os << "HTTP/3 ";
-                break;
-            case HttpVersion::V0_9:
-                os << "HTTP/0.9 ";
-                break;
-        }
-        switch(res.status)
-        {
-            case HttpStatus::OK:
-                os << "200 OK\r\n";
-                break;
-            case HttpStatus::NOT_FOUND:
-                os << "404 Not Found\r\n";
-                break;
-            case HttpStatus::CONFLICT:
-                os << "409 Conflict\r\n";
-                break;
-            case HttpStatus::METHOD_NOT_ALLOWED:
-                os << "405 Method Not Allowed\r\n";
-                break;
-            case HttpStatus::INTERNAL_SERVER_ERROR:
-                os << "500 Internal Server Error\r\n";
-                break;
-            case HttpStatus::CREATED:
-                os << "201 Created\r\n";
-                break;
-            case HttpStatus::ACCEPTED:
-                os << "202 Accepted\r\n";
-                break;
-        }
-        for(auto& header: res.headers){
-            if(header.field_name == HttpHeaderField::END_OF_HEADERS){
-                os << "\r\n";
-            } else {
-                os << header;
+        // If res.pos == 0 then, we haven't sent any data chunks yet.
+        // This means we need to extract the status line and header information.
+        if(res.pos == 0){
+            switch(res.version)
+            {
+                case HttpVersion::V1:
+                    os << "HTTP/1.0 ";
+                    break;
+                case HttpVersion::V1_1:
+                    os << "HTTP/1.1 ";
+                    break;
+                case HttpVersion::V2:
+                    os << "HTTP/2 ";
+                    break;
+                case HttpVersion::V3:
+                    os << "HTTP/3 ";
+                    break;
+                case HttpVersion::V0_9:
+                    os << "HTTP/0.9 ";
+                    break;
+            }
+            switch(res.status)
+            {
+                case HttpStatus::OK:
+                    os << "200 OK\r\n";
+                    break;
+                case HttpStatus::NOT_FOUND:
+                    os << "404 Not Found\r\n";
+                    break;
+                case HttpStatus::CONFLICT:
+                    os << "409 Conflict\r\n";
+                    break;
+                case HttpStatus::METHOD_NOT_ALLOWED:
+                    os << "405 Method Not Allowed\r\n";
+                    break;
+                case HttpStatus::INTERNAL_SERVER_ERROR:
+                    os << "500 Internal Server Error\r\n";
+                    break;
+                case HttpStatus::CREATED:
+                    os << "201 Created\r\n";
+                    break;
+                case HttpStatus::ACCEPTED:
+                    os << "202 Accepted\r\n";
+                    break;
+            }
+            for(auto& header: res.headers){
+                if(header.field_name == HttpHeaderField::END_OF_HEADERS){
+                    os << "\r\n";
+                } else {
+                    os << header;
+                }
             }
         }
         auto it = std::find_if(res.headers.begin(), res.headers.end(), [](auto& header){
@@ -964,12 +962,192 @@ namespace http
         });
         if(it != res.headers.end()){
             os << res.chunks[0].chunk_data;
-        } else {
-            for(auto& chunk: res.chunks){
-                os << chunk;
+        } else if (res.pos < res.num_chunks) {
+            std::size_t i = res.pos;
+            for(std::size_t i = res.pos; i < res.num_chunks; ++i){
+                os << res.chunks[i];
             }
         }
         return os;
+    }
+
+    std::istream& operator>>(std::istream& is, HttpResponse& res){
+        std::streamsize bytes_available = is.rdbuf()->in_avail();
+        char c;
+        if(res.num_headers == 0 || res.num_chunks == 0 || res.find_version_state == 0){
+            // managmeent things we need to do if this is a 
+            // brand new 0 initialized response.
+
+            // There has to be at least one header
+            // and there has to be at least one chunk.
+            // (the header can be empty i.e. "\r\n").
+            // (the chunk can also be empty i.e. "0\r\n\r\n").
+            res.num_headers = 1;
+            res.num_chunks = 1;
+            res.headers.emplace_back();
+            res.chunks.emplace_back();
+
+            // For clarity we will explicitly 0 initialize
+            // the next indices.
+            res.next_header = 0;
+            res.next_chunk = 0;
+        }
+        // While there are bytes available in the input stream, keep parsing.
+        // It is the programmers responsibility to ensure that the 
+        // invariant that headers are fully parsed when next_header == num_headers
+        // and that chunks are fully parsed when next_chunk == num_chunks.
+        while(bytes_available > 0 && (res.num_headers != res.next_header || res.num_chunks != res.next_chunk)){
+            c = is.rdbuf()->sbumpc();
+            --bytes_available;
+            if(!res.status_line_finished){
+                // First parse the status line, which has a format of:
+                // HTTP/VERSION STATUS_CODE STATUS_MESSAGE\r\n
+                if(res.find_version_state < res.max_find_state){
+                    // Search for the HTTP VERSION.
+                    switch(res.find_version_state)
+                    {
+                        case 0:
+                            if(c == 'H'){
+                                res.find_version_state = 1;
+                            }
+                            break;
+                        case 1:
+                            if(c == 'T'){
+                                res.find_version_state = 2;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                        case 2:
+                            if(c == 'T'){
+                                res.find_version_state = 3;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                        case 3:
+                            if(c == 'P'){
+                                res.find_version_state = 4;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                        case 4:
+                            if(c == '/'){
+                                res.find_version_state = 5;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                    }
+                } else if (!res.version_finished){
+                    if(!std::isspace(c)){
+                        // Append all of the subsequent non-whitespace characters into the version buffer.
+                        res.version_buf.push_back(c);
+                    } else {
+                        // At the first whitespace character set the http version.
+                        if(res.version_buf == "0.9"){
+                            res.version = HttpVersion::V0_9;
+                        } else if (res.version_buf == "1.0"){
+                            res.version = HttpVersion::V1;
+                        } else if (res.version_buf == "1.1"){
+                            res.version = HttpVersion::V1_1;
+                        } else if (res.version_buf == "2"){
+                            res.version = HttpVersion::V2;
+                        } else if (res.version_buf == "3"){
+                            res.version = HttpVersion::V3;
+                        }
+                        res.version_finished = true;
+                    }
+                } else if (!res.status_started){
+                    if(!std::isspace(c)){
+                        // Seek to the first non-whitespace character.
+                        res.status_buf.push_back(c);
+                        res.status_started = true;
+                    }
+                } else if (!res.status_finished){
+                    if(!std::isspace(c)){
+                        // Append all of the subsequent non-whitespace characters
+                        // until the first whitespace character.
+                        res.status_buf.push_back(c);
+                    } else {
+                        if(res.status_buf == "200"){
+                            res.status = HttpStatus::OK;
+                        } else if (res.status_buf == "204"){
+                            res.status = HttpStatus::NO_CONTENT;
+                        } else if (res.status_buf == "404"){
+                            res.status = HttpStatus::NOT_FOUND;
+                        } else if (res.status_buf == "409"){
+                            res.status = HttpStatus::CONFLICT;
+                        } else if (res.status_buf == "405"){
+                            res.status = HttpStatus::METHOD_NOT_ALLOWED;
+                        } else if (res.status_buf == "500"){
+                            res.status = HttpStatus::INTERNAL_SERVER_ERROR;
+                        } else if (res.status_buf == "201"){
+                            res.status = HttpStatus::CREATED;
+                        } else if (res.status_buf == "202"){
+                            res.status = HttpStatus::ACCEPTED;
+                        }
+                        res.status_finished = true;
+                    }
+                } else if (!res.status_line_finished){
+                    if(c == '\n'){
+                        // Seek to the newline character.
+                        res.status_line_finished = true;
+                    }
+                }
+            } else if (res.num_headers != res.next_header){
+                HttpHeader& next_header = res.headers[res.next_header];
+                // Parse the next header.
+                is >> next_header;
+                if(next_header.header_complete){
+                    // If the header is complete we need to
+                    // do some request state management.
+                    // In particular, we need to check to see if
+                    // there is a Content-Length header,
+                    // which toggles the way in which chunks are parsed.
+                    if(next_header.field_name == HttpHeaderField::CONTENT_LENGTH){
+                        res.not_chunked_transfer = true;
+                    }
+                    if(next_header.not_last){
+                        ++(res.num_headers);
+                        res.headers.emplace_back();
+                    }
+                    ++(res.next_header);
+                }
+            } else if (res.num_chunks != res.next_chunk){
+                // We need to toggle for the case where a Content-Length header is present.
+                HttpChunk& next_chunk = res.chunks[res.next_chunk];
+                if(res.not_chunked_transfer){
+                    // If it is not a chunked transfer, then we assign Content-Length to
+                    // the chunk size. And set the chunk_size_found, and chunk_body_start flags.
+                    if(!next_chunk.chunk_size_found && !next_chunk.chunk_body_start){
+                        auto it = std::find_if(res.headers.begin(), res.headers.end(), [](auto& header){
+                            return header.field_name == HttpHeaderField::CONTENT_LENGTH;
+                        });
+                        next_chunk.chunk_size = HttpBigNum(HttpBigNum::dec, it->field_value);
+                        next_chunk.chunk_size_found = true;
+                        next_chunk.chunk_body_start = true;
+                    }
+                    is >> next_chunk;
+                    if(next_chunk.chunk_size == next_chunk.received_bytes){
+                        // Finish parsing.
+                        res.next_chunk = res.num_chunks;
+                    }
+                } else {
+                    is >> next_chunk;
+                    if(next_chunk.chunk_complete){
+                        if(next_chunk.chunk_size != HttpBigNum{0}){
+                            ++(res.num_chunks);
+                            res.chunks.emplace_back();
+                        }
+                        ++(res.next_chunk);
+                    }
+                }
+            }
+            bytes_available = is.rdbuf()->in_avail();
+        }
+        return is;        
     }
 
 }

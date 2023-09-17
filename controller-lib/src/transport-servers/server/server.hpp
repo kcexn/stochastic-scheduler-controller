@@ -13,36 +13,26 @@ namespace asio{
 // Transport layer is dependent on boost/asio.
 namespace server
 {
-    enum struct AddressType {
-        TUPLE,
-        HOSTNAME
+    struct UnixAddress {
+        int sock_type;
+        int protocol;
+        struct sockaddr_un address;
     };
 
-    struct NetworkTuple {
-        AddressType type;
-        struct sockaddr_in local_addr;
+    struct IPv4Address {
+        int sock_type;
         int protocol;
-        struct sockaddr_in remote_addr;
-    };
-
-    struct Hostname {
-        AddressType type;
-        struct sockaddr_in local_addr;
-        int protocol;
-        const char* name;
+        struct sockaddr_in address;
     };
 
     union Remote {
         struct {
-            // The method by which we are identifying the remote connection point.
-            AddressType type;
-            // the local endpoint that we are connecting from.
-            // for now, we are ignoring this.
-            struct sockaddr_in local_addr;
+            int sock_type;
             int protocol;
+            struct sockaddr_storage address;
         } header;
-        NetworkTuple tuple;
-        Hostname hostname;
+        UnixAddress unix_addr;
+        IPv4Address ipv4_addr;
     };
 
 

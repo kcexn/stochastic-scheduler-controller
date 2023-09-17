@@ -35,16 +35,17 @@ namespace io{
     class IO
     {
     public:
-        // IO(std::shared_ptr<echo::MailBox>& mbox);
-        // IO(std::shared_ptr<echo::MailBox>& mbox, const std::string& local_endpoint);
         IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
         void start();
         void stop();
+
+        /* Async Connect routes the connection request based on the address information in server::Remote */
+        void async_connect(server::Remote, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)>);
+
         ~IO();
     private:
         std::shared_ptr<MessageBox> mbox_ptr_;
         pthread_t io_;
-        // boost::asio::io_context ioc1_;
         boost::asio::io_context& ioc_;
         
         // Unix Socket Server

@@ -32,7 +32,11 @@ namespace app{
         void stop();
         ~Controller();
     private:
+        // Http Server.
         http::HttpServer hs_;
+        // Http Client Server.
+        http::HttpServer hcs_;
+
         // Controller Thread ID.
         pthread_t tid_;
         // Global Signals.

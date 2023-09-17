@@ -90,6 +90,41 @@ namespace io{
         while( ioc_.poll() > 0 ){}
     }
 
+    void IO::async_connect(server::Remote rmt, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn)
+    {
+        /* Switch the async connection routing based on the transport domain labeling. */
+        switch(rmt.header.address.ss_family)
+        {
+            case AF_UNIX:
+            {
+                /* This is for Unix Domain Sockets */
+                us_.async_connect(rmt,fn);
+                break;
+            }
+            case AF_INET:
+            {
+                /* This is IPv4 addresses */
+                // Switch IPv4 routing based on socket type and protocol labeling.
+                switch(rmt.ipv4_addr.sock_type)
+                {
+                    case SOCK_SEQPACKET:
+                    {
+                        switch(rmt.ipv4_addr.protocol)
+                        {
+                            case IPPROTO_SCTP:
+                            {
+                                ss_.async_connect(rmt, fn);
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     IO::~IO()
     {
         #ifdef DEBUG
