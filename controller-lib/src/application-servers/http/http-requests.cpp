@@ -839,63 +839,71 @@ namespace http
     }
 
     std::ostream& operator<<(std::ostream& os, const HttpRequest& req){
-        switch(req.verb){
-            case HttpVerb::GET:
-                os << "GET ";
-                break;
-            case HttpVerb::POST:
-                os << "POST ";
-                break;
-            case HttpVerb::PATCH:
-                os << "PATCH ";
-                break;
-            case HttpVerb::PUT:
-                os << "PUT ";
-                break;
-            case HttpVerb::TRACE:
-                os << "TRACE ";
-                break;
-            case HttpVerb::DELETE:
-                os << "DELETE ";
-                break;
-            case HttpVerb::CONNECT:
-                os << "CONNECT ";
-                break;
-        }
-        os << req.route << " HTTP/";
-        switch(req.version)
-        {
-            case HttpVersion::V1:
-                os << "1.0\r\n";
-                break;
-            case HttpVersion::V1_1:
-                os << "1.1\r\n";
-                break;
-            case HttpVersion::V2:
-                os << "2\r\n";
-                break;
-            case HttpVersion::V3:
-                os << "3\r\n";
-                break;
-            case HttpVersion::V0_9:
-                os << "0.9\r\n";
-                break;
-        }
-        for(auto& header: req.headers){
-            if(header.field_name == HttpHeaderField::END_OF_HEADERS){
-                os << "\r\n";
-            } else {
-                os << header;
+        if(!req.http_request_line_complete){
+            switch(req.verb){
+                case HttpVerb::GET:
+                    os << "GET ";
+                    break;
+                case HttpVerb::POST:
+                    os << "POST ";
+                    break;
+                case HttpVerb::PATCH:
+                    os << "PATCH ";
+                    break;
+                case HttpVerb::PUT:
+                    os << "PUT ";
+                    break;
+                case HttpVerb::TRACE:
+                    os << "TRACE ";
+                    break;
+                case HttpVerb::DELETE:
+                    os << "DELETE ";
+                    break;
+                case HttpVerb::CONNECT:
+                    os << "CONNECT ";
+                    break;
+            }
+            os << req.route << " HTTP/";
+            switch(req.version)
+            {
+                case HttpVersion::V1:
+                    os << "1.0\r\n";
+                    break;
+                case HttpVersion::V1_1:
+                    os << "1.1\r\n";
+                    break;
+                case HttpVersion::V2:
+                    os << "2\r\n";
+                    break;
+                case HttpVersion::V3:
+                    os << "3\r\n";
+                    break;
+                case HttpVersion::V0_9:
+                    os << "0.9\r\n";
+                    break;
             }
         }
-        if(req.verb != HttpVerb::GET && req.verb != HttpVerb::DELETE && req.verb != HttpVerb::TRACE){
+        std::size_t num_headers = req.headers.size();
+        if (req.next_header != num_headers){
+            for(std::size_t i = req.next_header; i < num_headers; ++i){
+                const http::HttpHeader& header = req.headers[i];
+                if(header.field_name == HttpHeaderField::END_OF_HEADERS){
+                    os << "\r\n";
+                } else {
+                    os << header;
+                }
+            }
+        }
+        std::size_t num_chunks = req.chunks.size();
+        if(req.verb != HttpVerb::GET && req.verb != HttpVerb::DELETE && req.verb != HttpVerb::TRACE && req.next_chunk != num_chunks){
             auto it = std::find_if(req.headers.begin(), req.headers.end(), [](auto& header){
                 return header.field_name == HttpHeaderField::CONTENT_LENGTH;
             });
             if(it != req.headers.end()){
                 os << req.chunks[0].chunk_data;
             } else {
-                for(auto& chunk: req.chunks){
+                for(std::size_t i = req.next_chunk; i < num_chunks; ++i ){
+                    const http::HttpChunk& chunk = req.chunks[i];
                     os << chunk;
                 }
             }
@@ -904,9 +912,7 @@ namespace http
     }
 
     std::ostream& operator<<(std::ostream& os, const HttpResponse& res){
-        // If res.pos == 0 then, we haven't sent any data chunks yet.
-        // This means we need to extract the status line and header information.
-        if(res.pos == 0){
+        if(!res.status_line_finished){
             switch(res.version)
             {
                 case HttpVersion::V1:
@@ -949,7 +955,11 @@ namespace http
                     os << "202 Accepted\r\n";
                     break;
             }
-            for(auto& header: res.headers){
+        }
+        std::size_t num_headers = res.headers.size();
+        if(res.next_header != num_headers){
+            for(std::size_t i = res.next_header; i < num_headers; ++i){
+                const http::HttpHeader& header = res.headers[i];
                 if(header.field_name == HttpHeaderField::END_OF_HEADERS){
                     os << "\r\n";
                 } else {
@@ -957,16 +967,20 @@ namespace http
                 }
             }
         }
-        auto it = std::find_if(res.headers.begin(), res.headers.end(), [](auto& header){
-            return header.field_name == HttpHeaderField::CONTENT_LENGTH;
-        });
-        if(it != res.headers.end()){
-            os << res.chunks[0].chunk_data;
-        } else if (res.pos < res.num_chunks) {
-            std::size_t i = res.pos;
-            for(std::size_t i = res.pos; i < res.num_chunks; ++i){
-                os << res.chunks[i];
-            }
+
+        std::size_t num_chunks = res.chunks.size();
+        if(res.next_chunk != num_chunks){
+            auto it = std::find_if(res.headers.begin(), res.headers.end(), [](auto& header){
+                return header.field_name == HttpHeaderField::CONTENT_LENGTH;
+            });
+            if(it != res.headers.end()){
+                os << res.chunks[0].chunk_data;
+            } else {
+                for(std::size_t i = res.next_chunk; i < num_chunks; ++i){
+                    const http::HttpChunk& chunk = res.chunks[i];
+                    os << chunk;
+                }
+            }           
         }
         return os;
     }
@@ -997,103 +1011,105 @@ namespace http
         // invariant that headers are fully parsed when next_header == num_headers
         // and that chunks are fully parsed when next_chunk == num_chunks.
         while(bytes_available > 0 && (res.num_headers != res.next_header || res.num_chunks != res.next_chunk)){
-            c = is.rdbuf()->sbumpc();
-            --bytes_available;
             if(!res.status_line_finished){
                 // First parse the status line, which has a format of:
                 // HTTP/VERSION STATUS_CODE STATUS_MESSAGE\r\n
-                if(res.find_version_state < res.max_find_state){
-                    // Search for the HTTP VERSION.
-                    switch(res.find_version_state)
-                    {
-                        case 0:
-                            if(c == 'H'){
-                                res.find_version_state = 1;
-                            }
-                            break;
-                        case 1:
-                            if(c == 'T'){
-                                res.find_version_state = 2;
-                            } else {
-                                res.find_version_state = 0;
-                            }
-                            break;
-                        case 2:
-                            if(c == 'T'){
-                                res.find_version_state = 3;
-                            } else {
-                                res.find_version_state = 0;
-                            }
-                            break;
-                        case 3:
-                            if(c == 'P'){
-                                res.find_version_state = 4;
-                            } else {
-                                res.find_version_state = 0;
-                            }
-                            break;
-                        case 4:
-                            if(c == '/'){
-                                res.find_version_state = 5;
-                            } else {
-                                res.find_version_state = 0;
-                            }
-                            break;
-                    }
-                } else if (!res.version_finished){
-                    if(!std::isspace(c)){
-                        // Append all of the subsequent non-whitespace characters into the version buffer.
-                        res.version_buf.push_back(c);
-                    } else {
-                        // At the first whitespace character set the http version.
-                        if(res.version_buf == "0.9"){
-                            res.version = HttpVersion::V0_9;
-                        } else if (res.version_buf == "1.0"){
-                            res.version = HttpVersion::V1;
-                        } else if (res.version_buf == "1.1"){
-                            res.version = HttpVersion::V1_1;
-                        } else if (res.version_buf == "2"){
-                            res.version = HttpVersion::V2;
-                        } else if (res.version_buf == "3"){
-                            res.version = HttpVersion::V3;
+                while(bytes_available > 0 && !res.status_line_finished){
+                    c = is.rdbuf()->sbumpc();
+                    --bytes_available;
+                    if(res.find_version_state < res.max_find_state){
+                        // Search for the HTTP VERSION.
+                        switch(res.find_version_state)
+                        {
+                            case 0:
+                                if(c == 'H'){
+                                    res.find_version_state = 1;
+                                }
+                                break;
+                            case 1:
+                                if(c == 'T'){
+                                    res.find_version_state = 2;
+                                } else {
+                                    res.find_version_state = 0;
+                                }
+                                break;
+                            case 2:
+                                if(c == 'T'){
+                                    res.find_version_state = 3;
+                                } else {
+                                    res.find_version_state = 0;
+                                }
+                                break;
+                            case 3:
+                                if(c == 'P'){
+                                    res.find_version_state = 4;
+                                } else {
+                                    res.find_version_state = 0;
+                                }
+                                break;
+                            case 4:
+                                if(c == '/'){
+                                    res.find_version_state = 5;
+                                } else {
+                                    res.find_version_state = 0;
+                                }
+                                break;
                         }
-                        res.version_finished = true;
-                    }
-                } else if (!res.status_started){
-                    if(!std::isspace(c)){
-                        // Seek to the first non-whitespace character.
-                        res.status_buf.push_back(c);
-                        res.status_started = true;
-                    }
-                } else if (!res.status_finished){
-                    if(!std::isspace(c)){
-                        // Append all of the subsequent non-whitespace characters
-                        // until the first whitespace character.
-                        res.status_buf.push_back(c);
-                    } else {
-                        if(res.status_buf == "200"){
-                            res.status = HttpStatus::OK;
-                        } else if (res.status_buf == "204"){
-                            res.status = HttpStatus::NO_CONTENT;
-                        } else if (res.status_buf == "404"){
-                            res.status = HttpStatus::NOT_FOUND;
-                        } else if (res.status_buf == "409"){
-                            res.status = HttpStatus::CONFLICT;
-                        } else if (res.status_buf == "405"){
-                            res.status = HttpStatus::METHOD_NOT_ALLOWED;
-                        } else if (res.status_buf == "500"){
-                            res.status = HttpStatus::INTERNAL_SERVER_ERROR;
-                        } else if (res.status_buf == "201"){
-                            res.status = HttpStatus::CREATED;
-                        } else if (res.status_buf == "202"){
-                            res.status = HttpStatus::ACCEPTED;
+                    } else if (!res.version_finished){
+                        if(!std::isspace(c)){
+                            // Append all of the subsequent non-whitespace characters into the version buffer.
+                            res.version_buf.push_back(c);
+                        } else {
+                            // At the first whitespace character set the http version.
+                            if(res.version_buf == "0.9"){
+                                res.version = HttpVersion::V0_9;
+                            } else if (res.version_buf == "1.0"){
+                                res.version = HttpVersion::V1;
+                            } else if (res.version_buf == "1.1"){
+                                res.version = HttpVersion::V1_1;
+                            } else if (res.version_buf == "2"){
+                                res.version = HttpVersion::V2;
+                            } else if (res.version_buf == "3"){
+                                res.version = HttpVersion::V3;
+                            }
+                            res.version_finished = true;
                         }
-                        res.status_finished = true;
-                    }
-                } else if (!res.status_line_finished){
-                    if(c == '\n'){
-                        // Seek to the newline character.
-                        res.status_line_finished = true;
+                    } else if (!res.status_started){
+                        if(!std::isspace(c)){
+                            // Seek to the first non-whitespace character.
+                            res.status_buf.push_back(c);
+                            res.status_started = true;
+                        }
+                    } else if (!res.status_finished){
+                        if(!std::isspace(c)){
+                            // Append all of the subsequent non-whitespace characters
+                            // until the first whitespace character.
+                            res.status_buf.push_back(c);
+                        } else {
+                            if(res.status_buf == "200"){
+                                res.status = HttpStatus::OK;
+                            } else if (res.status_buf == "204"){
+                                res.status = HttpStatus::NO_CONTENT;
+                            } else if (res.status_buf == "404"){
+                                res.status = HttpStatus::NOT_FOUND;
+                            } else if (res.status_buf == "409"){
+                                res.status = HttpStatus::CONFLICT;
+                            } else if (res.status_buf == "405"){
+                                res.status = HttpStatus::METHOD_NOT_ALLOWED;
+                            } else if (res.status_buf == "500"){
+                                res.status = HttpStatus::INTERNAL_SERVER_ERROR;
+                            } else if (res.status_buf == "201"){
+                                res.status = HttpStatus::CREATED;
+                            } else if (res.status_buf == "202"){
+                                res.status = HttpStatus::ACCEPTED;
+                            }
+                            res.status_finished = true;
+                        }
+                    } else if (!res.status_line_finished){
+                        if(c == '\n'){
+                            // Seek to the newline character.
+                            res.status_line_finished = true;
+                        }
                     }
                 }
             } else if (res.num_headers != res.next_header){

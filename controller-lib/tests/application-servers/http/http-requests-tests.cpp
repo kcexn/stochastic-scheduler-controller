@@ -367,134 +367,311 @@ namespace tests
         passed_ = true;
     }
 
-    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::ReadRequest)
-      : passed_{false},
-        req_{},
-        chunk_{}
+    HttpRequestsTests::HttpRequestsTests(RequestStreamExtraction)
+      : passed_{false}
     {
+        /* Stream in Content-Length mode. */
+        std::string buf1("POS");
+        std::string buf2("T /run ");
+        std::string buf3("HTTP");
+        std::string buf4("/1.1\r\n");
+        std::string buf5("Content-Type: application/json\r\n");
+        std::string buf6("Content-Length: 22\r\n");
+        std::string buf7("Accept: */*\r\n");
+        std::string buf8("\r\n{\"msg\":\"Hello World!\"}");
+        std::stringstream ss;
         http::HttpRequest req{};
-        std::stringstream ss("GET /run HTTP/1.1\r\nContent-Length: 22\r\nContent-Type: application/json\r\n\r\n{\"msg\":\"Hello World!\"}");
+        ss << buf1;
         ss >> req;
-        if(req.verb != http::HttpVerb::GET 
-                || req.route != "/run" 
-                || req.headers[0].field_name != http::HttpHeaderField::CONTENT_LENGTH
-                || req.headers[1].field_name != http::HttpHeaderField::CONTENT_TYPE
-                || req.chunks[0].chunk_size != http::HttpBigNum{22}
-                || req.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"
-        ){
+        ss << buf2;
+        ss >> req;
+        ss << buf3;
+        ss >> req;
+        ss << buf4;
+        ss >> req;
+        ss << buf5;
+        ss >> req;
+        ss << buf6;
+        ss >> req;
+        ss << buf7;
+        ss >> req;
+        ss << buf8;
+        ss >> req;
+
+        if(req.verb != http::HttpVerb::POST){
+            return;
+        } else if (req.route != "/run"){
+            return;
+        } else if (req.version != http::HttpVersion::V1_1){
+            return;
+        } else if (req.headers[0].field_name != http::HttpHeaderField::CONTENT_TYPE){
+            return;
+        } else if (req.headers[0].field_value != "application/json") {
+            return;
+        } else if (req.headers[1].field_name != http::HttpHeaderField::CONTENT_LENGTH){
+            return;
+        } else if (req.headers[1].field_value != "22"){
+            return;
+        } else if (req.headers[2].field_name != http::HttpHeaderField::ACCEPT){
+            return;
+        } else if (req.headers[2].field_value != "*/*"){
+            return;
+        } else if (req.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"){
             return;
         }
 
-        // Multiple stream.
-        req = http::HttpRequest{};
+        /* Stream in Chunked mode. */
+        std::string cbuf1("POS");
+        std::string cbuf2("T /run ");
+        std::string cbuf3("HTTP");
+        std::string cbuf4("/1.1\r\n");
+        std::string cbuf5("Content-Type: application/json\r\n");
+        std::string cbuf6("Transfer-Encoding: chunked\r\n");
+        std::string cbuf7("Accept: */*\r\n");
+        std::string cbuf8("\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n");
+        std::string cbuf9("16\r\n{\"msg1\":\"Hello World\"}\r\n");
+        std::string cbuf10("0\r\n\r\n");
         std::stringstream ss1;
-        std::string first("POST ");
-        std::string second("/run HTTP/1.1\r\n");
-        std::string third("Content-Length: 22\r\nContent-Type: application/json\r\n");
-        std::string fourth("\r\n");
-        std::string fifth("{\"msg\":\"Hello");
-        std::string sixth(" World!\"}");
-        ss1 << first;
-        ss1 >> req;
-        ss1 << second;
-        ss1 >> req;
-        ss1 << third;
-        ss1 >> req;
-        ss1 << fourth;
-        ss1 >> req;
-        ss1 << fifth;
-        ss1 >> req;
-        ss1 << sixth;
-        ss1 >> req;
-        if(req.verb != http::HttpVerb::POST
-                || req.route != "/run"
-                || req.headers[0].field_name != http::HttpHeaderField::CONTENT_LENGTH
-                || req.headers[1].field_name != http::HttpHeaderField::CONTENT_TYPE
-                || req.chunks[0].chunk_size != http::HttpBigNum{22}
-                || req.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"
-        ){
+        http::HttpRequest req1{};
+        ss1 << cbuf1;
+        ss1 >> req1;
+        ss1 << cbuf2;
+        ss1 >> req1;
+        ss1 << cbuf3;
+        ss1 >> req1;
+        ss1 << cbuf4;
+        ss1 >> req1;
+        ss1 << cbuf5;
+        ss1 >> req1;
+        ss1 << cbuf6;
+        ss1 >> req1;
+        ss1 << cbuf7;
+        ss1 >> req1;
+        ss1 << cbuf8;
+        ss1 >> req1;
+        ss1 << cbuf9;
+        ss1 >> req1;
+        ss1 << cbuf10;
+        ss1 >> req1;
+
+        if(req1.verb != http::HttpVerb::POST){
+            return;
+        } else if (req1.route != "/run"){
+            return;
+        } else if (req1.version != http::HttpVersion::V1_1){
+            return;
+        } else if (req1.headers[0].field_name != http::HttpHeaderField::CONTENT_TYPE){
+            return;
+        } else if (req1.headers[0].field_value != "application/json") {
+            return;
+        } else if (req1.headers[1].field_name != http::HttpHeaderField::TRANSFER_ENCODING){
+            return;
+        } else if (req1.headers[1].field_value != "chunked"){
+            return;
+        } else if (req1.headers[2].field_name != http::HttpHeaderField::ACCEPT){
+            return;
+        } else if (req1.headers[2].field_value != "*/*"){
+            return;
+        } else if (req1.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"){
+            return;
+        } else if (req1.chunks[1].chunk_data != "{\"msg1\":\"Hello World\"}"){
             return;
         }
         passed_ = true;
     }
 
-    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::WriteRequest)
-      : passed_{false},
-        req_{},
-        chunk_{}
+    HttpRequestsTests::HttpRequestsTests(ResponseStreamExtraction)
+      : passed_{false}
     {
+        /* Stream in Content-Length mode. */
+        std::string buf1("HTTP");
+        std::string buf2("/1.1 200 ");
+        std::string buf3("OK\r\n");
+        std::string buf4("Content-Type: application/json\r\n");
+        std::string buf5("Content-Length: 22\r\n");
+        std::string buf6("Connection: close\r\n");
+        std::string buf7("\r\n{\"msg\":\"Hello World!\"}");
+        std::stringstream ss;
+        http::HttpResponse res{};
+        ss << buf1;
+        ss >> res;
+        ss << buf2;
+        ss >> res;
+        ss << buf3;
+        ss >> res;
+        ss << buf4;
+        ss >> res;
+        ss << buf5;
+        ss >> res;
+        ss << buf6;
+        ss >> res;
+        ss << buf7;
+        ss >> res;
+
+        if (res.version != http::HttpVersion::V1_1){
+            return;
+        } else if (res.status != http::HttpStatus::OK){
+            return;
+        } else if (res.headers[0].field_name != http::HttpHeaderField::CONTENT_TYPE){
+            return;
+        } else if (res.headers[0].field_value != "application/json") {
+            return;
+        } else if (res.headers[1].field_name != http::HttpHeaderField::CONTENT_LENGTH){
+            return;
+        } else if (res.headers[1].field_value != "22"){
+            return;
+        } else if (res.headers[2].field_name != http::HttpHeaderField::CONNECTION){
+            return;
+        } else if (res.headers[2].field_value != "close"){
+            return;
+        } else if (res.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"){
+            return;
+        }
+
+        /* Stream in Chunked mode. */
+        std::string cbuf1("HTTP");
+        std::string cbuf2("/1.1 200 ");
+        std::string cbuf3("OK\r\n");
+        std::string cbuf4("Content-Type: application/json\r\n");
+        std::string cbuf5("Transfer-Encoding: chunked\r\n");
+        std::string cbuf6("Connection: close\r\n");
+        std::string cbuf7("\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n");
+        std::string cbuf8("16\r\n{\"msg1\":\"Hello World\"}\r\n");
+        std::string cbuf9("0\r\n\r\n");
+        std::stringstream ss1;
+        http::HttpResponse res1{};
+        ss1 << cbuf1;
+        ss1 >> res1;
+        ss1 << cbuf2;
+        ss1 >> res1;
+        ss1 << cbuf3;
+        ss1 >> res1;
+        ss1 << cbuf4;
+        ss1 >> res1;
+        ss1 << cbuf5;
+        ss1 >> res1;
+        ss1 << cbuf6;
+        ss1 >> res1;
+        ss1 << cbuf7;
+        ss1 >> res1;
+        ss1 << cbuf8;
+        ss1 >> res1;
+        ss1 << cbuf9;
+        ss1 >> res1;
+
+        if (res.version != http::HttpVersion::V1_1){
+            return;
+        } else if (res.status != http::HttpStatus::OK){
+            return;
+        } else if (res1.headers[0].field_name != http::HttpHeaderField::CONTENT_TYPE){
+            return;
+        } else if (res1.headers[0].field_value != "application/json") {
+            return;
+        } else if (res1.headers[1].field_name != http::HttpHeaderField::TRANSFER_ENCODING){
+            return;
+        } else if (res1.headers[1].field_value != "chunked"){
+            return;
+        } else if (res1.headers[2].field_name != http::HttpHeaderField::CONNECTION){
+            return;
+        } else if (res1.headers[2].field_value != "close"){
+            return;
+        } else if (res1.chunks[0].chunk_data != "{\"msg\":\"Hello World!\"}"){
+            return;
+        } else if (res1.chunks[1].chunk_data != "{\"msg1\":\"Hello World\"}"){
+            return;
+        }
+        passed_ = true;
+    }
+
+    HttpRequestsTests::HttpRequestsTests(RequestStreamInsertion)
+      : passed_{false}
+    {
+        /* Content Length Insertion. */
         http::HttpRequest req{
-            http::HttpVerb::GET,
+            http::HttpVerb::POST,
             "/run",
             http::HttpVersion::V1_1,
             {
-                {http::HttpHeaderField::HOST, "localhost"},
+                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                {http::HttpHeaderField::CONTENT_LENGTH, "22"},
                 {http::HttpHeaderField::ACCEPT, "*/*"},
                 {http::HttpHeaderField::END_OF_HEADERS, ""}
             },
             {
-                {http::HttpBigNum{0}, ""}
+                {{}, "{\"msg\":\"Hello World!\"}"}
             }
         };
         std::stringstream ss;
         ss << req;
-        std::string cmp("GET /run HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\n\r\n");
+        req.http_request_line_complete = true;
+        req.next_header = req.headers.size();
+        req.next_chunk = req.chunks.size();
+
+        std::string cmp("POST /run HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: 22\r\nAccept: */*\r\n\r\n{\"msg\":\"Hello World!\"}");
         if(ss.str() != cmp){
             return;
         }
 
-        ss.seekp(0);
-        ss.seekg(0);
-
-        req = {
-            http::HttpVerb::DELETE,
-            "/init",
-            http::HttpVersion::V1,
-            {
-                {http::HttpHeaderField::HOST, "localhost"},
-                {http::HttpHeaderField::ACCEPT, "*/*"},
-                {http::HttpHeaderField::END_OF_HEADERS, ""}           
-            },
-            {
-                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
-            }
-        };
-        ss << req;
-        cmp = "DELETE /init HTTP/1.0\r\nHost: localhost\r\nAccept: */*\r\n\r\n";
-        if(ss.str() != cmp){
-            return;
-        }
-
-        ss.seekp(0);
-        ss.seekg(0);
-
-        req = {
-            http::HttpVerb::TRACE,
-            "/health-check",
+        /* Chunked Insertion. */
+        http::HttpRequest req1{
+            http::HttpVerb::POST,
+            "/run",
             http::HttpVersion::V1_1,
             {
-                {http::HttpHeaderField::HOST, "localhost"},
+                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                {http::HttpHeaderField::TRANSFER_ENCODING, "chunked"},
                 {http::HttpHeaderField::ACCEPT, "*/*"},
-                {http::HttpHeaderField::END_OF_HEADERS, ""}           
+                {http::HttpHeaderField::END_OF_HEADERS, ""}
             },
             {
-                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+                {{22}, "{\"msg\":\"Hello World!\"}"}
             }
         };
-        ss << req;
-        cmp = "TRACE /health-check HTTP/1.1\r\nHost: localhost\r\nAccept: */*\r\n\r\n";
-        if(ss.str() != cmp){
+        std::stringstream ss1;
+        ss1 << req1;
+        req1.http_request_line_complete = true;
+        req1.next_chunk = req1.chunks.size();
+        req1.next_header = req1.headers.size();
+        
+        std::string cmp1("POST /run HTTP/1.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nAccept: */*\r\n\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n");
+        if(ss1.str() != cmp1){
+            return;
+        }
+        req1.chunks.push_back(
+            http::HttpChunk{{22}, "{\"msg1\":\"Hello World\"}"}
+        );
+        std::stringstream ss2;
+        ss2 << req1;
+        ss1 << req1;
+        req1.next_chunk = req1.chunks.size();
+        std::string cmp2("16\r\n{\"msg1\":\"Hello World\"}\r\n");
+        if(ss2.str() != cmp2){
+            return;
+        }
+        std::string cmp3("POST /run HTTP/1.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nAccept: */*\r\n\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n16\r\n{\"msg1\":\"Hello World\"}\r\n");
+        if(ss1.str() != cmp3){
             return;
         }
 
+        req1.chunks.push_back(
+            http::HttpChunk{{0},""}
+        );
+        std::stringstream ss3;
+        ss3 << req1;
+        ss1 << req1;
+        req1.next_chunk = req1.chunks.size();
+        std::string cmp4("0\r\n\r\n");
+        std::string cmp5("POST /run HTTP/1.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nAccept: */*\r\n\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n16\r\n{\"msg1\":\"Hello World\"}\r\n0\r\n\r\n");
+        if(ss3.str() != cmp4 || ss1.str() != cmp5){
+            return;
+        }
         passed_ = true;
     }
 
-    HttpRequestsTests::HttpRequestsTests(HttpRequestsTests::WriteResponse)
-      : passed_{false},
-        req_{},
-        chunk_{}
+    HttpRequestsTests::HttpRequestsTests(ResponseStreamInsertion)
+      : passed_{false}
     {
+        /* Content Length Insertion. */
         http::HttpResponse res{
             http::HttpVersion::V1_1,
             http::HttpStatus::OK,
@@ -504,13 +681,67 @@ namespace tests
                 {http::HttpHeaderField::END_OF_HEADERS, ""}
             },
             {
-                {http::HttpBigNum{22}, "{\"msg\":\"Hello World!\"}"}
+                {{}, "{\"msg\":\"Hello World!\"}"}
             }
         };
         std::stringstream ss;
         ss << res;
+        res.status_line_finished = true;
+        res.next_header = res.headers.size();
+        res.next_chunk = res.chunks.size();
+
         std::string cmp("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 22\r\n\r\n{\"msg\":\"Hello World!\"}");
         if(ss.str() != cmp){
+            return;
+        }
+        /* Chunked Insertion. */
+        http::HttpResponse res1{
+            http::HttpVersion::V1_1,
+            http::HttpStatus::OK,
+            {
+                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                {http::HttpHeaderField::END_OF_HEADERS, ""}
+            },
+            {
+                {{22}, "{\"msg\":\"Hello World!\"}"}
+            }
+        };
+        std::stringstream ss1;
+        ss1 << res1;
+        res1.status_line_finished = true;
+        res1.next_header = res1.headers.size();
+        res1.next_chunk = res1.chunks.size();
+        
+        std::string cmp1("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n");
+        if(ss1.str() != cmp1){
+            return;
+        }
+
+        res1.chunks.push_back(
+            http::HttpChunk{{22},"{\"msg1\":\"Hello World\"}"}
+        );
+        std::stringstream ss2;
+        ss2 << res1;
+        ss1 << res1;
+        res1.next_chunk = res1.chunks.size();
+        std::string cmp2("16\r\n{\"msg1\":\"Hello World\"}\r\n");
+        std::string cmp3("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n16\r\n{\"msg1\":\"Hello World\"}\r\n");
+        if(ss1.str() != cmp3 || ss2.str() != cmp2){
+            return;
+        }
+
+        res1.chunks.push_back(
+            http::HttpChunk{{0},""}
+        );
+        std::stringstream ss3;
+        ss3 << res1;
+        ss1 << res1;
+        res1.next_chunk = res1.chunks.size();
+        std::string cmp4("0\r\n\r\n");
+        std::string cmp5("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n16\r\n{\"msg\":\"Hello World!\"}\r\n16\r\n{\"msg1\":\"Hello World\"}\r\n0\r\n\r\n");
+        if(ss1.str() != cmp5 || ss3.str() != cmp4){
+            std::cout << ss1.str() << std::endl;
+            std::cout << ss3.str() << std::endl;
             return;
         }
         passed_ = true;

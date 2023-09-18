@@ -16,7 +16,9 @@ namespace http{
         acquire_lock();
         HttpResponse& res = std::get<HttpResponse>(*this);
         ss << res;
-        res.pos = res.num_chunks;
+        res.status_line_finished = true;
+        res.next_header = res.headers.size();
+        res.next_chunk = res.chunks.size();
         release_lock();
         std::string data_buf(ss.str());
         t_session_->async_write(
@@ -58,7 +60,9 @@ namespace http{
         acquire_lock();
         HttpRequest& req = std::get<HttpRequest>(*this);
         ss << req;
-        req.pos = req.num_chunks;
+        req.http_request_line_complete = true;
+        req.next_header = req.headers.size();
+        req.next_chunk = req.chunks.size();
         release_lock();
         std::string data_buf(ss.str());
         t_session_->async_write(

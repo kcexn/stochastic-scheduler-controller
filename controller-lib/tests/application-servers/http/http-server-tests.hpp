@@ -13,11 +13,13 @@ namespace tests
         constexpr static struct ConstructSession{} test_construct_session{};
         constexpr static struct ConstructUnixBoundSession{} test_construct_unix_bound_session{};
         constexpr static struct UnixBoundReadWrite{} test_unix_bound_read_write{};
+        constexpr static struct UnixBoundClientWrite{} test_unix_client_write{};
 
         explicit HttpServerTests(ConstructServer);
         explicit HttpServerTests(ConstructSession);
         explicit HttpServerTests(ConstructUnixBoundSession);
         explicit HttpServerTests(UnixBoundReadWrite);
+        explicit HttpServerTests(UnixBoundClientWrite);
 
         operator bool(){ return passed_; }
     private:

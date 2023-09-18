@@ -30,6 +30,7 @@ namespace http{
     //Http client sessions reverse the http server session logic.
     class HttpClientSession: public http_session
     {
+    public:
         HttpClientSession(HttpServer& server): http_session(server) {}
         HttpClientSession(HttpServer& server, const std::shared_ptr<server::Session>& t_session_ptr): http_session(server, t_session_ptr) {}
 

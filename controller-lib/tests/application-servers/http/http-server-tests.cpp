@@ -164,4 +164,56 @@ namespace tests{
         passed_ = true;
     }
 
+    HttpServerTests::HttpServerTests(UnixBoundClientWrite)
+      : passed_{false}
+    {
+        boost::asio::io_context ioc;
+        std::filesystem::path addr("/run/controller/controller.sock");
+        boost::asio::local::stream_protocol::endpoint endpoint(addr);
+        UnixServer::unix_server us(ioc, endpoint);
+        if(!std::filesystem::exists(addr)){
+            return;
+        }
+        http::HttpServer hs;
+        server::Remote rmt;
+        rmt.unix_addr = {
+            SOCK_STREAM,
+            0,
+            {
+                AF_UNIX,
+                "/run/controller/openwhisk.sock"
+            }
+        };
+        us.async_connect(rmt, [&](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& session){
+            hs.push_back(
+                std::make_shared<http::HttpClientSession>(hs, session)
+            );
+            std::shared_ptr<http::HttpClientSession> client_session = std::static_pointer_cast<http::HttpClientSession>(hs.back());
+            http::HttpRequest& req = std::get<http::HttpRequest>(*client_session);
+            req = {
+                http::HttpVerb::POST,
+                "/api/v1/namespaces/guest/actions",
+                http::HttpVersion::V1_1,
+                {
+                    {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                    {http::HttpHeaderField::CONTENT_LENGTH, "22"},
+                    {http::HttpHeaderField::ACCEPT, "application/json"},
+                    {http::HttpHeaderField::HOST, "www.tests.com"},
+                    {http::HttpHeaderField::END_OF_HEADERS, ""}
+                },
+                {
+                    {{}, "{\"msg\":\"Hello World!\"}"}
+                }
+            };
+            client_session->write([&, client_session](){
+                struct timespec ts = {1,0};
+                nanosleep(&ts, nullptr);
+
+                client_session->close();
+                passed_ = true;
+            });
+        });
+        us.run();
+    }
+
 }// namespace tests.

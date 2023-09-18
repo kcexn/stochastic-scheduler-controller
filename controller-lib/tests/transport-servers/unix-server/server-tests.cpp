@@ -143,13 +143,13 @@ namespace tests{
                     boost::asio::const_buffer buf(data.data(), data.size());
                     session->async_write(
                         buf,
-                        [&](){
+                        [&, session](){
                             passed_ = true;
                         }
                     );
                 }
             }
         );
-        server_.run();
+        ioc.run();
     }
 }

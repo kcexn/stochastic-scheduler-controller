@@ -40,6 +40,13 @@ namespace UnixServer{
         socket_.close(ec);        
     }
 
+    void unix_session::async_connect(const boost::asio::local::stream_protocol::endpoint& endpoint, std::function<void(const boost::system::error_code&)> fn) {
+        socket_.async_connect(endpoint, [&, fn](const boost::system::error_code& ec) {
+            fn(ec);
+        });
+        return;
+    }
+
     unix_server::unix_server(boost::asio::io_context& ioc)
       : server::Server(ioc),
         endpoint_("/run/controller/controller.sock"),
@@ -53,13 +60,13 @@ namespace UnixServer{
     {}
 
     void unix_server::async_connect(server::Remote rmt, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn) {
-        boost::asio::local::stream_protocol::socket sock(ioc_, boost::asio::local::stream_protocol().protocol());
+        boost::asio::local::stream_protocol::socket sock(ioc_,boost::asio::local::stream_protocol());
         const char* path = rmt.unix_addr.address.sun_path;
         boost::asio::local::stream_protocol::endpoint endpoint(path);
         std::shared_ptr<unix_session> session = std::make_shared<unix_session>(std::move(sock), *this);
-        sock.async_connect(endpoint, [&, fn, session](const boost::system::error_code& ec) {
+        session->async_connect(endpoint, [&, fn, session](const boost::system::error_code& ec) {
             if(!ec){
-                this->push_back(session);
+                push_back(session);
             }
             fn(ec, session);
         });
