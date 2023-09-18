@@ -13,9 +13,6 @@ namespace app{
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
         io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc)
     {
-        #ifdef DEBUG
-        std::cout << "Application Controller Constructor!" << std::endl;
-        #endif
         // Initialize parent controls
         io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
         io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<std::uint16_t> >();
@@ -29,9 +26,6 @@ namespace app{
     }
 
     void Controller::start(){
-        #ifdef DEBUG
-        std::cout << "Controller Start!" << std::endl;
-        #endif
         // Initialize resources I might need.
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
@@ -46,114 +40,109 @@ namespace app{
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             // Unset All of the scheduler signals.
             io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
-            std::shared_ptr<server::Session> server_session(std::move(io_mbox_ptr_->session));
+            std::shared_ptr<server::Session> server_session = io_mbox_ptr_->session;
             lk.unlock();
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 break;
             }
 
             std::shared_ptr<http::HttpSession> http_session_ptr;
-            auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
-                return *ptr == server_session;
+            auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
+                return *hc == server_session;
             });
-            if( http_session_it == hs_.end() ){
-                http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
-                hs_.push_back(http_session_ptr);
+            if(http_client != hcs_.end()){
+                /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
             } else {
-                // For our application all session pointers are http session pointers.
-                http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
-            }
-            #ifdef DEBUG
-            std::cout << "HTTP Server Loop Start!" << std::endl;
-            #endif
-
-            if (thread_local_msg_flag){
-                http_session_ptr->read();
-                route_request(http_session_ptr);
-            }
-            if ((thread_local_signal & CTL_IO_SCHED_END_EVENT)){
-                // Find a context that has a valid stopped thread.
-                auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
-                    auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
-                        return thread.is_stopped() && thread.is_valid();
-                    });
-                    return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                /* Otherwise by default any read request must be a server session. */
+                auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
+                    return *ptr == server_session;
                 });
-                // While there are stopped threads.
-                while(it != ctx_ptrs.end()){
-                    // Check to see if the context is stopped.
-                    if ((*it)->is_stopped()){
-                        // create the response.
-                        boost::json::value val;
-                        while((*it)->sessions().size() > 0 ){
-                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
-                            http::HttpReqRes rr;
-                            std::get<http::HttpResponse>(rr) = create_response(**it, val);
-                            next_session->write(
-                                rr,
-                                [&, next_session](){
-                                    next_session->close();
-                                }
-                            );
-                            (*it)->sessions().pop_back();
-                        }
-                        ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
-                        // Find a context that has a stopped thread.
-                        it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
-                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
-                                return thread.is_stopped() && thread.is_valid();
-                            });
-                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
-                        });
-                        flush_wsk_logs();
-                    } else {
-                        // Evaluate which thread to execute next and notify it.
-                        auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
+                if( http_session_it == hs_.end() ){
+                    http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
+                    hs_.push_back(http_session_ptr);
+                } else {
+                    // For our application all session pointers are http session pointers.
+                    http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
+                }
+                if (thread_local_msg_flag){
+                    http_session_ptr->read();
+                    route_request(http_session_ptr);
+                }
+                if ((thread_local_signal & CTL_IO_SCHED_END_EVENT)){
+                    // Find a context that has a valid stopped thread.
+                    auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
+                        auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
                             return thread.is_stopped() && thread.is_valid();
                         });
-                        // invalidate the thread.
-                        std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
-                        // get the index of the stopped thread.
-                        std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
-                        // Get the key of the action at this index+1 (mod thread_controls.size())
-                        std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
-                        for (auto& idx: execution_context_idxs){
-                            // Get the next relation to execute from the dependencies of the relation at this key.
-                            std::shared_ptr<Relation> next = (*it)->manifest().next(key, idx);
-                            // Retrieve the index of this relation in the manifest.
-                            auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
-                                return rel->key() == next->key();
+                        return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                    });
+                    // While there are stopped threads.
+                    while(it != ctx_ptrs.end()){
+                        // Check to see if the context is stopped.
+                        if ((*it)->is_stopped()){
+                            // create the response.
+                            boost::json::value val;
+                            while((*it)->sessions().size() > 0 ){
+                                std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
+                                http::HttpReqRes rr;
+                                std::get<http::HttpResponse>(rr) = create_response(**it, val);
+                                next_session->write(
+                                    rr,
+                                    [&, next_session](){
+                                        next_session->close();
+                                    }
+                                );
+                                (*it)->sessions().pop_back();
+                            }
+                            ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
+                            // Find a context that has a stopped thread.
+                            it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
+                                auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                                    return thread.is_stopped() && thread.is_valid();
+                                });
+                                return (tmp == ctx_ptr->thread_controls().end())? false : true;
                             });
-                            std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
-                            //Start the thread at this index.
-                            (*it)->thread_controls()[next_idx].notify(idx);
-                        }
-                        // Search through remaining contexts.
-                        it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
-                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                            flush_wsk_logs();
+                        } else {
+                            // Evaluate which thread to execute next and notify it.
+                            auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
                                 return thread.is_stopped() && thread.is_valid();
                             });
-                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
-                        });
+                            // invalidate the thread.
+                            std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
+                            // get the index of the stopped thread.
+                            std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
+                            // Get the key of the action at this index+1 (mod thread_controls.size())
+                            std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
+                            for (auto& idx: execution_context_idxs){
+                                // Get the next relation to execute from the dependencies of the relation at this key.
+                                std::shared_ptr<Relation> next = (*it)->manifest().next(key, idx);
+                                // Retrieve the index of this relation in the manifest.
+                                auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
+                                    return rel->key() == next->key();
+                                });
+                                std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
+                                //Start the thread at this index.
+                                (*it)->thread_controls()[next_idx].notify(idx);
+                            }
+                            // Search through remaining contexts.
+                            it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
+                                auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                                    return thread.is_stopped() && thread.is_valid();
+                                });
+                                return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                            });
+                        }
                     }
                 }
             }
         }
-        #ifdef DEBUG
-        std::cout << "Controller Stop!" << std::endl;
-        #endif
         pthread_exit(0);
     }
 
     void Controller::route_request(std::shared_ptr<http::HttpSession>& session){
-        #ifdef DEBUG
-        std::cout << "Request Router!" << std::endl;
-        #endif
         http::HttpReqRes req_res = session->get();
         http::HttpRequest& req = std::get<http::HttpRequest>(req_res);
-        #ifdef DEBUG
-        std::cout << req << std::endl;
-        #endif
         // Start processing chunks, iff next_chunk > 0.
         if(req.next_chunk > 0){
             if(req.route == "/run" || req.route == "/init"){
@@ -228,15 +217,9 @@ namespace app{
                                     for( std::size_t i = 0; i < manifest_size; ++i ){
                                         std::thread executor(
                                             [&, ctx_ptr, i](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
-                                                #ifdef DEBUG
-                                                std::cout << "Index: " << i << std::endl;
-                                                #endif
-
                                                 pthread_t tid = pthread_self();
                                                 ctx_ptr->thread_controls()[i].tid() = tid;
-                                                #ifdef DEBUG
-                                                std::cout << "Thread ID: " << tid << " Pre Fiber acquisition!" << std::endl;
-                                                #endif
+
                                                 // The first resume sets up the action runtime environment for execution.
                                                 // The action runtime doesn't have to be set up in a distinct 
                                                 // thread of execution, but since we need to take the time to set up 
@@ -245,15 +228,8 @@ namespace app{
                                                 // is a more performant solution.
                                                 ctx_ptr->thread_controls()[i].resume();
                                                 
-                                                #ifdef DEBUG
-                                                std::cout << "Thread ID: " << tid << " Post fiber acquisition!" << std::endl;
-                                                #endif
 
                                                 ctx_ptr->thread_controls()[i].wait();
-
-                                                #ifdef DEBUG
-                                                std::cout << "Thread ID: " << tid << ", SCHED_START Notified!" << std::endl;
-                                                #endif
 
                                                 ctx_ptr->thread_controls()[i].resume();
                                                 ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -506,9 +482,6 @@ namespace app{
 
     Controller::~Controller()
     {
-        #ifdef DEBUG
-        std::cout << "Application Controller Destructor!" << std::endl;
-        #endif
         stop();
     }
 }// namespace app

@@ -104,9 +104,6 @@ namespace app{
             std::size_t select = (start + offset)%num_deps;
             // If the dependency value is empty that means the dependency
             // has not finished computing yet. Call next recursively.
-            #ifdef DEBUG
-            std::cout << (**it)[select]->key() << std::endl;
-            #endif
             if( (**it)[select]->acquire_value().empty() ){
                 (**it)[select]->release_value();
                 std::string dep_key((**it)[select]->key());

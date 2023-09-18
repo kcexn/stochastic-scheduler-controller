@@ -20,9 +20,6 @@ namespace run{
             boost::json::object& context = value.at("execution_context").as_object();
             std::stringstream uuid(std::string(context.at("uuid").as_string()));
             uuid >> execution_context_id_;
-            #ifdef DEBUG
-            std::cout << execution_context_id_ << std::endl;
-            #endif
             boost::json::value& idx = context.at("idx");
             if (idx.is_int64()){
                 execution_context_idx_ = idx.get_int64();
@@ -31,14 +28,8 @@ namespace run{
             } else {
                 throw "execution context index is too large.";
             }
-            #ifdef DEBUG
-            std::cout << execution_context_idx_ << std::endl;
-            #endif
 
             value_ = boost::json::object(value.at("execution_context").as_object().at("value").as_object());
-            #ifdef DEBUG
-            std::cout << value_ << std::endl;
-            #endif
         }
         for ( auto& kvp: obj ){
             std::string key(kvp.key());
@@ -56,9 +47,6 @@ namespace run{
                 std::string envkey("__OW_");
                 std::transform(key.cbegin(), key.cend(), key.begin(), []( unsigned char c ) { return std::toupper(c); });
                 envkey.append(key);
-                #ifdef DEBUG
-                std::cout << envkey << "=" << val << std::endl;
-                #endif
                 env_.emplace(envkey, val);
             }
         }
@@ -71,17 +59,10 @@ namespace run{
         //Otherwise, construct a new execution context.
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr;
         if(req.execution_context_id() != UUID::Uuid()){
-            #ifdef DEBUG
-            std::cout << "Request Context index: " << req.idx() << std::endl;
-            std::cout << "Request Execution Context ID: " << req.execution_context_id() << std::endl;
-            #endif
             auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
                 return (ctx_ptr->execution_context_id() == req.execution_context_id());
             });
             if( it != ctx_ptrs.end()){
-                #ifdef DEBUG
-                std::cout << "Iterator does not equal end()." << std::endl;
-                #endif
                 (*it)->push_execution_idx(req.idx());
                 return std::shared_ptr<controller::app::ExecutionContext>(*it);
             }else{
@@ -157,9 +138,6 @@ namespace run{
                         perror("closing the upstream write in the parent process failed.");
                     }
 
-                    #ifdef DEBUG
-                    std::cout << "Parent process awaiting child: " << pid << ", to notify readiness." << std::endl;
-                    #endif
 
                     char ready[1] = {};
                     int length = read(upstream[0], ready, 1);
@@ -170,15 +148,8 @@ namespace run{
                         perror("Pausing the child process failed.");
                     }
 
-                    #ifdef DEBUG
-                    std::cout << "Child process: " << ", notified parent of readiness, and paused awaiting a future signal." << std::endl;
-                    #endif
-
                     g = std::move(g).resume();
 
-                    #ifdef DEBUG
-                    std::cout << "Child process: " << pid << ", to be resumed." << std::endl;
-                    #endif
                     if (kill(pid, SIGCONT) == -1 ){
                         perror("Parent process failed to unpause child process.");
                     }
@@ -199,18 +170,12 @@ namespace run{
                         params.append("\n");
                     }
 
-                    #ifdef DEBUG
-                    std::cout << "Child process: " << pid << ", having params: " << params << std::flush;
-                    #endif
                     if( write(downstream[1], params.data(), params.size()) == -1 ){
                         perror("Downstream write in the parent failed");
                     }
                     if (close(downstream[1]) == -1){
                         perror("closing the downstream write failed.");
                     }
-                    #ifdef DEBUG
-                    std::cout << "Write to child process: " << pid << ", successful." << std::endl;
-                    #endif
 
                     std::size_t max_length = 65536;
                     std::size_t value_size = 0;
@@ -218,9 +183,6 @@ namespace run{
                     std::string val;         
                     do {
                         errsv = 0;
-                        #ifdef DEBUG
-                        std::cout << "Start a read from the child process." << std::endl;
-                        #endif
                         val.resize(max_length + value_size);
                         length = read(upstream[0], (val.data() + value_size), max_length);
                         if (length != -1){
@@ -233,9 +195,6 @@ namespace run{
                         perror("closing the upstream read failed.");
                     }
                     val.resize(value_size);
-                    #ifdef DEBUG
-                    std::cout << val << std::endl;
-                    #endif
                     relation->acquire_value() = val;
                     relation->release_value();
                     // waitpid is handled by trapping SIGCHLD

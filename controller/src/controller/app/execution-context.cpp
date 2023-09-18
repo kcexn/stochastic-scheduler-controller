@@ -38,10 +38,6 @@ namespace app{
             }
             // Loop through manifest.json until manifest_ contains the same number of keys.
             while(manifest_.size() < manifest.size()){
-                #ifdef DEBUG
-                std::cout << manifest_.size() << std::endl;
-                std::cout << manifest.size() << std::endl;
-                #endif
                 // Find a key that isn't in the manifest_ yet.
                 auto it = std::find_if(manifest.begin(), manifest.end(), [&](auto& kvp){
                     auto tmp = std::find_if(manifest_.begin(), manifest_.end(), [&](auto& rel){
@@ -53,9 +49,6 @@ namespace app{
                 std::string key(it->key());
                 manifest_.emplace(key, manifest); 
             }
-            #ifdef DEBUG
-            std::cout << manifest.size() << std::endl;
-            #endif
             // Reverse lexicographically sort the manifest.
             std::sort(manifest_.begin(), manifest_.end(), [&](std::shared_ptr<Relation> a, std::shared_ptr<Relation> b){
                 return a->depth() > b->depth();
@@ -104,19 +97,12 @@ namespace app{
             if (ec){
                 throw "boost json parse failed.";
             }
-            #ifdef DEBUG
-            std::cout << manifest << std::endl;
-            #endif
             // If the manifest is empty throw an exception.
             if(manifest.empty()){
                 throw "action-manifest.json can't be empty.";
             }
             // Loop through manifest.json until manifest_ contains the same number of keys.
             while(manifest_.size() < manifest.size()){
-                #ifdef DEBUG
-                std::cout << manifest_.size() << std::endl;
-                std::cout << manifest.size() << std::endl;
-                #endif
                 // Find a key that isn't in the manifest_ yet.
                 auto it = std::find_if(manifest.begin(), manifest.end(), [&](auto& kvp){
                     auto tmp = std::find_if(manifest_.begin(), manifest_.end(), [&](auto& rel){
@@ -128,9 +114,6 @@ namespace app{
                 std::string key(it->key());
                 manifest_.emplace(key, manifest); 
             }
-            #ifdef DEBUG
-            std::cout << manifest.size() << std::endl;
-            #endif
             // Reverse lexicographically sort the manifest.
             std::sort(manifest_.begin(), manifest_.end(), [&](std::shared_ptr<Relation> a, std::shared_ptr<Relation> b){
                 return a->depth() > b->depth();

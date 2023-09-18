@@ -10,8 +10,11 @@ namespace app_server{
     {
     public:
         Server(): std::vector<std::shared_ptr<Session<Types...> > >() {}
+        void acquire(){ mtx_.lock(); return; }
+        void release(){ mtx_.unlock(); return; }
         virtual ~Server() = default;
     private:
+        std::mutex mtx_;
     };
 }//namespace app_server
 #endif

@@ -205,11 +205,23 @@ namespace tests{
                     {{}, "{\"msg\":\"Hello World!\"}"}
                 }
             };
-            client_session->write([&, client_session](){
+            client_session->write([&, session](){
                 struct timespec ts = {1,0};
                 nanosleep(&ts, nullptr);
 
-                client_session->close();
+                // /* Example code: */
+                // // After submitting the request write, we need to wait for a response read.
+                // // First we register a callback for the transport session.
+                // session->cb = [&, session](const auto& ec, auto len){
+                //     if(!ec){
+                //         session->acquire_stream().write(session->buf().data(), len);
+                //         session->release_stream();
+                //         session->async_read(session->cb);
+                //     }
+                //     return;
+                // };
+                // // Then we can submit the asynchronous reads.
+                // session->async_read(session->cb);
                 passed_ = true;
             });
         });

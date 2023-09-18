@@ -2,12 +2,17 @@
 #include <filesystem>
 
 namespace UnixServer{
-        void unix_session::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
+    void unix_session::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
         socket_.async_read_some(
             boost::asio::buffer(buf().data(), unix_session::max_buflen),
             boost::asio::bind_cancellation_slot(
                 stop_signal_.slot(),
-                fn
+                [&,fn](boost::system::error_code ec, std::size_t length){
+                    fn(ec, length);
+                    if(ec != boost::asio::error::misc_errors::eof){
+                        async_read(fn);
+                    }
+                }
             )
         );
     }
@@ -35,9 +40,8 @@ namespace UnixServer{
         }
 
     void unix_session::close(){
-        boost::system::error_code ec;
-        socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
-        socket_.close(ec);        
+        cancel();
+        erase();
     }
 
     void unix_session::async_connect(const boost::asio::local::stream_protocol::endpoint& endpoint, std::function<void(const boost::system::error_code&)> fn) {

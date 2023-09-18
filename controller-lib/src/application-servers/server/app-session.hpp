@@ -25,14 +25,13 @@ namespace app_server{
     public:
         Session(Server<Types...>& server): server_(server) {}
         Session(Server<Types...>& server, const std::shared_ptr<server::Session>& t_session_ptr): server_(server), t_session_(t_session_ptr) {}
-        void erase()
-        {   
-            acquire_lock();    
+        void erase(){
+            server_.acquire();
             auto it = std::find(server_.begin(), server_.end(), this->shared_from_this());
             if(it != server_.end()){
                 server_.erase(it);
             }
-            release_lock();
+            server_.release();
             return;
         }
 

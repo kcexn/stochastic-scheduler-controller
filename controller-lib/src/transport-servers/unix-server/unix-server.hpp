@@ -3,6 +3,8 @@
 #include <boost/asio.hpp>
 #include "../server/server.hpp"
 
+#include <iostream>
+
 namespace UnixServer{
     class unix_session : public server::Session
     {
@@ -13,10 +15,12 @@ namespace UnixServer{
         void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) override;
         void close() override;
 
-        void async_connect(const boost::asio::local::stream_protocol::endpoint&, std::function<void(const boost::system::error_code&)>); 
+        void async_connect(const boost::asio::local::stream_protocol::endpoint&, std::function<void(const boost::system::error_code&)>);
 
         ~unix_session() {
-            cancel();
+            boost::system::error_code ec;
+            socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
+            socket_.close(ec);
         }
     
     private:

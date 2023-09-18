@@ -20,7 +20,7 @@ namespace http{
         void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
         void close() override;
 
-        ~HttpSession() {             
+        ~HttpSession() {   
             if(t_session_){
                 t_session_->erase();
             }
