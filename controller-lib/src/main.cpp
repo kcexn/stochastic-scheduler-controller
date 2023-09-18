@@ -15,96 +15,96 @@ int main(int argc, char* argv[]){
     //         std::cerr << "Default uuid tests failed." << std::endl;
     //     }
     // }
-    {
-        // UNIX sockets tests.
-        using namespace tests;
-        boost::asio::io_context ioc;
-        std::filesystem::path p("/run/controller/controller.sock");
-        std::size_t test_num = 1;
-        boost::asio::local::stream_protocol::endpoint endpoint(p.string());
-        {
-            UnixServerTest basic_unix_server(ioc);
-            if(basic_unix_server){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-        {
-            UnixServerTest basic_unix_server(ioc, endpoint);
-            if(basic_unix_server){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            std::filesystem::remove(p);
-            ++test_num;
-        }
-        {
-            UnixServerTest test_push_back(UnixServerTest::test_push_back, ioc);
-            if(test_push_back){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-        {
-            UnixServerTest test_context_run(UnixServerTest::test_context_run, ioc);
-            if(test_context_run){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            ioc.restart();
-            ++test_num;
-        }
-        {
-            UnixServerTest test_accept_unix(UnixServerTest::test_accept_unix, ioc, endpoint);
-            if(test_accept_unix){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            std::filesystem::remove(p);
-            ioc.restart();
-            ++test_num;
-        }
-        {
-            UnixServerTest test_read_write(UnixServerTest::test_read_write, ioc, endpoint);
-            if(test_read_write){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            std::filesystem::remove(p);
-            ioc.restart();
-            ++test_num;
-        }
-        {
-            UnixServerTest test_erase_session(UnixServerTest::test_erase_session, ioc, endpoint);
-            if(test_erase_session){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            std::filesystem::remove(p);
-            ioc.restart();
-            ++test_num;
-        }
-        {
-            UnixServerTest test_unix_connect(UnixServerTest::test_unix_connect, ioc, endpoint);
-            if(test_unix_connect){
-                std::cout << "Unix server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Unix server test " << test_num << " failed." << std::endl;
-            }
-            std::filesystem::remove(p);
-            ioc.restart();
-            ++test_num;
-        }
-    }
+    // {
+    //     // UNIX sockets tests.
+    //     using namespace tests;
+    //     boost::asio::io_context ioc;
+    //     std::filesystem::path p("/run/controller/controller.sock");
+    //     std::size_t test_num = 1;
+    //     boost::asio::local::stream_protocol::endpoint endpoint(p.string());
+    //     {
+    //         UnixServerTest basic_unix_server(ioc);
+    //         if(basic_unix_server){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest basic_unix_server(ioc, endpoint);
+    //         if(basic_unix_server){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         std::filesystem::remove(p);
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest test_push_back(UnixServerTest::test_push_back, ioc);
+    //         if(test_push_back){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest test_context_run(UnixServerTest::test_context_run, ioc);
+    //         if(test_context_run){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         ioc.restart();
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest test_accept_unix(UnixServerTest::test_accept_unix, ioc, endpoint);
+    //         if(test_accept_unix){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         std::filesystem::remove(p);
+    //         ioc.restart();
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest test_read_write(UnixServerTest::test_read_write, ioc, endpoint);
+    //         if(test_read_write){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         std::filesystem::remove(p);
+    //         ioc.restart();
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest test_erase_session(UnixServerTest::test_erase_session, ioc, endpoint);
+    //         if(test_erase_session){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         std::filesystem::remove(p);
+    //         ioc.restart();
+    //         ++test_num;
+    //     }
+    //     {
+    //         UnixServerTest test_unix_connect(UnixServerTest::test_unix_connect, ioc, endpoint);
+    //         if(test_unix_connect){
+    //             std::cout << "Unix server test " << test_num << " passed." << std::endl;
+    //         } else {
+    //             std::cerr << "Unix server test " << test_num << " failed." << std::endl;
+    //         }
+    //         std::filesystem::remove(p);
+    //         ioc.restart();
+    //         ++test_num;
+    //     }
+    // }
     // {
     //     // HTTP tests.
     //     using namespace tests;
@@ -191,118 +191,118 @@ int main(int argc, char* argv[]){
     //         ++test_num;
     //     }
     // }
-    {
-        //Http Server Tests.
-        using namespace tests;
-        std::size_t test_num = 1;
-        {
-            HttpServerTests test_construct_server(HttpServerTests::test_construct_server);
-            if(test_construct_server){
-                std::cout << "Http server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Http server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-        {
-            HttpServerTests test_construct_session(HttpServerTests::test_construct_session);
-            if(test_construct_session){
-                std::cout << "Http server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Http server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-        {
-            HttpServerTests test_construct_unix_bound_session(HttpServerTests::test_construct_unix_bound_session);
-            if(test_construct_unix_bound_session){
-                std::cout << "Http server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Http server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-        {
-            HttpServerTests test_unix_bound_read_write(HttpServerTests::test_unix_bound_read_write);
-            if(test_unix_bound_read_write){
-                std::cout << "Http server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Http server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-        {
-            HttpServerTests test_unix_client_write(HttpServerTests::test_unix_client_write);
-            if(test_unix_client_write){
-                std::cout << "Http server test " << test_num << " passed." << std::endl;
-            } else {
-                std::cerr << "Http server test " << test_num << " failed." << std::endl;
-            }
-            ++test_num;
-        }
-    }
     // {
+    //     //Http Server Tests.
+    //     using namespace tests;
     //     std::size_t test_num = 1;
     //     {
-    //         using namespace tests;
-    //         boost::asio::io_context ioc;
-    //         transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
-    //         SctpServerTests test_constructor(SctpServerTests::test_constructor, ioc);
-    //         if(test_constructor){
-    //             std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+    //         HttpServerTests test_construct_server(HttpServerTests::test_construct_server);
+    //         if(test_construct_server){
+    //             std::cout << "Http server test " << test_num << " passed." << std::endl;
     //         } else {
-    //             std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+    //             std::cerr << "Http server test " << test_num << " failed." << std::endl;
     //         }
     //         ++test_num;
     //     }
     //     {
-    //         using namespace tests;
-    //         boost::asio::io_context ioc;
-    //         transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
-    //         SctpServerTests test_session_constructor(SctpServerTests::test_session_constructor, ioc, endpoint);
-    //         if(test_session_constructor){
-    //             std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+    //         HttpServerTests test_construct_session(HttpServerTests::test_construct_session);
+    //         if(test_construct_session){
+    //             std::cout << "Http server test " << test_num << " passed." << std::endl;
     //         } else {
-    //             std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+    //             std::cerr << "Http server test " << test_num << " failed." << std::endl;
     //         }
     //         ++test_num;
     //     }
     //     {
-    //         using namespace tests;
-    //         boost::asio::io_context ioc;
-    //         transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
-    //         SctpServerTests test_socket_read(SctpServerTests::test_socket_read, ioc, endpoint);
-    //         if(test_socket_read){
-    //             std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+    //         HttpServerTests test_construct_unix_bound_session(HttpServerTests::test_construct_unix_bound_session);
+    //         if(test_construct_unix_bound_session){
+    //             std::cout << "Http server test " << test_num << " passed." << std::endl;
     //         } else {
-    //             std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+    //             std::cerr << "Http server test " << test_num << " failed." << std::endl;
     //         }
     //         ++test_num;
     //     }
     //     {
-    //         using namespace tests;
-    //         boost::asio::io_context ioc;
-    //         transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
-    //         SctpServerTests test_session_read_write(SctpServerTests::test_session_read_write, ioc, endpoint);
-    //         if(test_session_read_write){
-    //             std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+    //         HttpServerTests test_unix_bound_read_write(HttpServerTests::test_unix_bound_read_write);
+    //         if(test_unix_bound_read_write){
+    //             std::cout << "Http server test " << test_num << " passed." << std::endl;
     //         } else {
-    //             std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+    //             std::cerr << "Http server test " << test_num << " failed." << std::endl;
     //         }
     //         ++test_num;
     //     }
     //     {
-    //         using namespace tests;
-    //         boost::asio::io_context ioc;
-    //         transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
-    //         SctpServerTests test_session_connect(SctpServerTests::test_session_connect, ioc, endpoint);
-    //         if(test_session_connect){
-    //             std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+    //         HttpServerTests test_unix_client_write(HttpServerTests::test_unix_client_write);
+    //         if(test_unix_client_write){
+    //             std::cout << "Http server test " << test_num << " passed." << std::endl;
     //         } else {
-    //             std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+    //             std::cerr << "Http server test " << test_num << " failed." << std::endl;
     //         }
     //         ++test_num;
     //     }
     // }
+    {
+        std::size_t test_num = 1;
+        {
+            using namespace tests;
+            boost::asio::io_context ioc;
+            transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
+            SctpServerTests test_constructor(SctpServerTests::test_constructor, ioc);
+            if(test_constructor){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+        {
+            using namespace tests;
+            boost::asio::io_context ioc;
+            transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
+            SctpServerTests test_session_constructor(SctpServerTests::test_session_constructor, ioc, endpoint);
+            if(test_session_constructor){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+        {
+            using namespace tests;
+            boost::asio::io_context ioc;
+            transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
+            SctpServerTests test_socket_read(SctpServerTests::test_socket_read, ioc, endpoint);
+            if(test_socket_read){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+        {
+            using namespace tests;
+            boost::asio::io_context ioc;
+            transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
+            SctpServerTests test_session_read_write(SctpServerTests::test_session_read_write, ioc, endpoint);
+            if(test_session_read_write){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+        {
+            using namespace tests;
+            boost::asio::io_context ioc;
+            transport::protocols::sctp::endpoint endpoint(transport::protocols::sctp::v4(), 5100);
+            SctpServerTests test_session_connect(SctpServerTests::test_session_connect, ioc, endpoint);
+            if(test_session_connect){
+                std::cout << "Sctp server test " << test_num << " passed." << std::endl;
+            } else {
+                std::cerr << "Sctp server test " << test_num << " failed." << std::endl;
+            }
+            ++test_num;
+        }
+    }
     return 0;
 }

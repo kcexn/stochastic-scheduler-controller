@@ -16,7 +16,9 @@ namespace sctp_transport{
         std::memcpy(write_data_ptr->data(), write_buffer.data(), write_buffer.size());
         socket_.async_wait(
             transport::protocols::sctp::socket::wait_type::wait_write,
-            std::bind(&SctpSession::write_, this, write_data_ptr, fn, std::placeholders::_1)
+            [&, this, write_data_ptr, fn](const boost::system::error_code& ec){
+                this->write_(write_data_ptr, fn, ec);
+            }
         );
     }
 
