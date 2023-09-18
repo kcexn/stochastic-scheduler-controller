@@ -45,7 +45,6 @@ namespace app{
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 break;
             }
-
             std::shared_ptr<http::HttpSession> http_session_ptr;
             auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
                 return *hc == server_session;
@@ -142,7 +141,7 @@ namespace app{
 
     void Controller::route_request(std::shared_ptr<http::HttpSession>& session){
         http::HttpReqRes req_res = session->get();
-        http::HttpRequest& req = std::get<http::HttpRequest>(req_res);
+        http::HttpRequest& req = std::get<http::HttpRequest>(req_res);            
         // Start processing chunks, iff next_chunk > 0.
         if(req.next_chunk > 0){
             if(req.route == "/run" || req.route == "/init"){
@@ -187,7 +186,7 @@ namespace app{
                                     next_opening_brace = next_comma;
                                 }
                                 ++brace_count;
-                            } else if (brace_count == 0 && c == ','){
+                            } else if (next_closing_brace - next_opening_brace > 0 && brace_count == 0 && c == ','){
                                 // Once we find a top level comma, then we know that we have reached the end of 
                                 // a javascript object.
                                 break;
@@ -200,82 +199,131 @@ namespace app{
                         );
                         if(ec){throw "Json Parsing failed.";}
                         if(req.route == "/run"){
-                            controller::resources::run::Request run(val.as_object());
-                            // Create a fiber continuation for processing the request.
-                            std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs); 
-                            auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
-                            if(http_it == ctx_ptr->sessions().cend()){
-                                ctx_ptr->sessions().push_back(session);
-                            }
-                            if (initialized_){
-                                // Initialize threads only once.
-                                // If ctx_ptr is already in the controller ctx_ptrs then threads don't need to be initialized again.
-                                auto ctx_it = std::find(ctx_ptrs.begin(), ctx_ptrs.end(), ctx_ptr);
-                                if (ctx_it == ctx_ptrs.end()){
-                                    ctx_ptrs.push_back(ctx_ptr);
-                                    const std::size_t& manifest_size = ctx_ptr->manifest().size();
-                                    for( std::size_t i = 0; i < manifest_size; ++i ){
-                                        std::thread executor(
-                                            [&, ctx_ptr, i](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
-                                                pthread_t tid = pthread_self();
-                                                ctx_ptr->thread_controls()[i].tid() = tid;
+                            if(req.verb == http::HttpVerb::POST){
+                                controller::resources::run::Request run(val.as_object());
+                                // Create a fiber continuation for processing the request.
+                                std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs); 
+                                auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
+                                if(http_it == ctx_ptr->sessions().cend()){
+                                    ctx_ptr->sessions().push_back(session);
+                                }
+                                if (initialized_){
+                                    // Initialize threads only once.
+                                    // If ctx_ptr is already in the controller ctx_ptrs then threads don't need to be initialized again.
+                                    auto ctx_it = std::find(ctx_ptrs.begin(), ctx_ptrs.end(), ctx_ptr);
+                                    if (ctx_it == ctx_ptrs.end()){
+                                        ctx_ptrs.push_back(ctx_ptr);
+                                        const std::size_t& manifest_size = ctx_ptr->manifest().size();
+                                        for( std::size_t i = 0; i < manifest_size; ++i ){
+                                            std::thread executor(
+                                                [&, ctx_ptr, i](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                                    pthread_t tid = pthread_self();
+                                                    ctx_ptr->thread_controls()[i].tid() = tid;
+                                                    // The first resume sets up the action runtime environment for execution.
+                                                    // The action runtime doesn't have to be set up in a distinct 
+                                                    // thread of execution, but since we need to take the time to set up 
+                                                    // a thread anyway, deferring the process fork in the execution context until after the 
+                                                    // thread is established so that the fork can happen concurrently 
+                                                    // is a more performant solution.
+                                                    ctx_ptr->thread_controls()[i].resume();
+                                                    ctx_ptr->thread_controls()[i].wait();
+                                                    ctx_ptr->thread_controls()[i].resume();
+                                                    ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    mbox_ptr->sched_signal_cv_ptr->notify_all();
+                                                }, io_mbox_ptr_
+                                            );
+                                            executor.detach();
+                                        }
+                                    }
+                                    // This id is pushed in the context constructor.
+                                    std::size_t execution_idx = ctx_ptr->pop_execution_idx();
+                                    std::size_t manifest_size = ctx_ptr->manifest().size();
+                                    // Get the starting relation.
+                                    std::string start_key(ctx_ptr->manifest()[execution_idx % manifest_size]->key());
+                                    std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
 
-                                                // The first resume sets up the action runtime environment for execution.
-                                                // The action runtime doesn't have to be set up in a distinct 
-                                                // thread of execution, but since we need to take the time to set up 
-                                                // a thread anyway, deferring the process fork in the execution context until after the 
-                                                // thread is established so that the fork can happen concurrently 
-                                                // is a more performant solution.
-                                                ctx_ptr->thread_controls()[i].resume();
-                                                
-
-                                                ctx_ptr->thread_controls()[i].wait();
-
-                                                ctx_ptr->thread_controls()[i].resume();
-                                                ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                mbox_ptr->sched_signal_cv_ptr->notify_all();
-                                            }, io_mbox_ptr_
+                                    // Find the index in the manifest of the starting relation.
+                                    auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
+                                        return rel->key() == start->key();
+                                    });
+                                    if (start_it == ctx_ptr->manifest().end()){
+                                        // If the start key is past the end of the manifest, that means that
+                                        // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
+                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                        return;
+                                    }
+                                    std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
+                                    ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
+                                } else {
+                                    // invalidate the fibers.
+                                    http::HttpReqRes rr;
+                                    while(ctx_ptr->sessions().size() > 0)
+                                    {
+                                        std::shared_ptr<http::HttpSession>& next_session = ctx_ptr->sessions().back();
+                                        std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr, val);
+                                        next_session->write(
+                                            rr,
+                                            [&, next_session](){
+                                                next_session->close();
+                                            }
                                         );
-                                        executor.detach();
+                                        ctx_ptr->sessions().pop_back();
                                     }
                                 }
-                                // This id is pushed in the context constructor.
-                                std::size_t execution_idx = ctx_ptr->pop_execution_idx();
-                                std::size_t manifest_size = ctx_ptr->manifest().size();
-                                // Get the starting relation.
-                                std::string start_key(ctx_ptr->manifest()[execution_idx % manifest_size]->key());
-                                std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
+                            } else if(req.verb == http::HttpVerb::PUT){
+                                /* New Connections Go Here. */
+                                if(req.pos == 0){
+                                    /* A new incoming stream. */
+                                    std::cout << req.chunks[req.pos] << std::endl;
 
-                                // Find the index in the manifest of the starting relation.
-                                auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
-                                    return rel->key() == start->key();
-                                });
-                                if (start_it == ctx_ptr->manifest().end()){
-                                    // If the start key is past the end of the manifest, that means that
-                                    // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
-                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                    return;
+                                    std::string uuid_str(val.as_object().at("execution_context").as_object().at("uuid").as_string());
+                                    UUID::Uuid uuid(UUID::Uuid::v4, uuid_str);
+                                    auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                                        return (ctx_ptr->execution_context_id() == uuid);
+                                    });
+                                    if(it != ctx_ptrs.end()){
+                                        /* Bind the http session to an existing context. */
+                                        it->sessions().push_back(session);
+
+                                        /* The initial response to the remote peer should be to send a 201 Created response */
+                                        // with chunked transfer encoding, containing a list of peers, and the current 
+                                        // state of the program execution.
+
+                                        // To populate the peer table properly, I need to find a reliable way to 
+                                        // identify the network address of the local host dynamically.
+                                    
+                                        // To identify the local IP address I think the most sensible solution is to 
+                                        // 1. Pass in the container network network prefix as an environment variable (e.g. 192.168.0.0/16).
+                                        // 2. Get all of the network interface addresses using getifaddrs.
+                                        // 3. Bitwise AND the network prefix with the IP addresses in the getifaddrs linked list.
+                                        // 4. The first network prefix match (getifaddr & prefix == prefix) will be taken as the container ip address for the peering.
+
+                                        /* This can be tested using the loop back network interface, which is stored on the network prefix 127.0.0.0/8 */
+                                        // Local testing can be done by passing in the loop back addresses as an environment variable.
+
+                                        // The local IP address can be kept as an application global variable.
+                                        // The most sensible place to store the IP address is in the controller IO class, as a public data member that is initialized at
+                                        // the application start up time.
+
+                                    } else {
+                                        /* An error condition, no execution context with this ID exists. */
+                                        // This condition can occur under at least two different scenarios.
+                                        // 1. The action manifest has completed before the initial PUT request for the context
+                                        //    arrived from a peer container.
+                                        // 2. There was a container failure and restart, with the old container IP address 
+                                        //    reassigned by the container orchestration runtime (K8s).
+
+                                        /* In all cases, the only correct response should be to preemptively terminate the stream. */
+                                        // Instead of sending a 201 Created response, we send a 404 not found response, with no body.
+                                        // The remote peer should respond by truncating the event stream, and cleaning up the execution context.
+                                    }
+                                } else {
+                                    /* An incoming state update. */
+                                    std::cout << req.chunks[req.pos] << std::endl;
                                 }
-                                std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
-                                ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
-                            } else {
-                                // invalidate the fibers.
-                                http::HttpReqRes rr;
-                                while(ctx_ptr->sessions().size() > 0)
-                                {
-                                    std::shared_ptr<http::HttpSession>& next_session = ctx_ptr->sessions().back();
-                                    std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr, val);
-                                    next_session->write(
-                                        rr,
-                                        [&, next_session](){
-                                            next_session->close();
-                                        }
-                                    );
-                                    ctx_ptr->sessions().pop_back();
-                                }
-                            }
+                            }                 
                         } else if (req.route == "/init"){
                             controller::resources::init::Request init(val.as_object());
                             // It is not strictly necessary to construct a context for initialization requests.
@@ -314,6 +362,7 @@ namespace app{
                         }
                     }
                 }
+                session->set(req_res);
             } else {
                 http::HttpReqRes rr;
                 http::HttpResponse res = {

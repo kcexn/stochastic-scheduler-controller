@@ -2,10 +2,6 @@
 #include "sctp-session.hpp"
 #include <cerrno>
 
-#ifdef DEBUG
-#include <iostream>
-#endif
-
 namespace sctp_transport{
     SctpServer::SctpServer(boost::asio::io_context& ioc)
       : server::Server(ioc),
@@ -256,12 +252,14 @@ namespace sctp_transport{
                     sctp_session = std::make_shared<sctp_transport::SctpSession>(*this, stream_id, socket_);
                     push_back(sctp_session);
                     // Accept and return a new context (similar to the berkeley sockets accept call.)
-                    fn(ec, sctp_session);
                 } else {
                     sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(*it);
                 }
                 std::string received_data(buf_.data(), len);
                 sctp_session->read(ec, received_data);
+
+                // Call the read function callback.
+                fn(ec, sctp_session);
             }
             socket_.async_wait(
                 transport::protocols::sctp::socket::wait_type::wait_read,

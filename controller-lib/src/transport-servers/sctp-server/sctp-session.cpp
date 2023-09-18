@@ -1,11 +1,5 @@
 #include "sctp-session.hpp"
 
-#ifdef DEBUG
-#include <iostream>
-#endif
-
-
-
 namespace sctp_transport{
     void SctpSession::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
         read_fn_ = std::move(fn);

@@ -51,6 +51,9 @@ namespace app{
 
         // Thread Control Data Elements
         std::vector<ThreadControls> thread_controls_;
+
+        // Execution Context Peering Members.
+        // std::vector<server::Remote> peers_;
     };
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs);
 }//namepsace app

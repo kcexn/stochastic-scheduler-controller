@@ -9,12 +9,11 @@ RUN apt-get update && apt-get install -y nginx curl coreutils procps lua5.4
 ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
     __OW_ACTION_LAUNCHER=/var/controller/action-runtimes/lua/launcher/launcher.lua \
     LUA_PATH=/var/controller/action-runtimes/lua/functions/?.lua;/var/controller/action-runtimes/lua/lib/?.lua;; \
-    LUA_CPATH=/var/controller/action-runtimes/lua/functions/?.so;/var/controller/action-runtimes/lua/lib/?.so;;
-COPY action-runtimes/lua/ /var/controller/action-runtimes/lua/
-
-# Set up the function executor variables.
-ENV __OW_ACTION_EXT=lua \
+    LUA_CPATH=/var/controller/action-runtimes/lua/functions/?.so;/var/controller/action-runtimes/lua/lib/?.so;; \
+    __OW_ACTION_EXT=lua \
     __OW_ACTION_BIN=/usr/bin/lua
+    
+COPY action-runtimes/lua/ /var/controller/action-runtimes/lua/
 
 #Setup the python environment
 # RUN mkdir -p /var/controller/action-runtimes/python3/functions
