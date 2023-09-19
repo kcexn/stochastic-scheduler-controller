@@ -29,6 +29,9 @@ namespace sctp_transport{
         };
         int val = setsockopt(acceptor.native_handle(), IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe));
 
+        int autoclose = 60;
+        val = setsockopt(acceptor.native_handle(), IPPROTO_SCTP, SCTP_AUTOCLOSE, &autoclose, sizeof(autoclose));
+
 
         acceptor.listen();
         int sockfd = acceptor.native_handle();
@@ -273,6 +276,9 @@ namespace sctp_transport{
 
     SctpServer::~SctpServer(){
         stop();
-        socket_.close();
+        int ec = close(socket_.native_handle());
+        if(ec == -1){
+            perror("sctp socket");
+        }
     }
 }

@@ -15,46 +15,47 @@ namespace app{
     }
 
     void ThreadControls::notify(std::size_t idx){ 
-        mtx_->lock();
         execution_context_idxs_.push_back(idx);
-        mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed); 
         cv_->notify_all(); 
         return; 
     }
 
     std::vector<std::size_t> ThreadControls::invalidate() {
+        valid_->store(false, std::memory_order::memory_order_relaxed);  
+        std::vector<std::size_t> tmp(execution_context_idxs_.size());
+        std::memcpy(tmp.data(), execution_context_idxs_.data(), execution_context_idxs_.size());
+        // Clear the execution context idx vector so that subsequent invalidates do not
+        // receive a list of executions indexes to assign work to.
+        execution_context_idxs_.clear();
+        return tmp;
+    }
+
+
+    std::vector<std::size_t> ThreadControls::stop_thread() {
         if(!is_stopped()){
             pthread_cancel(tid_);
-            invalidate_fiber();
             // Stop the thread.
             signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
             if(pid_ > 0){
                 kill(pid_, SIGTERM);
             }
         }
-        valid_->store(false, std::memory_order::memory_order_relaxed);  
-        mtx_->lock();
         std::vector<std::size_t> tmp(execution_context_idxs_.size());
         std::memcpy(tmp.data(), execution_context_idxs_.data(), execution_context_idxs_.size());
         // Clear the execution context idx vector so that subsequent invalidates do not
         // receive a list of executions indexes to assign work to.
         execution_context_idxs_.clear();
-        mtx_->unlock();
         return tmp;
     }
 
     void ThreadControls::resume() {
-        mtx_->lock();
         f_ = std::move(f_).resume();
-        mtx_->unlock();
         return;
     }
 
     void ThreadControls::invalidate_fiber() {
-        mtx_->lock();
         f_ = boost::context::fiber();
-        mtx_->unlock();
         return;
     }
 }//namespace app

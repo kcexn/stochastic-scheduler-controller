@@ -4,6 +4,7 @@
 #include "execution-context.hpp"
 #include "action-relation.hpp"
 #include "../resources/resources.hpp"
+#include <charconv>
 
 namespace controller{
 namespace app{
@@ -93,6 +94,18 @@ namespace app{
                                 );
                                 (*it)->sessions().pop_back();
                             }
+                            while((*it)->peer_server_sessions().size() > 0){
+                                std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
+                                http::HttpReqRes rr = next_session->get();
+                                http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                res.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
+                                res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
+                                next_session->set(rr);
+                                next_session->write([&,next_session](){
+                                    next_session->close();
+                                });
+                                (*it)->peer_server_sessions().pop_back();
+                            }
                             ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
                             // Find a context that has a stopped thread.
                             it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
@@ -164,6 +177,42 @@ namespace app{
                     std::size_t next_comma = 0;
                     const http::HttpChunk& chunk = req.chunks[req.pos];
                     const std::size_t chunk_size = chunk.chunk_data.size();
+
+                    if(chunk_size == 0){
+                        /* None of these routes will accept a 0 sized payload, respond to this situation by terminating the stream. */
+                        http::HttpReqRes rr = session->get();
+                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                        if(res.headers.size() > 0){
+                            /* This is an existing session */
+                            res.chunks.push_back(http::HttpChunk{{0},""});
+                            session->set(rr);
+                            session->write([&,session](){
+                                session->close();
+                            });  
+                        } else {
+                            /* this is a new session */
+                            http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                            res = {
+                                req.version,
+                                http::HttpStatus::CONFLICT,
+                                {
+                                    {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                                    {http::HttpHeaderField::CONTENT_LENGTH, "0"},
+                                    {http::HttpHeaderField::CONNECTION, "close"},
+                                    {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                },
+                                {
+                                    {{0},""}
+                                }
+                            };
+                            session->set(rr);
+                            session->write([&, session](){
+                                session->close();
+                            });
+                        }     
+                        return;                 
+                    }
+
                     while(next_comma < chunk_size){
                         // Count the number of unclosed braces.
                         std::size_t brace_count = 0;
@@ -192,6 +241,41 @@ namespace app{
                                 break;
                             }
                         }
+
+                        if(next_closing_brace - next_opening_brace == 0){
+                            /* No top level javascript object could be found, the message should be rejected. */
+                            http::HttpReqRes rr = session->get();
+                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                            if(res.headers.size() > 0){
+                                /* This is an existing session */
+                                res.chunks.push_back(http::HttpChunk{{0},""});
+                                session->set(rr);
+                                session->write([&,session](){
+                                    session->close();
+                                });  
+                            } else {
+                                /* this is a new session */
+                                http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                                res = {
+                                    req.version,
+                                    http::HttpStatus::CONFLICT,
+                                    {
+                                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                                        {http::HttpHeaderField::CONTENT_LENGTH, "0"},
+                                        {http::HttpHeaderField::CONNECTION, "close"},
+                                        {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                    },
+                                    {
+                                        {{0},""}
+                                    }
+                                };
+                                session->set(rr);
+                                session->write([&, session](){
+                                    session->close();
+                                });
+                            }     
+                            return;
+                        }
                         boost::json::error_code ec;
                         boost::json::value val = boost::json::parse(
                             chunk.chunk_data.substr(next_opening_brace, next_closing_brace - next_opening_brace + 1), 
@@ -212,26 +296,34 @@ namespace app{
                                     // If ctx_ptr is already in the controller ctx_ptrs then threads don't need to be initialized again.
                                     auto ctx_it = std::find(ctx_ptrs.begin(), ctx_ptrs.end(), ctx_ptr);
                                     if (ctx_it == ctx_ptrs.end()){
+                                        ctx_ptr->peer_addresses().push_back(io_.local_sctp_address);
                                         ctx_ptrs.push_back(ctx_ptr);
                                         const std::size_t& manifest_size = ctx_ptr->manifest().size();
                                         for( std::size_t i = 0; i < manifest_size; ++i ){
                                             std::thread executor(
                                                 [&, ctx_ptr, i](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
-                                                    pthread_t tid = pthread_self();
-                                                    ctx_ptr->thread_controls()[i].tid() = tid;
-                                                    // The first resume sets up the action runtime environment for execution.
-                                                    // The action runtime doesn't have to be set up in a distinct 
-                                                    // thread of execution, but since we need to take the time to set up 
-                                                    // a thread anyway, deferring the process fork in the execution context until after the 
-                                                    // thread is established so that the fork can happen concurrently 
-                                                    // is a more performant solution.
-                                                    ctx_ptr->thread_controls()[i].resume();
-                                                    ctx_ptr->thread_controls()[i].wait();
-                                                    ctx_ptr->thread_controls()[i].resume();
-                                                    ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_cv_ptr->notify_all();
-                                                }, io_mbox_ptr_
+                                                    try{
+                                                        pthread_t tid = pthread_self();
+                                                        ctx_ptr->thread_controls()[i].tid() = tid;
+                                                        // The first resume sets up the action runtime environment for execution.
+                                                        // The action runtime doesn't have to be set up in a distinct 
+                                                        // thread of execution, but since we need to take the time to set up 
+                                                        // a thread anyway, deferring the process fork in the execution context until after the 
+                                                        // thread is established so that the fork can happen concurrently 
+                                                        // is a more performant solution.
+                                                        ctx_ptr->thread_controls()[i].resume();
+                                                        ctx_ptr->thread_controls()[i].wait();
+                                                        ctx_ptr->thread_controls()[i].resume();
+                                                        ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_cv_ptr->notify_all();
+
+                                                    } catch (const boost::context::detail::forced_unwind& e){
+                                                        ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_cv_ptr->notify_all();
+                                                    }
+                                                },  io_mbox_ptr_
                                             );
                                             executor.detach();
                                         }
@@ -276,8 +368,6 @@ namespace app{
                                 /* New Connections Go Here. */
                                 if(req.pos == 0){
                                     /* A new incoming stream. */
-                                    std::cout << req.chunks[req.pos] << std::endl;
-
                                     std::string uuid_str(val.as_object().at("execution_context").as_object().at("uuid").as_string());
                                     UUID::Uuid uuid(UUID::Uuid::v4, uuid_str);
                                     auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
@@ -285,28 +375,114 @@ namespace app{
                                     });
                                     if(it != ctx_ptrs.end()){
                                         /* Bind the http session to an existing context. */
-                                        it->sessions().push_back(session);
+                                        (*it)->peer_server_sessions().push_back(session);
 
-                                        /* The initial response to the remote peer should be to send a 201 Created response */
-                                        // with chunked transfer encoding, containing a list of peers, and the current 
-                                        // state of the program execution.
+                                        //[{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","peers":["127.0.0.1:5200"]}} 
+                                        /* Merge peers in the peer list with the context peer list. */
+                                        boost::json::array& remote_peers = val.as_object().at("execution_context").as_object().at("peers").as_array();
+                                        auto& local_peers = (*it)->peer_addresses();
+                                        for(auto& rpeer: remote_peers){
+                                            /* Construct the remote peer address from the string. */
+                                            std::string rpaddr(rpeer.as_string());
+                                            std::size_t pos = rpaddr.find(':', 0);
+                                            if(pos == std::string::npos){
+                                                throw "This should never happen.";
+                                            }
+                                            std::string rpip = rpaddr.substr(0, pos);
+                                            std::string rpport = rpaddr.substr(pos+1, std::string::npos);
+                                            std::uint16_t rpp;
+                                            std::from_chars_result fcres = std::from_chars(rpport.data(), rpport.data()+rpport.size(), rpp, 10);
+                                            if(fcres.ec != std::errc{}){
+                                                throw "This should never happen.";
+                                            }
+                                            struct sockaddr_in raddr ={
+                                                AF_INET,
+                                                htons(rpp)
+                                            };
+                                            int ec = inet_aton(rpip.c_str(), &raddr.sin_addr);
+                                            if(ec == -1){
+                                                throw "This shoule never happen.";
+                                            }
+                                            /* Compare them with the local address table. */
+                                            bool match = false;
+                                            for(auto& lpeer: local_peers){
+                                                if(lpeer.ipv4_addr.address.sin_port == raddr.sin_port && lpeer.ipv4_addr.address.sin_addr.s_addr == raddr.sin_addr.s_addr){
+                                                    match = true;
+                                                    break;
+                                                }
+                                            }
+                                            if(!match){
+                                                server::Remote nrpeer;
+                                                nrpeer.ipv4_addr = {
+                                                    SOCK_SEQPACKET,
+                                                    IPPROTO_SCTP,
+                                                    raddr
+                                                };
+                                                local_peers.push_back(nrpeer);
+                                            }
+                                        }
 
-                                        // To populate the peer table properly, I need to find a reliable way to 
-                                        // identify the network address of the local host dynamically.
-                                    
-                                        // To identify the local IP address I think the most sensible solution is to 
-                                        // 1. Pass in the container network network prefix as an environment variable (e.g. 192.168.0.0/16).
-                                        // 2. Get all of the network interface addresses using getifaddrs.
-                                        // 3. Bitwise AND the network prefix with the IP addresses in the getifaddrs linked list.
-                                        // 4. The first network prefix match (getifaddr & prefix == prefix) will be taken as the container ip address for the peering.
+                                        /* Construct a boost json array from the updated peer list */
+                                        boost::json::array peers;
+                                        for(auto& peer: local_peers){
+                                            /* Construct the port string, and the ip string. */
+                                            std::uint16_t hbo_port = ntohs(peer.ipv4_addr.address.sin_port);
+                                            std::array<char,5> buf;
+                                            std::string rport;
+                                            std::to_chars_result tcres = std::to_chars(buf.data(), buf.data()+buf.size(), hbo_port, 10);
+                                            if(tcres.ec == std::errc()){
+                                                std::ptrdiff_t size = tcres.ptr - buf.data();
+                                                rport = std::string(std::string_view(buf.data(), size));
+                                            } else {
+                                                std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
+                                                throw "This shouldn't happen.";
+                                            }
+                                            char addrbuf[INET_ADDRSTRLEN];
+                                            const char* rip = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, addrbuf, INET_ADDRSTRLEN);
+                                            std::string ripstr(rip);
 
-                                        /* This can be tested using the loop back network interface, which is stored on the network prefix 127.0.0.0/8 */
-                                        // Local testing can be done by passing in the loop back addresses as an environment variable.
+                                            std::string peerstr;
+                                            peerstr.insert(peerstr.end(), ripstr.begin(), ripstr.end());
+                                            peerstr.push_back(':');
+                                            peerstr.insert(peerstr.end(), rport.begin(), rport.end());
+                                            peers.emplace_back(peerstr);
+                                        }
 
-                                        // The local IP address can be kept as an application global variable.
-                                        // The most sensible place to store the IP address is in the controller IO class, as a public data member that is initialized at
-                                        // the application start up time.
+                                        /* Construct the object value */
+                                        boost::json::object obj;
+                                        obj.emplace("peers", peers);
 
+                                        boost::json::object result;
+                                        /* Find the currently finished results from the action manifest. */
+                                        for(auto& relation: (*it)->manifest()){
+                                            auto& value = relation->acquire_value();
+                                            if(value.size() != 0){
+                                                result.emplace(relation->key(), value);
+                                            }
+                                            relation->release_value();
+                                        }
+                                        obj.emplace("result", result);
+
+                                        // Prepare data for writing back to the peer.
+                                        std::stringstream ss;
+                                        ss << obj;
+                                        std::string data("[");
+                                        data.insert(data.size(), ss.str());
+                                        http::HttpReqRes rr = session->get();
+                                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                        res = {
+                                            http::HttpVersion::V1_1,
+                                            http::HttpStatus::CREATED,
+                                            {
+                                                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                                                {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                            },
+                                            {
+                                                {{data.size()}, data}
+                                            }
+                                        };
+                                        session->set(rr);
+                                        session->write([](){ return; });
                                     } else {
                                         /* An error condition, no execution context with this ID exists. */
                                         // This condition can occur under at least two different scenarios.
@@ -318,10 +494,91 @@ namespace app{
                                         /* In all cases, the only correct response should be to preemptively terminate the stream. */
                                         // Instead of sending a 201 Created response, we send a 404 not found response, with no body.
                                         // The remote peer should respond by truncating the event stream, and cleaning up the execution context.
+                                        http::HttpReqRes rr = session->get();
+                                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                        res = {
+                                            http::HttpVersion::V1_1,
+                                            http::HttpStatus::NOT_FOUND,
+                                            {
+                                                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
+                                                {http::HttpHeaderField::CONTENT_LENGTH, "0"},
+                                                {http::HttpHeaderField::CONNECTION, "close"},
+                                                {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                            },
+                                            {
+                                                {{0}, ""}
+                                            }
+                                        };
+                                        session->set(rr);
+                                        session->write([&,session](){
+                                            session->close();
+                                        });
                                     }
                                 } else {
                                     /* An incoming state update. */
-                                    std::cout << req.chunks[req.pos] << std::endl;
+                                    /* Search for an execution context that holds the stream. */
+                                    auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                                        auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
+                                        return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
+                                    });
+                                    if(server_ctx == ctx_ptrs.end()){
+                                        /* There has been an error, the execution context no longer exists. Simply terminate the stream. */
+                                        http::HttpReqRes rr = session->get();
+                                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                        res.chunks.push_back(http::HttpChunk{{0},""});
+                                        session->set(rr);
+                                        session->write([&,session](){
+                                            session->close();
+                                        });
+                                    } else {
+                                        //{"result":{"main":{"msg0":"Hello World!"}}}
+                                        /* Extract the results by key, and update the values in the associated relations in the manifest. */
+                                        boost::json::object jo = val.as_object().at("result").as_object();
+                                        for(auto& kvp: jo){
+                                            std::string k(kvp.key());
+                                            auto relation = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& r){
+                                                return r->key() == k;
+                                            });
+                                            if(relation == (*server_ctx)->manifest().end()){
+                                                throw "This should never happen.";
+                                            }
+                                            std::stringstream ss;
+                                            ss << kvp.value();
+                                            std::string data(ss.str());
+
+                                            std::string& val = (*relation)->acquire_value();
+                                            val = data;
+                                            (*relation)->release_value();
+
+                                            /* Trigger rescheduling if necessary */
+                                            std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
+                                            auto& thread = (*server_ctx)->thread_controls()[idx];     
+                                            auto execution_idxs = thread.stop_thread();
+
+                                            std::size_t manifest_size = (*server_ctx)->manifest().size();
+                                            for(auto& i: execution_idxs){
+                                                // Get the starting relation.
+                                                std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
+                                                std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
+
+                                                // Find the index in the manifest of the starting relation.
+                                                auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
+                                                    return rel->key() == start->key();
+                                                });
+
+                                                if (start_it == (*server_ctx)->manifest().end()){
+                                                    // If the start key is past the end of the manifest, that means that
+                                                    // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
+                                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                                } else {
+                                                    std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
+                                                    (*server_ctx)->thread_controls()[start_idx].notify(i);
+                                                }
+                                            }
+                                        }
+                                    }
+
                                 }
                             }                 
                         } else if (req.route == "/init"){

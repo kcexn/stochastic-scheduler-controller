@@ -43,8 +43,8 @@ The action-manifest looks like:
 PUT /run HTTP/1.1\r\n
 Content-Type: application/json\r\n
 \r\n
-65\r\n
-[{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","idx":1,"peers":["127.0.0.1:5200"]}}\r\n
+5D\r\n
+[{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","peers":["127.0.0.1:5200"]}}\r\n
 ```
 4. Container 1 replies to Container 2 with an Http chunked CREATED response that contains an updated list
 of peers, and the current state of the program.

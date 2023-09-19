@@ -29,6 +29,7 @@ namespace app{
         const bool is_stopped() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_END_EVENT) == CTL_IO_SCHED_END_EVENT); }
         const bool is_valid() const { return valid_->load(std::memory_order::memory_order_relaxed); }
         std::vector<std::size_t> invalidate();
+        std::vector<std::size_t> stop_thread();
         boost::context::fiber& f() { return f_; }
         void resume();
         void invalidate_fiber();

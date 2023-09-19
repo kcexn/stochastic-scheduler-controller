@@ -42,6 +42,8 @@ namespace io{
         /* Async Connect routes the connection request based on the address information in server::Remote */
         void async_connect(server::Remote, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)>);
 
+        server::Remote local_sctp_address;
+
         ~IO();
     private:
         std::shared_ptr<MessageBox> mbox_ptr_;
