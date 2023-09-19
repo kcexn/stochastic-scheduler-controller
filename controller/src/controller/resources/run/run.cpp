@@ -13,6 +13,8 @@ namespace resources{
 namespace run{
     Request::Request( boost::json::object& obj )
     {
+        /*{"value":{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","idx":0,"peers":[],"value":{}}},
+        "namespace":"guest","action_name":"test","api_host":"localhost","api_key":"akey","activation_id":"activation","transaction_id":"transaction","deadline":123456789}*/
         boost::json::object& value = obj.at("value").as_object();
         if (!value.contains("execution_context")){
             value_ = boost::json::object(value);
@@ -28,8 +30,11 @@ namespace run{
             } else {
                 throw "execution context index is too large.";
             }
-
-            value_ = boost::json::object(value.at("execution_context").as_object().at("value").as_object());
+            boost::json::array& peers = context.at("peers").as_array();
+            for(auto& peer: peers){
+                peers_.emplace_back(peer.as_string());
+            }
+            value_ = boost::json::object(context.at("value").as_object());
         }
         for ( auto& kvp: obj ){
             std::string key(kvp.key());
@@ -53,20 +58,17 @@ namespace run{
     }
 
     std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs){
-        //TODO: check request for a signature that notifies the controller that this execution context already exists on this controller.
-        //If the execution context already exists, instead of constructing a new execution context, instead of constructing a new context, just find the context in the list
-        //of contexts, and return the pointer.
-        //Otherwise, construct a new execution context.
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr;
         if(req.execution_context_id() != UUID::Uuid()){
             auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
                 return (ctx_ptr->execution_context_id() == req.execution_context_id());
             });
             if( it != ctx_ptrs.end()){
+                (*it)->execution_context_idx_array().push_back(req.idx());
                 (*it)->push_execution_idx(req.idx());
                 return std::shared_ptr<controller::app::ExecutionContext>(*it);
             }else{
-                ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run, req.execution_context_id());
+                ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run, req.execution_context_id(), req.idx(), req.peers());
             }
         } else {
             ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run);

@@ -30,126 +30,186 @@ namespace app{
         // Initialize resources I might need.
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
-        bool thread_local_msg_flag;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while( !(controller_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT) ){
+            std::shared_ptr<server::Session> server_session;
             lk.lock();
-            io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed)!=0)); });
-            thread_local_msg_flag = io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed);
-            io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
+            io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ 
+                return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed)!=0)); 
+            });
+            if(io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)){
+                io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
+                server_session = io_mbox_ptr_->session;
+            }
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            // Unset All of the scheduler signals.
             io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
-            std::shared_ptr<server::Session> server_session = io_mbox_ptr_->session;
             lk.unlock();
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 break;
             }
-            std::shared_ptr<http::HttpSession> http_session_ptr;
-            auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
-                return *hc == server_session;
-            });
-            if(http_client != hcs_.end()){
-                /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
-            } else {
-                /* Otherwise by default any read request must be a server session. */
-                auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
-                    return *ptr == server_session;
+            if(server_session){
+                std::shared_ptr<http::HttpSession> http_session_ptr;
+                auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
+                    return *hc == server_session;
                 });
-                if( http_session_it == hs_.end() ){
-                    http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
-                    hs_.push_back(http_session_ptr);
+                if(http_client != hcs_.end()){
+                    /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
+                    http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_client);
+                    http_session_ptr->read();
+                    route_response(http_session_ptr);
                 } else {
-                    // For our application all session pointers are http session pointers.
-                    http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
-                }
-                if (thread_local_msg_flag){
+                    /* Otherwise by default any read request must be a server session. */
+                    auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
+                        return *ptr == server_session;
+                    });
+                    if( http_session_it == hs_.end() ){
+                        http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
+                        hs_.push_back(http_session_ptr);
+                    } else {
+                        // For our application all session pointers are http session pointers.
+                        http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
+                    }
                     http_session_ptr->read();
                     route_request(http_session_ptr);
                 }
-                if ((thread_local_signal & CTL_IO_SCHED_END_EVENT)){
-                    // Find a context that has a valid stopped thread.
-                    auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
-                        auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
-                            return thread.is_stopped() && thread.is_valid();
-                        });
-                        return (tmp == ctx_ptr->thread_controls().end())? false : true;
+            }
+            if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
+                // Find a context that has a valid stopped thread.
+                auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
+                    auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
+                        return thread.is_stopped() && thread.is_valid();
                     });
-                    // While there are stopped threads.
-                    while(it != ctx_ptrs.end()){
-                        // Check to see if the context is stopped.
-                        if ((*it)->is_stopped()){
-                            // create the response.
-                            boost::json::value val;
-                            while((*it)->sessions().size() > 0 ){
-                                std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
-                                http::HttpReqRes rr;
-                                std::get<http::HttpResponse>(rr) = create_response(**it, val);
-                                next_session->write(
-                                    rr,
-                                    [&, next_session](){
-                                        next_session->close();
-                                    }
-                                );
-                                (*it)->sessions().pop_back();
-                            }
-                            while((*it)->peer_server_sessions().size() > 0){
-                                std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
-                                http::HttpReqRes rr = next_session->get();
-                                http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                res.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
-                                res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
-                                next_session->set(rr);
-                                next_session->write([&,next_session](){
+                    return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                });
+                // While there are stopped threads.
+                while(it != ctx_ptrs.end()){
+                    // Check to see if the context is stopped.
+                    if ((*it)->is_stopped()){
+                        // create the response.
+                        boost::json::value val;
+                        // Finish and close all of the HTTP sessions.
+                        while((*it)->sessions().size() > 0 ){
+                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
+                            http::HttpReqRes rr;
+                            std::get<http::HttpResponse>(rr) = create_response(**it, val);
+                            next_session->write(
+                                rr,
+                                [&, next_session](){
                                     next_session->close();
-                                });
-                                (*it)->peer_server_sessions().pop_back();
-                            }
-                            ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
-                            // Find a context that has a stopped thread.
-                            it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
-                                auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
-                                    return thread.is_stopped() && thread.is_valid();
-                                });
-                                return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                                }
+                            );
+                            (*it)->sessions().pop_back();
+                        }
+                        while((*it)->peer_server_sessions().size() > 0){
+                            std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
+                            http::HttpReqRes rr = next_session->get();
+                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                            std::string bracket("]");
+                            res.chunks.push_back(http::HttpChunk{{bracket.size()}, bracket}); /* Close the JSON stream array. */
+                            res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
+                            next_session->set(rr);
+                            next_session->write([&,next_session](){
+                                next_session->close();
                             });
-                            flush_wsk_logs();
-                        } else {
-                            // Evaluate which thread to execute next and notify it.
-                            auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
+                            (*it)->peer_server_sessions().pop_back();
+                        }
+                        while((*it)->peer_client_sessions().size() > 0){
+                            std::shared_ptr<http::HttpSession> next_session = (*it)->peer_client_sessions().back();
+                            http::HttpReqRes rr = next_session->get();
+                            http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                            req.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
+                            req.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
+                            next_session->set(rr);
+                            next_session->write([&,next_session](){
+                                next_session->close();
+                            });
+                            (*it)->peer_client_sessions().pop_back();
+                        }
+                        ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
+                        // Find a context that has a stopped thread.
+                        it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
+                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
                                 return thread.is_stopped() && thread.is_valid();
                             });
-                            // invalidate the thread.
-                            std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
-                            // get the index of the stopped thread.
-                            std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
-                            // Get the key of the action at this index+1 (mod thread_controls.size())
-                            std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
-                            for (auto& idx: execution_context_idxs){
-                                // Get the next relation to execute from the dependencies of the relation at this key.
-                                std::shared_ptr<Relation> next = (*it)->manifest().next(key, idx);
-                                // Retrieve the index of this relation in the manifest.
-                                auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
-                                    return rel->key() == next->key();
+                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                        });
+                        flush_wsk_logs();
+                    } else {
+                        // Evaluate which thread to execute next and notify it.
+                        auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
+                            return thread.is_stopped() && thread.is_valid();
+                        });
+                        // invalidate the thread.
+                        std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
+                        // get the index of the stopped thread.
+                        std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
+                        /* For every peer in the peer table notify them with a state update */
+                        // It's only worth constructing the state update values if there are peers to update.
+                        if( ((*it)->peer_client_sessions().size() + (*it)->peer_server_sessions().size()) > 0 ){
+                            std::shared_ptr<Relation>& finished = (*it)->manifest()[idx];
+                            std::string f_key(finished->key());
+                            std::string f_val(finished->acquire_value());
+                            finished->release_value();
+                            boost::json::object jo;
+                            jo.emplace(f_key, f_val);
+                            boost::json::object jf_val;
+                            jf_val.emplace("result", jo);
+                            std::stringstream ss;
+                            ss << jf_val;
+                            std::string data(",");
+                            data.insert(data.size(), ss.str());
+                            for(auto& peer_session: (*it)->peer_client_sessions()){
+                                /* Update peers */
+                                http::HttpReqRes rr = peer_session->get();
+                                http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                                req.chunks.push_back(http::HttpChunk{{data.size()}, data});
+                                peer_session->set(rr);
+                                peer_session->write([&,peer_session](){
+                                    peer_session->close();
                                 });
-                                std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
-                                //Start the thread at this index.
-                                (*it)->thread_controls()[next_idx].notify(idx);
                             }
-                            // Search through remaining contexts.
-                            it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
-                                auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
-                                    return thread.is_stopped() && thread.is_valid();
+                            for(auto& peer_session: (*it)->peer_server_sessions()){
+                                /* Update peers */
+                                http::HttpReqRes rr = peer_session->get();
+                                http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                res.chunks.push_back(http::HttpChunk{{data.size()}, data});
+                                peer_session->set(rr);
+                                peer_session->write([&,peer_session](){
+                                    peer_session->close();
                                 });
-                                return (tmp == ctx_ptr->thread_controls().end())? false : true;
-                            });
+                            }
                         }
+
+                        // Get the key of the action at this index+1 (mod thread_controls.size())
+                        std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
+                        for (auto& idx: execution_context_idxs){
+                            // Get the next relation to execute from the dependencies of the relation at this key.
+                            std::shared_ptr<Relation> next = (*it)->manifest().next(key, idx);
+                            // Retrieve the index of this relation in the manifest.
+                            auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
+                                return rel->key() == next->key();
+                            });
+                            std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
+                            //Start the thread at this index.
+                            (*it)->thread_controls()[next_idx].notify(idx);
+                        }
+                        // Search through remaining contexts.
+                        it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
+                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                                return thread.is_stopped() && thread.is_valid();
+                            });
+                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                        });
                     }
                 }
             }
         }
         pthread_exit(0);
+    }
+
+    void Controller::route_response(std::shared_ptr<http::HttpSession>& session){
+        return;
     }
 
     void Controller::route_request(std::shared_ptr<http::HttpSession>& session){
@@ -179,7 +239,7 @@ namespace app{
                     const std::size_t chunk_size = chunk.chunk_data.size();
 
                     if(chunk_size == 0){
-                        /* None of these routes will accept a 0 sized payload, respond to this situation by terminating the stream. */
+                        /* None of these routes will accept a 0 sized payload */
                         http::HttpReqRes rr = session->get();
                         http::HttpResponse& res = std::get<http::HttpResponse>(rr);
                         if(res.headers.size() > 0){
@@ -210,7 +270,7 @@ namespace app{
                                 session->close();
                             });
                         }     
-                        return;                 
+                        continue;        
                     }
 
                     while(next_comma < chunk_size){
@@ -243,39 +303,10 @@ namespace app{
                         }
 
                         if(next_closing_brace - next_opening_brace == 0){
-                            /* No top level javascript object could be found, the message should be rejected. */
-                            http::HttpReqRes rr = session->get();
-                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            if(res.headers.size() > 0){
-                                /* This is an existing session */
-                                res.chunks.push_back(http::HttpChunk{{0},""});
-                                session->set(rr);
-                                session->write([&,session](){
-                                    session->close();
-                                });  
-                            } else {
-                                /* this is a new session */
-                                http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                                res = {
-                                    req.version,
-                                    http::HttpStatus::CONFLICT,
-                                    {
-                                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
-                                        {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                                        {http::HttpHeaderField::CONNECTION, "close"},
-                                        {http::HttpHeaderField::END_OF_HEADERS, ""}
-                                    },
-                                    {
-                                        {{0},""}
-                                    }
-                                };
-                                session->set(rr);
-                                session->write([&, session](){
-                                    session->close();
-                                });
-                            }     
-                            return;
+                            /* No top level javascript object could be found. Go back to the top of the while loop. */
+                            continue;
                         }
+
                         boost::json::error_code ec;
                         boost::json::value val = boost::json::parse(
                             chunk.chunk_data.substr(next_opening_brace, next_closing_brace - next_opening_brace + 1), 
@@ -326,6 +357,21 @@ namespace app{
                                                 },  io_mbox_ptr_
                                             );
                                             executor.detach();
+
+                                        }
+                                        /* Initialize the http client sessions */
+                                        if(ctx_ptr->execution_context_idx_array().front() == 0){
+                                            /* This is the primary context */
+                                            // The primary context will have no client peer connections, only server peer connections.
+                                            // The primary context must hit the OW API endpoint `concurrency' no. of times with the
+                                            // a different execution context idx and the same execution context id each time.
+                                        } else {
+                                            /* This is a secondary context */
+                                            // 1. The secondary context will connect to the primary context to retrieve an updated state and peer table.
+                                            // 2. The secondary context will then merge the received peer table with its current peer table.
+                                            // 3. For each new peer that is inserted into the peer table, the execution context repeats steps 1-3.
+                                            // 4. For each peer in the peer table, the secondary context will listen for state update events that are emitted.
+                                            // 5. For each peer in the peer talbe, the secondary context will emit a state update event for every local state change.
                                         }
                                     }
                                     // This id is pushed in the context constructor.
@@ -578,7 +624,6 @@ namespace app{
                                             }
                                         }
                                     }
-
                                 }
                             }                 
                         } else if (req.route == "/init"){
@@ -619,7 +664,9 @@ namespace app{
                         }
                     }
                 }
-                session->set(req_res);
+                http::HttpReqRes rr = session->get();
+                std::get<http::HttpRequest>(rr) = req;
+                session->set(rr);
             } else {
                 http::HttpReqRes rr;
                 http::HttpResponse res = {

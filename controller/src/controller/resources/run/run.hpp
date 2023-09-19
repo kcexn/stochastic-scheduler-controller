@@ -22,6 +22,7 @@ namespace run{
         const std::map<std::string, std::string>& env() const { return env_; }
         const UUID::Uuid& execution_context_id() const { return execution_context_id_; }
         const std::size_t idx() const { return execution_context_idx_; }
+        const std::vector<std::string>& peers() const { return peers_; }
     private:
         UUID::Uuid execution_context_id_;
         std::size_t execution_context_idx_;

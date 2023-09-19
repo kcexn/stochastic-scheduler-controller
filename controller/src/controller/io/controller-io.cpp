@@ -7,7 +7,7 @@
 #include <iostream>
 #endif
 
-#define SCTP_PORT 5100
+#define SCTP_PORT 5300
 
 
 
