@@ -606,21 +606,23 @@ namespace app{
                                                 // Get the starting relation.
                                                 std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
                                                 std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
-
-                                                // Find the index in the manifest of the starting relation.
-                                                auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
-                                                    return rel->key() == start->key();
-                                                });
-
-                                                if (start_it == (*server_ctx)->manifest().end()){
-                                                    // If the start key is past the end of the manifest, that means that
+                                                if(start->key().size() == 0){
+                                                    // If the start key is empty, that means that all tasks in the schedule are complete.
                                                     // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                     io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                                    break;
                                                 } else {
+                                                    // Find the index in the manifest of the starting relation.
+                                                    auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
+                                                        return rel->key() == start->key();
+                                                    });
+                                                    if(start_it == (*server_ctx)->manifest().end()){
+                                                        throw "This shouldn't be possible";
+                                                    }
                                                     std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
                                                     (*server_ctx)->thread_controls()[start_idx].notify(i);
-                                                }
+                                                }                                              
                                             }
                                         }
                                     }
