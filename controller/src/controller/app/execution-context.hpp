@@ -39,6 +39,7 @@ namespace app{
         std::vector<std::shared_ptr<http::HttpSession> >& peer_server_sessions() { return http_peer_server_sessions_; }
         std::vector<std::shared_ptr<http::HttpSession> >& peer_client_sessions() { return http_peer_client_sessions_; }
         std::vector<server::Remote>& peer_addresses() { return peers_; }
+        void merge_peer_addresses(const std::vector<std::string>&);
 
         const UUID::Uuid& execution_context_id() const noexcept { return execution_context_id_; }
         ActionManifest& manifest() { return manifest_; }

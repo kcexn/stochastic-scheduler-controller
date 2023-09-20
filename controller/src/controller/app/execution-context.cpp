@@ -257,6 +257,43 @@ namespace app{
         return true;
     }
 
+    void ExecutionContext::merge_peer_addresses(const std::vector<std::string>& remote_peers){
+        for(auto& rpeer: remote_peers){
+            std::size_t pos = rpeer.find(':', 0);
+            if(pos == std::string::npos){
+                throw "This should never happen.";
+            }
+            std::string rpip = rpeer.substr(0, pos);
+            std::string rpport = rpeer.substr(pos+1, std::string::npos);
+            std::uint16_t rpp;
+            std::from_chars_result fcres = std::from_chars(rpport.data(), rpport.data()+rpport.size(), rpp, 10);
+            if(fcres.ec != std::errc()){
+                throw "This should never happen.";
+            }
+            struct sockaddr_in raddr ={
+                AF_INET,
+                htons(rpp)
+            };
+            int ec = inet_aton(rpip.c_str(), &raddr.sin_addr);
+            if(ec == 0){
+                throw "This should never happen.";
+            }
+            auto it = std::find_if(peers_.cbegin(), peers_.cend(), [&](const auto& p){
+                return (p.ipv4_addr.address.sin_port == raddr.sin_port && p.ipv4_addr.address.sin_addr.s_addr == raddr.sin_addr.s_addr);
+            });
+            if(it == peers_.cend()){
+                server::Remote nrpeer;
+                nrpeer.ipv4_addr = {
+                    SOCK_SEQPACKET,
+                    IPPROTO_SCTP,
+                    raddr
+                };
+                peers_.push_back(std::move(nrpeer));
+            }
+        }
+        return;
+    }
+
     std::size_t ExecutionContext::pop_execution_idx() {
         if (execution_context_idx_stack_.empty()){
             throw "Execution Context idx stack shouldn't be empty when calling pop.";

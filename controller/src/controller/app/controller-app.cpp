@@ -6,6 +6,8 @@
 #include "../resources/resources.hpp"
 #include <charconv>
 
+#define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json"},{http::HttpHeaderField::CONNECTION, "close"},{http::HttpHeaderField::END_OF_HEADERS, ""}
+
 namespace controller{
 namespace app{
     Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc)
@@ -43,7 +45,9 @@ namespace app{
                 server_session = io_mbox_ptr_->session;
             }
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
+            if(thread_local_signal != 0){
+                io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
+            }
             lk.unlock();
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 break;
@@ -165,9 +169,7 @@ namespace app{
                                 http::HttpRequest& req = std::get<http::HttpRequest>(rr);
                                 req.chunks.push_back(http::HttpChunk{{data.size()}, data});
                                 peer_session->set(rr);
-                                peer_session->write([&,peer_session](){
-                                    peer_session->close();
-                                });
+                                peer_session->write([](){return;});
                             }
                             for(auto& peer_session: (*it)->peer_server_sessions()){
                                 /* Update peers */
@@ -175,9 +177,7 @@ namespace app{
                                 http::HttpResponse& res = std::get<http::HttpResponse>(rr);
                                 res.chunks.push_back(http::HttpChunk{{data.size()}, data});
                                 peer_session->set(rr);
-                                peer_session->write([&,peer_session](){
-                                    peer_session->close();
-                                });
+                                peer_session->write([](){return;});
                             }
                         }
 
@@ -209,6 +209,71 @@ namespace app{
     }
 
     void Controller::route_response(std::shared_ptr<http::HttpSession>& session){
+        http::HttpReqRes req_res = session->get();
+        http::HttpResponse& res = std::get<http::HttpResponse>(req_res);  
+        if(res.next_chunk > 0){
+            for(; res.pos < res.next_chunk; ++res.pos){
+                std::size_t next_comma = 0;
+                const http::HttpChunk& chunk = res.chunks[res.pos];
+                const std::size_t chunk_size = chunk.chunk_data.size();
+
+                if(chunk_size == 0){
+                    // A 0 length chunk indiciates the end of a session.
+                    return;        
+                }
+
+                while(next_comma < chunk_size){
+                    // Count the number of unclosed braces.
+                    std::size_t brace_count = 0;
+                    // Track the start and end positions of 
+                    // the top level javascript object.
+                    std::size_t next_opening_brace = 0;
+                    std::size_t next_closing_brace = 0;
+                    for(; next_comma < chunk_size; ++next_comma){
+                        const char& c = chunk.chunk_data[next_comma];
+                        if(c == '}'){
+                            // track the last found closing brace as we go through the loop.
+                            --brace_count;
+                            if(brace_count == 0){
+                                next_closing_brace = next_comma;
+                            }
+                        }
+
+                        if(c == '{'){
+                            if(brace_count == 0){
+                                next_opening_brace = next_comma;
+                            }
+                            ++brace_count;
+                        } else if (next_closing_brace - next_opening_brace > 0 && brace_count == 0 && c == ','){
+                            // Once we find a top level comma, then we know that we have reached the end of 
+                            // a javascript object.
+                            break;
+                        }
+                    }
+                    if(next_closing_brace - next_opening_brace == 0){
+                        /* No top level javascript object could be found. Go back to the top of the while loop. */
+                        continue;
+                    }
+                    boost::json::error_code ec;
+                    boost::json::value val = boost::json::parse(
+                        chunk.chunk_data.substr(next_opening_brace, next_closing_brace - next_opening_brace + 1), 
+                        ec
+                    );
+
+                    if(res.pos == 0){
+                        //   Merge the peer lists.
+                        //   For each NEW peer:
+                        //       CONNECT
+                        //   For each new RESULT
+                        //       Update and Notify.
+                    } else {
+                        // For each new Result
+                        //      Update and Notify.
+                    }
+                }
+
+            }
+        }
         return;
     }
 
@@ -239,7 +304,7 @@ namespace app{
                     const std::size_t chunk_size = chunk.chunk_data.size();
 
                     if(chunk_size == 0){
-                        /* None of these routes will accept a 0 sized payload */
+                        /* A 0 length chunk represents the end of a request. */
                         http::HttpReqRes rr = session->get();
                         http::HttpResponse& res = std::get<http::HttpResponse>(rr);
                         if(res.headers.size() > 0){
@@ -256,10 +321,8 @@ namespace app{
                                 req.version,
                                 http::HttpStatus::CONFLICT,
                                 {
-                                    {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                                     {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                                    {http::HttpHeaderField::CONNECTION, "close"},
-                                    {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                    CONTROLLER_APP_COMMON_HTTP_HEADERS
                                 },
                                 {
                                     {{0},""}
@@ -270,10 +333,12 @@ namespace app{
                                 session->close();
                             });
                         }     
-                        continue;        
+                        return;        
                     }
 
                     while(next_comma < chunk_size){
+                        //TODO: need to keep track of top level opening and closing square brackets as
+                        // well to demarcate the beginning and end of application streams as opposed to HTTP stream failures.
                         // Count the number of unclosed braces.
                         std::size_t brace_count = 0;
                         // Track the start and end positions of 
@@ -357,7 +422,6 @@ namespace app{
                                                 },  io_mbox_ptr_
                                             );
                                             executor.detach();
-
                                         }
                                         /* Initialize the http client sessions */
                                         if(ctx_ptr->execution_context_idx_array().front() == 0){
@@ -367,9 +431,17 @@ namespace app{
                                             // a different execution context idx and the same execution context id each time.
                                         } else {
                                             /* This is a secondary context */
+
+                                            // For peer in context peer list:
+                                            //  CONNECT
+
+
+
                                             // 1. The secondary context will connect to the primary context to retrieve an updated state and peer table.
                                             // 2. The secondary context will then merge the received peer table with its current peer table.
                                             // 3. For each new peer that is inserted into the peer table, the execution context repeats steps 1-3.
+
+
                                             // 4. For each peer in the peer table, the secondary context will listen for state update events that are emitted.
                                             // 5. For each peer in the peer talbe, the secondary context will emit a state update event for every local state change.
                                         }
@@ -426,56 +498,20 @@ namespace app{
                                         //[{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","peers":["127.0.0.1:5200"]}} 
                                         /* Merge peers in the peer list with the context peer list. */
                                         boost::json::array& remote_peers = val.as_object().at("execution_context").as_object().at("peers").as_array();
-                                        auto& local_peers = (*it)->peer_addresses();
+                                        std::vector<std::string> remote_peer_list;
                                         for(auto& rpeer: remote_peers){
-                                            /* Construct the remote peer address from the string. */
-                                            std::string rpaddr(rpeer.as_string());
-                                            std::size_t pos = rpaddr.find(':', 0);
-                                            if(pos == std::string::npos){
-                                                throw "This should never happen.";
-                                            }
-                                            std::string rpip = rpaddr.substr(0, pos);
-                                            std::string rpport = rpaddr.substr(pos+1, std::string::npos);
-                                            std::uint16_t rpp;
-                                            std::from_chars_result fcres = std::from_chars(rpport.data(), rpport.data()+rpport.size(), rpp, 10);
-                                            if(fcres.ec != std::errc{}){
-                                                throw "This should never happen.";
-                                            }
-                                            struct sockaddr_in raddr ={
-                                                AF_INET,
-                                                htons(rpp)
-                                            };
-                                            int ec = inet_aton(rpip.c_str(), &raddr.sin_addr);
-                                            if(ec == -1){
-                                                throw "This shoule never happen.";
-                                            }
-                                            /* Compare them with the local address table. */
-                                            bool match = false;
-                                            for(auto& lpeer: local_peers){
-                                                if(lpeer.ipv4_addr.address.sin_port == raddr.sin_port && lpeer.ipv4_addr.address.sin_addr.s_addr == raddr.sin_addr.s_addr){
-                                                    match = true;
-                                                    break;
-                                                }
-                                            }
-                                            if(!match){
-                                                server::Remote nrpeer;
-                                                nrpeer.ipv4_addr = {
-                                                    SOCK_SEQPACKET,
-                                                    IPPROTO_SCTP,
-                                                    raddr
-                                                };
-                                                local_peers.push_back(nrpeer);
-                                            }
+                                            remote_peer_list.emplace_back(rpeer.as_string());
                                         }
+                                        (*it)->merge_peer_addresses(remote_peer_list);
 
                                         /* Construct a boost json array from the updated peer list */
                                         boost::json::array peers;
-                                        for(auto& peer: local_peers){
+                                        for(auto& peer: (*it)->peer_addresses()){
                                             /* Construct the port string, and the ip string. */
-                                            std::uint16_t hbo_port = ntohs(peer.ipv4_addr.address.sin_port);
+                                            std::uint16_t h_port = ntohs(peer.ipv4_addr.address.sin_port);
                                             std::array<char,5> buf;
                                             std::string rport;
-                                            std::to_chars_result tcres = std::to_chars(buf.data(), buf.data()+buf.size(), hbo_port, 10);
+                                            std::to_chars_result tcres = std::to_chars(buf.data(), buf.data()+buf.size(), h_port, 10);
                                             if(tcres.ec == std::errc()){
                                                 std::ptrdiff_t size = tcres.ptr - buf.data();
                                                 rport = std::string(std::string_view(buf.data(), size));
@@ -483,35 +519,38 @@ namespace app{
                                                 std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
                                                 throw "This shouldn't happen.";
                                             }
-                                            char addrbuf[INET_ADDRSTRLEN];
-                                            const char* rip = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, addrbuf, INET_ADDRSTRLEN);
+                                            std::array<char, INET_ADDRSTRLEN> addrbuf;
+                                            const char* rip = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, addrbuf.data(), addrbuf.size());
                                             std::string ripstr(rip);
 
                                             std::string peerstr;
+                                            peerstr.reserve(addrbuf.size() + 6);
                                             peerstr.insert(peerstr.end(), ripstr.begin(), ripstr.end());
                                             peerstr.push_back(':');
                                             peerstr.insert(peerstr.end(), rport.begin(), rport.end());
                                             peers.emplace_back(peerstr);
                                         }
 
-                                        /* Construct the object value */
-                                        boost::json::object obj;
-                                        obj.emplace("peers", peers);
+                                        /* Construct the return object */
+                                        boost::json::object retjo;
+                                        retjo.emplace("peers", peers);
 
-                                        boost::json::object result;
-                                        /* Find the currently finished results from the action manifest. */
+                                        /* Construct the results object value */
+                                        boost::json::object ro;
                                         for(auto& relation: (*it)->manifest()){
                                             auto& value = relation->acquire_value();
                                             if(value.size() != 0){
-                                                result.emplace(relation->key(), value);
+                                                ro.emplace(relation->key(), value);
                                             }
                                             relation->release_value();
                                         }
-                                        obj.emplace("result", result);
+                                        retjo.emplace("result", ro);
 
                                         // Prepare data for writing back to the peer.
+                                        // The reponse format is:
+                                        // [{"peers":["127.0.0.1:5200", "127.0.0.1:5300"], "result":{}}
                                         std::stringstream ss;
-                                        ss << obj;
+                                        ss << retjo;
                                         std::string data("[");
                                         data.insert(data.size(), ss.str());
                                         http::HttpReqRes rr = session->get();
@@ -520,8 +559,7 @@ namespace app{
                                             http::HttpVersion::V1_1,
                                             http::HttpStatus::CREATED,
                                             {
-                                                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
-                                                {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                                CONTROLLER_APP_COMMON_HTTP_HEADERS
                                             },
                                             {
                                                 {{data.size()}, data}
@@ -546,10 +584,8 @@ namespace app{
                                             http::HttpVersion::V1_1,
                                             http::HttpStatus::NOT_FOUND,
                                             {
-                                                {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                                                 {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                                                {http::HttpHeaderField::CONNECTION, "close"},
-                                                {http::HttpHeaderField::END_OF_HEADERS, ""}
+                                                CONTROLLER_APP_COMMON_HTTP_HEADERS
                                             },
                                             {
                                                 {{0}, ""}
@@ -592,8 +628,7 @@ namespace app{
                                             ss << kvp.value();
                                             std::string data(ss.str());
 
-                                            std::string& val = (*relation)->acquire_value();
-                                            val = data;
+                                            (*relation)->acquire_value() = data;
                                             (*relation)->release_value();
 
                                             /* Trigger rescheduling if necessary */
@@ -622,7 +657,7 @@ namespace app{
                                                     }
                                                     std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
                                                     (*server_ctx)->thread_controls()[start_idx].notify(i);
-                                                }                                              
+                                                }                 
                                             }
                                         }
                                     }
@@ -675,10 +710,8 @@ namespace app{
                     req.version,
                     http::HttpStatus::NOT_FOUND,
                     {
-                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                         {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                        {http::HttpHeaderField::CONNECTION, "close"},
-                        {http::HttpHeaderField::END_OF_HEADERS, ""}
+                        CONTROLLER_APP_COMMON_HTTP_HEADERS
                     },
                     {
                         {{0}, ""}
@@ -707,10 +740,8 @@ namespace app{
                     req.version,
                     http::HttpStatus::NOT_FOUND,
                     {
-                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                         {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                        {http::HttpHeaderField::CONNECTION, "close"},
-                        {http::HttpHeaderField::END_OF_HEADERS, ""}                            
+                        CONTROLLER_APP_COMMON_HTTP_HEADERS                         
                     },
                     {
                         {{0},""}
@@ -749,10 +780,8 @@ namespace app{
                         req.version,
                         http::HttpStatus::OK,
                         {
-                            {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                             {http::HttpHeaderField::CONTENT_LENGTH, len.str()},
-                            {http::HttpHeaderField::CONNECTION, "close"},
-                            {http::HttpHeaderField::END_OF_HEADERS, ""} 
+                            CONTROLLER_APP_COMMON_HTTP_HEADERS
                         },
                         {
                             {{ss.size()}, ss}
@@ -763,10 +792,8 @@ namespace app{
                         req.version,
                         http::HttpStatus::INTERNAL_SERVER_ERROR,
                         {
-                            {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                             {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                            {http::HttpHeaderField::CONNECTION, "close"},
-                            {http::HttpHeaderField::END_OF_HEADERS, ""} 
+                            CONTROLLER_APP_COMMON_HTTP_HEADERS
                         },
                         {
                             {{0}, ""}
@@ -778,10 +805,8 @@ namespace app{
                     req.version,
                     http::HttpStatus::INTERNAL_SERVER_ERROR,
                     {
-                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
                         {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                        {http::HttpHeaderField::CONNECTION, "close"},
-                        {http::HttpHeaderField::END_OF_HEADERS, ""} 
+                        CONTROLLER_APP_COMMON_HTTP_HEADERS
                     },
                     {
                         {{0}, ""}
