@@ -18,6 +18,7 @@ namespace app{
     ExecutionContext::ExecutionContext(ExecutionContext::Run run)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
         execution_context_idx_stack_{0},
+        execution_context_idx_array_{0},
         route_{controller::resources::Routes::RUN}
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");

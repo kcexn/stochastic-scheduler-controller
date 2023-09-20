@@ -678,8 +678,9 @@ namespace http
                     if(!req.verb_started){
                         // Ignore all leading white space
                         // until we find a non-white space
-                        // character that must be the verb.
-                        if(!std::isspace(c)){
+                        // character that matches the first case-sensitive character of one of the HTTP verbs.
+                        // G, P, T, C, D
+                        if(c == 'G' || c == 'P' || c == 'T' || c == 'D' || c == 'C'){
                             req.verb_started = true;
                             req.verb_buf.push_back(c);
                         }

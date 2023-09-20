@@ -39,6 +39,7 @@ namespace app{
         std::vector<std::shared_ptr<http::HttpSession> >& peer_server_sessions() { return http_peer_server_sessions_; }
         std::vector<std::shared_ptr<http::HttpSession> >& peer_client_sessions() { return http_peer_client_sessions_; }
         std::vector<server::Remote>& peer_addresses() { return peers_; }
+        std::vector<server::Remote> get_peers() { mtx_.lock(); std::vector<server::Remote> tmp = peers_; mtx_.unlock(); return tmp;}
         void merge_peer_addresses(const std::vector<std::string>&);
 
         const UUID::Uuid& execution_context_id() const noexcept { return execution_context_id_; }
@@ -72,6 +73,7 @@ namespace app{
 
         // Execution Context Peering Members.
         std::vector<server::Remote> peers_;
+        std::mutex mtx_;
     };
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs);
 }//namepsace app

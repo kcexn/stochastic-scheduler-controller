@@ -69,13 +69,17 @@ namespace app{
                     });
                     if( http_session_it == hs_.end() ){
                         http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
-                        hs_.push_back(http_session_ptr);
+                        http_session_ptr->read();
+                        if(std::get<http::HttpRequest>(*http_session_ptr).verb_started){
+                            hs_.push_back(http_session_ptr);
+                            route_request(http_session_ptr);
+                        }
                     } else {
                         // For our application all session pointers are http session pointers.
                         http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
+                        http_session_ptr->read();
+                        route_request(http_session_ptr);
                     }
-                    http_session_ptr->read();
-                    route_request(http_session_ptr);
                 }
             }
             if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
@@ -109,8 +113,7 @@ namespace app{
                             std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            std::string bracket("]");
-                            res.chunks.push_back(http::HttpChunk{{bracket.size()}, bracket}); /* Close the JSON stream array. */
+                            res.chunks.push_back(http::HttpChunk{{1}, "]"}); /* Close the JSON stream array. */
                             res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
                             next_session->set(rr);
                             next_session->write([&,next_session](){
@@ -216,41 +219,72 @@ namespace app{
                 std::size_t next_comma = 0;
                 const http::HttpChunk& chunk = res.chunks[res.pos];
                 const std::size_t chunk_size = chunk.chunk_data.size();
-
                 if(chunk_size == 0){
                     // A 0 length chunk indiciates the end of a session.
+                    session->close();
                     return;        
                 }
-
                 while(next_comma < chunk_size){
                     // Count the number of unclosed braces.
                     std::size_t brace_count = 0;
+                    // Count the number of opened square brackets '['.
+                    int bracket_count = 0;
                     // Track the start and end positions of 
                     // the top level javascript object.
                     std::size_t next_opening_brace = 0;
                     std::size_t next_closing_brace = 0;
                     for(; next_comma < chunk_size; ++next_comma){
-                        const char& c = chunk.chunk_data[next_comma];
-                        if(c == '}'){
-                            // track the last found closing brace as we go through the loop.
-                            --brace_count;
-                            if(brace_count == 0){
-                                next_closing_brace = next_comma;
+                            const char& c = chunk.chunk_data[next_comma];
+                            if(c == '}'){
+                                // track the last found closing brace as we go through the loop.
+                                if(brace_count == 0){
+                                    // Ignore spurious closing braces.
+                                    continue;
+                                }
+                                --brace_count;
+                                if(brace_count == 0){
+                                    next_closing_brace = next_comma;
+                                }
+                            } else if (c == '{') {
+                                if(brace_count == 0){
+                                    next_opening_brace = next_comma;
+                                }
+                                ++brace_count;
+                            } else if (c == ','){
+                                if(next_closing_brace > next_opening_brace){
+                                    // Once we find a trailing top level comma, then we know that we have reached the end of 
+                                    // a javascript object.
+                                    break;
+                                }
+                            } else if (c == ']'){
+                                --bracket_count;
+                                if(next_closing_brace >= next_opening_brace && bracket_count <= 0){
+                                    /* Function is complete. Terminate the execution context */
+                                    auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                                        auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
+                                        return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
+                                    });
+                                    http::HttpReqRes rr = session->get();
+                                    http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                                    req.chunks.push_back(http::HttpChunk{{1},"]"});
+                                    req.chunks.push_back(http::HttpChunk{{0},""});
+                                    session->set(rr);
+                                    session->write([&,session](){
+                                        session->close();
+                                    });
+                                    if(server_ctx != ctx_ptrs.end()){
+                                        for(auto& thread: (*server_ctx)->thread_controls()){
+                                            thread.stop_thread();
+                                        }
+                                        ctx_ptrs.erase(server_ctx);
+                                    }
+                                    return;
+                                }
+                            } else if (c == '['){
+                                ++bracket_count;
                             }
                         }
-
-                        if(c == '{'){
-                            if(brace_count == 0){
-                                next_opening_brace = next_comma;
-                            }
-                            ++brace_count;
-                        } else if (next_closing_brace - next_opening_brace > 0 && brace_count == 0 && c == ','){
-                            // Once we find a top level comma, then we know that we have reached the end of 
-                            // a javascript object.
-                            break;
-                        }
-                    }
-                    if(next_closing_brace - next_opening_brace == 0){
+                    if(next_closing_brace == next_opening_brace && next_opening_brace == 0){
                         /* No top level javascript object could be found. Go back to the top of the while loop. */
                         continue;
                     }
@@ -259,20 +293,136 @@ namespace app{
                         chunk.chunk_data.substr(next_opening_brace, next_closing_brace - next_opening_brace + 1), 
                         ec
                     );
-
-                    if(res.pos == 0){
-                        //   Merge the peer lists.
-                        //   For each NEW peer:
-                        //       CONNECT
-                        //   For each new RESULT
-                        //       Update and Notify.
+                    auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
+                        auto tmp = std::find(cp->peer_client_sessions().begin(), cp->peer_client_sessions().end(), session);
+                        return (tmp == cp->peer_client_sessions().end()) ? false : true;
+                    });
+                    if(ctx == ctx_ptrs.end()){
+                        session->close();
                     } else {
-                        // For each new Result
-                        //      Update and Notify.
+                        if(res.pos == 0){
+                            boost::json::array& ja = val.as_object().at("peers").as_array();
+                            std::vector<std::string> peers;
+                            for(auto& peer: ja){
+                                peers.emplace_back(peer.as_string());
+                            }
+                            std::vector<server::Remote> old_peers = (*ctx)->get_peers();
+                            (*ctx)->merge_peer_addresses(peers);
+                            std::vector<server::Remote> new_peers = (*ctx)->get_peers();
+                            for(auto& peer: new_peers){
+                                auto it = std::find_if(old_peers.begin(), old_peers.end(), [&](auto& p){
+                                    return (p.ipv4_addr.address.sin_addr.s_addr == peer.ipv4_addr.address.sin_addr.s_addr && p.ipv4_addr.address.sin_port == peer.ipv4_addr.address.sin_port);
+                                });
+                                if(it == old_peers.end()){
+                                    io_.async_connect(peer, [&, ctx](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                        if(!ec){
+                                            std::shared_ptr<http::HttpSession> client_session = std::make_shared<http::HttpSession>(hcs_, t_session);
+                                            hcs_.push_back(client_session);
+                                            (*ctx)->peer_client_sessions().push_back(client_session);
+
+                                            boost::json::object jo;
+                                            UUID::Uuid uuid = (*ctx)->execution_context_id();
+                                            std::stringstream uuid_str;
+                                            uuid_str << uuid;
+                                            jo.emplace("uuid", boost::json::string(uuid_str.str()));
+
+                                            std::vector<server::Remote> peers = (*ctx)->get_peers();
+                                            boost::json::array ja;
+                                            for(auto& peer: peers){
+                                                std::array<char,5> pbuf;
+                                                std::string port;
+                                                std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(peer.ipv4_addr.address.sin_port), 10);
+                                                if(tcres.ec == std::errc()){
+                                                    std::ptrdiff_t size = tcres.ptr - pbuf.data();
+                                                    port = std::string(pbuf.data(), size);
+                                                } else {
+                                                    std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
+                                                    throw "This shouldn't be possible.";
+                                                }
+
+                                                std::array<char, INET_ADDRSTRLEN> inbuf;
+                                                const char* addr = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
+
+                                                std::string pstr(addr);
+                                                pstr.reserve(pstr.size() + port.size() + 1);
+                                                pstr.push_back(':');
+                                                pstr.insert(pstr.end(), port.begin(), port.end());                                                           
+                                                ja.push_back(boost::json::string(pstr));
+                                            }                                                           
+                                            jo.emplace("peers", ja);
+                                            
+                                            boost::json::object jo_ctx;
+                                            jo_ctx.emplace("execution_context", jo);
+                                            std::stringstream ss;
+                                            ss << jo_ctx;
+                                            std::string data(ss.str());
+
+                                            std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
+                                                http::HttpVerb::PUT,
+                                                "/run",
+                                                http::HttpVersion::V1_1,
+                                                {
+                                                    CONTROLLER_APP_COMMON_HTTP_HEADERS
+                                                },
+                                                {
+                                                    {{data.size()}, data}
+                                                }
+                                            };
+                                            client_session->write([&](){ return; });
+                                        }
+                                    });
+                                }
+                            }
+                        } 
+                        boost::json::object& jr = val.as_object().at("result").as_object();
+                        for(auto& kvp: jr){
+                            std::string k(kvp.key());
+                            auto rel = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& r){
+                                return r->key() == k;
+                            });
+                            if(rel == (*ctx)->manifest().end()){
+                                throw "This shouldn't be possible";
+                            }
+                            
+                            std::string data(kvp.value().as_string());
+                            (*rel)->acquire_value() = data;
+                            (*rel)->release_value();
+
+                            /* Reschedule if necessary */
+                            std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
+                            auto& thread = (*ctx)->thread_controls()[idx];     
+                            auto execution_idxs = thread.stop_thread();
+
+                            std::size_t manifest_size = (*ctx)->manifest().size();
+                            for(auto& i: execution_idxs){
+                                // Get the starting relation.
+                                std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
+                                std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
+                                if(start->key().size() == 0){
+                                    // If the start key is empty, that means that all tasks in the schedule are complete.
+                                    // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
+                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                    break;
+                                } else {
+                                    // Find the index in the manifest of the starting relation.
+                                    auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
+                                        return rel->key() == start->key();
+                                    });
+                                    if(start_it == (*ctx)->manifest().end()){
+                                        throw "This shouldn't be possible";
+                                    }
+                                    std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
+                                    (*ctx)->thread_controls()[start_idx].notify(i);
+                                }                 
+                            }
+                        }
                     }
                 }
-
             }
+            http::HttpReqRes rr = session->get();
+            std::get<http::HttpResponse>(rr) = res;
+            session->set(rr);
         }
         return;
     }
@@ -304,43 +454,16 @@ namespace app{
                     const std::size_t chunk_size = chunk.chunk_data.size();
 
                     if(chunk_size == 0){
-                        /* A 0 length chunk represents the end of a request. */
-                        http::HttpReqRes rr = session->get();
-                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                        if(res.headers.size() > 0){
-                            /* This is an existing session */
-                            res.chunks.push_back(http::HttpChunk{{0},""});
-                            session->set(rr);
-                            session->write([&,session](){
-                                session->close();
-                            });  
-                        } else {
-                            /* this is a new session */
-                            http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                            res = {
-                                req.version,
-                                http::HttpStatus::CONFLICT,
-                                {
-                                    {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                                    CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                },
-                                {
-                                    {{0},""}
-                                }
-                            };
-                            session->set(rr);
-                            session->write([&, session](){
-                                session->close();
-                            });
-                        }     
+                        /* A 0 length chunk represents the end of an HTTP Stream */
+                        session->close();
                         return;        
                     }
 
                     while(next_comma < chunk_size){
-                        //TODO: need to keep track of top level opening and closing square brackets as
-                        // well to demarcate the beginning and end of application streams as opposed to HTTP stream failures.
                         // Count the number of unclosed braces.
                         std::size_t brace_count = 0;
+                        // Count the number of opened square brackets '['.
+                        int bracket_count = 0;
                         // Track the start and end positions of 
                         // the top level javascript object.
                         std::size_t next_opening_brace = 0;
@@ -349,25 +472,55 @@ namespace app{
                             const char& c = chunk.chunk_data[next_comma];
                             if(c == '}'){
                                 // track the last found closing brace as we go through the loop.
+                                if(brace_count == 0){
+                                    // ignore spurious closing braces.
+                                    continue;
+                                }
                                 --brace_count;
                                 if(brace_count == 0){
                                     next_closing_brace = next_comma;
                                 }
-                            }
-
-                            if(c == '{'){
+                            } else if (c == '{') {
                                 if(brace_count == 0){
                                     next_opening_brace = next_comma;
                                 }
                                 ++brace_count;
-                            } else if (next_closing_brace - next_opening_brace > 0 && brace_count == 0 && c == ','){
-                                // Once we find a top level comma, then we know that we have reached the end of 
-                                // a javascript object.
-                                break;
+                            } else if (c == ','){
+                                if(next_closing_brace > next_opening_brace){
+                                    // Once we find a trailing top level comma, then we know that we have reached the end of 
+                                    // a javascript object.
+                                    break;
+                                }
+                            } else if (c == ']'){
+                                --bracket_count;
+                                if(next_closing_brace >= next_opening_brace && bracket_count <= 0){
+                                    /* Function is complete. Terminate the execution context */
+                                    auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                                        auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
+                                        return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
+                                    });
+                                    http::HttpReqRes rr = session->get();
+                                    http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                    res.chunks.push_back(http::HttpChunk{{1},"]"});
+                                    res.chunks.push_back(http::HttpChunk{{0},""});
+                                    session->set(rr);
+                                    session->write([&,session](){
+                                        session->close();
+                                    });
+                                    if(server_ctx != ctx_ptrs.end()){
+                                        for(auto& thread: (*server_ctx)->thread_controls()){
+                                            thread.stop_thread();
+                                        }
+                                        ctx_ptrs.erase(server_ctx);
+                                    }
+                                    return;
+                                }
+                            } else if (c == '['){
+                                ++bracket_count;
                             }
                         }
 
-                        if(next_closing_brace - next_opening_brace == 0){
+                        if(next_closing_brace == next_opening_brace && next_opening_brace == 0){
                             /* No top level javascript object could be found. Go back to the top of the while loop. */
                             continue;
                         }
@@ -431,11 +584,66 @@ namespace app{
                                             // a different execution context idx and the same execution context id each time.
                                         } else {
                                             /* This is a secondary context */
+                                            for(auto& peer: ctx_ptr->peer_addresses()){                                              
+                                                if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){
+                                                    io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                                        if(!ec){
+                                                            std::shared_ptr<http::HttpSession> client_session = std::make_shared<http::HttpSession>(hcs_, t_session);
+                                                            hcs_.push_back(client_session);
+                                                            ctx_ptr->peer_client_sessions().push_back(client_session);
+                                                            boost::json::object jo;
+                                                            UUID::Uuid uuid = ctx_ptr->execution_context_id();
+                                                            std::stringstream uuid_str;
+                                                            uuid_str << uuid;
+                                                            jo.emplace("uuid", boost::json::string(uuid_str.str()));
 
-                                            // For peer in context peer list:
-                                            //  CONNECT
+                                                            std::vector<server::Remote> peers = ctx_ptr->get_peers();
+                                                            boost::json::array ja;
+                                                            for(auto& peer: peers){
+                                                                std::array<char,5> pbuf;
+                                                                std::string port;
+                                                                std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(peer.ipv4_addr.address.sin_port), 10);
+                                                                if(tcres.ec == std::errc()){
+                                                                    std::ptrdiff_t size = tcres.ptr - pbuf.data();
+                                                                    port = std::string(pbuf.data(), size);
+                                                                } else {
+                                                                    std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
+                                                                    throw "This shouldn't be possible.";
+                                                                }
 
+                                                                std::array<char, INET_ADDRSTRLEN> inbuf;
+                                                                const char* addr = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
 
+                                                                std::string pstr(addr);
+                                                                pstr.reserve(pstr.size() + port.size() + 1);
+                                                                pstr.push_back(':');
+                                                                pstr.insert(pstr.end(), port.begin(), port.end());                                                           
+                                                                ja.push_back(boost::json::string(pstr));
+                                                            }                                                           
+                                                            jo.emplace("peers", ja);
+                                                            
+                                                            boost::json::object jo_ctx;
+                                                            jo_ctx.emplace("execution_context", jo);
+                                                            std::stringstream ss;
+                                                            ss << jo_ctx;
+                                                            std::string data(ss.str());
+
+                                                            std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
+                                                                http::HttpVerb::PUT,
+                                                                "/run",
+                                                                http::HttpVersion::V1_1,
+                                                                {
+                                                                    CONTROLLER_APP_COMMON_HTTP_HEADERS
+                                                                },
+                                                                {
+                                                                    {{data.size()}, data}
+                                                                }
+                                                            };
+                                                            client_session->write([&](){ return; });
+                                                        }
+                                                    });
+                                                }
+                                            }
 
                                             // 1. The secondary context will connect to the primary context to retrieve an updated state and peer table.
                                             // 2. The secondary context will then merge the received peer table with its current peer table.

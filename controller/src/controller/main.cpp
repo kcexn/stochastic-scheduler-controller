@@ -3,6 +3,7 @@
 #include <csignal>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <iostream>
 
 // Global Scheduler Signals.
 std::shared_ptr<std::mutex> SIGNAL_MTX_PTR;
@@ -29,6 +30,7 @@ extern "C"{
 
 int main(int argc, char* argv[])
 {
+    std::ios_base::sync_with_stdio(false); 
     SIGNAL_MTX_PTR = std::make_shared<std::mutex>();
     SIGNAL_PTR = std::make_shared<std::atomic<std::uint16_t> >();
     SIGNAL_CV_PTR = std::make_shared<std::condition_variable>();
