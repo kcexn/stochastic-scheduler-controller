@@ -10,6 +10,97 @@
 
 namespace controller{
 namespace app{
+    std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
+        std::string_view obj;
+        // Count the number of unclosed braces.
+        std::size_t brace_count = 0;
+        // Count the number of opened square brackets '['.
+        int bracket_count = 0;
+        // Track the start and end positions of 
+        // the top level javascript object.
+        std::size_t next_opening_brace = 0;
+        std::size_t next_closing_brace = 0;
+        for(; pos < data.size(); ++pos){
+            const char& c = data[pos];
+            switch(c)
+            {
+                case '}':
+                {
+                    // track the last found closing brace as we go through the loop.
+                    if(brace_count == 0){
+                        // ignore spurious closing braces.
+                        continue;
+                    }
+                    --brace_count;
+                    if(brace_count == 0){
+                        next_closing_brace = pos;
+                    }
+                    break;
+                }
+                case '{':
+                {
+                    if(brace_count == 0){
+                        next_opening_brace = pos;
+                    }
+                    ++brace_count;
+                    break;
+                }
+                case ',':
+                {
+                    if(next_closing_brace > next_opening_brace){
+                        // Once we find a trailing top level comma, then we know that we have reached the end of 
+                        // a javascript object.
+                        goto exit_loop;
+                    }
+                    break;
+                }
+                case ']':
+                {
+                    --bracket_count;
+                    if(next_closing_brace >= next_opening_brace && brace_count == 0 && bracket_count <= 0){
+                        /* Function is complete. Terminate the execution context */
+                        obj = std::string_view(&c, 1);
+                        return obj;
+                    }
+                    break;
+                }
+                case '[':
+                {
+                    ++bracket_count;
+                    break;
+                }
+            }
+        }
+        exit_loop: ;
+        if(next_closing_brace > next_opening_brace){
+            std::size_t sz = next_closing_brace - next_opening_brace + 1;
+            obj = std::string_view(&data[next_opening_brace], sz);
+        }
+        return obj;
+    }
+
+    std::string rtostr(const server::Remote& raddr){
+        std::array<char,5> pbuf;
+        std::string port;
+        std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(raddr.ipv4_addr.address.sin_port), 10);
+        if(tcres.ec == std::errc()){
+            std::ptrdiff_t size = tcres.ptr - pbuf.data();
+            port = std::string(pbuf.data(), size);
+        } else {
+            std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
+            throw "This shouldn't be possible.";
+        }
+
+        std::array<char, INET_ADDRSTRLEN> inbuf;
+        const char* addr = inet_ntop(AF_INET, &raddr.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
+
+        std::string pstr(addr);
+        pstr.reserve(pstr.size() + port.size() + 1);
+        pstr.push_back(':');
+        pstr.insert(pstr.end(), port.begin(), port.end());  
+        return pstr;
+    }
+
     Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc)
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
@@ -225,72 +316,34 @@ namespace app{
                     return;        
                 }
                 while(next_comma < chunk_size){
-                    // Count the number of unclosed braces.
-                    std::size_t brace_count = 0;
-                    // Count the number of opened square brackets '['.
-                    int bracket_count = 0;
-                    // Track the start and end positions of 
-                    // the top level javascript object.
-                    std::size_t next_opening_brace = 0;
-                    std::size_t next_closing_brace = 0;
-                    for(; next_comma < chunk_size; ++next_comma){
-                            const char& c = chunk.chunk_data[next_comma];
-                            if(c == '}'){
-                                // track the last found closing brace as we go through the loop.
-                                if(brace_count == 0){
-                                    // Ignore spurious closing braces.
-                                    continue;
-                                }
-                                --brace_count;
-                                if(brace_count == 0){
-                                    next_closing_brace = next_comma;
-                                }
-                            } else if (c == '{') {
-                                if(brace_count == 0){
-                                    next_opening_brace = next_comma;
-                                }
-                                ++brace_count;
-                            } else if (c == ','){
-                                if(next_closing_brace > next_opening_brace){
-                                    // Once we find a trailing top level comma, then we know that we have reached the end of 
-                                    // a javascript object.
-                                    break;
-                                }
-                            } else if (c == ']'){
-                                --bracket_count;
-                                if(next_closing_brace >= next_opening_brace && bracket_count <= 0){
-                                    /* Function is complete. Terminate the execution context */
-                                    auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                                        auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
-                                        return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
-                                    });
-                                    http::HttpReqRes rr = session->get();
-                                    http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                                    req.chunks.push_back(http::HttpChunk{{1},"]"});
-                                    req.chunks.push_back(http::HttpChunk{{0},""});
-                                    session->set(rr);
-                                    session->write([&,session](){
-                                        session->close();
-                                    });
-                                    if(server_ctx != ctx_ptrs.end()){
-                                        for(auto& thread: (*server_ctx)->thread_controls()){
-                                            thread.stop_thread();
-                                        }
-                                        ctx_ptrs.erase(server_ctx);
-                                    }
-                                    return;
-                                }
-                            } else if (c == '['){
-                                ++bracket_count;
-                            }
-                        }
-                    if(next_closing_brace == next_opening_brace && next_opening_brace == 0){
-                        /* No top level javascript object could be found. Go back to the top of the while loop. */
+                    std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
+                    if(json_obj_str.empty()){
                         continue;
+                    } else if (json_obj_str.front() == ']'){
+                        /* Function is complete. Terminate the execution context */
+                        auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                            auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
+                            return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
+                        });
+                        http::HttpReqRes rr = session->get();
+                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                        res.chunks.push_back(http::HttpChunk{{1},"]"});
+                        res.chunks.push_back(http::HttpChunk{{0},""});
+                        session->set(rr);
+                        session->write([&,session](){
+                            session->close();
+                        });
+                        if(server_ctx != ctx_ptrs.end()){
+                            for(auto& thread: (*server_ctx)->thread_controls()){
+                                thread.stop_thread();
+                            }
+                            ctx_ptrs.erase(server_ctx);
+                        }
+                        return;
                     }
                     boost::json::error_code ec;
                     boost::json::value val = boost::json::parse(
-                        chunk.chunk_data.substr(next_opening_brace, next_closing_brace - next_opening_brace + 1), 
+                        json_obj_str, 
                         ec
                     );
                     auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -460,74 +513,35 @@ namespace app{
                     }
 
                     while(next_comma < chunk_size){
-                        // Count the number of unclosed braces.
-                        std::size_t brace_count = 0;
-                        // Count the number of opened square brackets '['.
-                        int bracket_count = 0;
-                        // Track the start and end positions of 
-                        // the top level javascript object.
-                        std::size_t next_opening_brace = 0;
-                        std::size_t next_closing_brace = 0;
-                        for(; next_comma < chunk_size; ++next_comma){
-                            const char& c = chunk.chunk_data[next_comma];
-                            if(c == '}'){
-                                // track the last found closing brace as we go through the loop.
-                                if(brace_count == 0){
-                                    // ignore spurious closing braces.
-                                    continue;
-                                }
-                                --brace_count;
-                                if(brace_count == 0){
-                                    next_closing_brace = next_comma;
-                                }
-                            } else if (c == '{') {
-                                if(brace_count == 0){
-                                    next_opening_brace = next_comma;
-                                }
-                                ++brace_count;
-                            } else if (c == ','){
-                                if(next_closing_brace > next_opening_brace){
-                                    // Once we find a trailing top level comma, then we know that we have reached the end of 
-                                    // a javascript object.
-                                    break;
-                                }
-                            } else if (c == ']'){
-                                --bracket_count;
-                                if(next_closing_brace >= next_opening_brace && bracket_count <= 0){
-                                    /* Function is complete. Terminate the execution context */
-                                    auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                                        auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
-                                        return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
-                                    });
-                                    http::HttpReqRes rr = session->get();
-                                    http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                    res.chunks.push_back(http::HttpChunk{{1},"]"});
-                                    res.chunks.push_back(http::HttpChunk{{0},""});
-                                    session->set(rr);
-                                    session->write([&,session](){
-                                        session->close();
-                                    });
-                                    if(server_ctx != ctx_ptrs.end()){
-                                        for(auto& thread: (*server_ctx)->thread_controls()){
-                                            thread.stop_thread();
-                                        }
-                                        ctx_ptrs.erase(server_ctx);
-                                    }
-                                    return;
-                                }
-                            } else if (c == '['){
-                                ++bracket_count;
-                            }
-                        }
-
-                        if(next_closing_brace == next_opening_brace && next_opening_brace == 0){
-                            /* No top level javascript object could be found. Go back to the top of the while loop. */
+                        std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
+                        if(json_obj_str.empty()){
                             continue;
+                        } else if(json_obj_str.front() == ']'){
+                            /* Function is complete. Terminate the execution context */
+                            auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                                auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
+                                return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
+                            });
+                            http::HttpReqRes rr = session->get();
+                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                            res.chunks.push_back(http::HttpChunk{{1},"]"});
+                            res.chunks.push_back(http::HttpChunk{{0},""});
+                            session->set(rr);
+                            session->write([&,session](){
+                                session->close();
+                            });
+                            if(server_ctx != ctx_ptrs.end()){
+                                for(auto& thread: (*server_ctx)->thread_controls()){
+                                    thread.stop_thread();
+                                }
+                                ctx_ptrs.erase(server_ctx);
+                            }
+                            return;
                         }
 
                         boost::json::error_code ec;
                         boost::json::value val = boost::json::parse(
-                            chunk.chunk_data.substr(next_opening_brace, next_closing_brace - next_opening_brace + 1), 
+                            json_obj_str,
                             ec
                         );
                         if(ec){throw "Json Parsing failed.";}
@@ -599,26 +613,8 @@ namespace app{
 
                                                             std::vector<server::Remote> peers = ctx_ptr->get_peers();
                                                             boost::json::array ja;
-                                                            for(auto& peer: peers){
-                                                                std::array<char,5> pbuf;
-                                                                std::string port;
-                                                                std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(peer.ipv4_addr.address.sin_port), 10);
-                                                                if(tcres.ec == std::errc()){
-                                                                    std::ptrdiff_t size = tcres.ptr - pbuf.data();
-                                                                    port = std::string(pbuf.data(), size);
-                                                                } else {
-                                                                    std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
-                                                                    throw "This shouldn't be possible.";
-                                                                }
-
-                                                                std::array<char, INET_ADDRSTRLEN> inbuf;
-                                                                const char* addr = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
-
-                                                                std::string pstr(addr);
-                                                                pstr.reserve(pstr.size() + port.size() + 1);
-                                                                pstr.push_back(':');
-                                                                pstr.insert(pstr.end(), port.begin(), port.end());                                                           
-                                                                ja.push_back(boost::json::string(pstr));
+                                                            for(auto& peer: peers){                                                       
+                                                                ja.push_back(boost::json::string(rtostr(peer)));
                                                             }                                                           
                                                             jo.emplace("peers", ja);
                                                             
@@ -712,42 +708,19 @@ namespace app{
                                         }
                                         (*it)->merge_peer_addresses(remote_peer_list);
 
+                                        boost::json::object retjo;
                                         /* Construct a boost json array from the updated peer list */
                                         boost::json::array peers;
                                         for(auto& peer: (*it)->peer_addresses()){
-                                            /* Construct the port string, and the ip string. */
-                                            std::uint16_t h_port = ntohs(peer.ipv4_addr.address.sin_port);
-                                            std::array<char,5> buf;
-                                            std::string rport;
-                                            std::to_chars_result tcres = std::to_chars(buf.data(), buf.data()+buf.size(), h_port, 10);
-                                            if(tcres.ec == std::errc()){
-                                                std::ptrdiff_t size = tcres.ptr - buf.data();
-                                                rport = std::string(std::string_view(buf.data(), size));
-                                            } else {
-                                                std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
-                                                throw "This shouldn't happen.";
-                                            }
-                                            std::array<char, INET_ADDRSTRLEN> addrbuf;
-                                            const char* rip = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, addrbuf.data(), addrbuf.size());
-                                            std::string ripstr(rip);
-
-                                            std::string peerstr;
-                                            peerstr.reserve(addrbuf.size() + 6);
-                                            peerstr.insert(peerstr.end(), ripstr.begin(), ripstr.end());
-                                            peerstr.push_back(':');
-                                            peerstr.insert(peerstr.end(), rport.begin(), rport.end());
-                                            peers.emplace_back(peerstr);
+                                           peers.emplace_back(rtostr(peer));
                                         }
-
-                                        /* Construct the return object */
-                                        boost::json::object retjo;
                                         retjo.emplace("peers", peers);
 
                                         /* Construct the results object value */
                                         boost::json::object ro;
                                         for(auto& relation: (*it)->manifest()){
                                             auto& value = relation->acquire_value();
-                                            if(value.size() != 0){
+                                            if(!value.empty()){
                                                 ro.emplace(relation->key(), value);
                                             }
                                             relation->release_value();

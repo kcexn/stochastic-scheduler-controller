@@ -153,7 +153,6 @@ namespace app{
         execution_context_idx_array_{idx},
         route_{controller::resources::Routes::RUN}
     {
-
         /* Construct the peer table */
         for(auto& peer: peers){
             std::size_t pos = peer.find(':');
