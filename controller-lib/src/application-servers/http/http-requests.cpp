@@ -680,9 +680,14 @@ namespace http
                         // until we find a non-white space
                         // character that matches the first case-sensitive character of one of the HTTP verbs.
                         // G, P, T, C, D
-                        if(c == 'G' || c == 'P' || c == 'T' || c == 'D' || c == 'C'){
+                        // Hopefully, the white space check, in addition to the specific character check
+                        // will limit the probability that a capital letter in a spurious data stream
+                        // creates a memory leak in the application.
+                        if(!std::isspace(c) && (c == 'G' || c == 'P' || c == 'T' || c == 'D' || c == 'C')){
                             req.verb_started = true;
                             req.verb_buf.push_back(c);
+                        } else {
+                            return is;
                         }
                     } else if (!req.verb_finished){
                         // append all non-white space
