@@ -182,9 +182,6 @@ namespace io{
         // Wait a reasonable amount of time for the IO thread to stop.
         struct timespec ts = {0,50000000};
         nanosleep(&ts, nullptr);
-
-        ioc_.restart();
-        while( ioc_.poll() > 0 ){}
     }
 
     void IO::async_connect(server::Remote rmt, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn)

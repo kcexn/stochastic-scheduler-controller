@@ -268,7 +268,7 @@ namespace app{
                             std::string f_val(finished->acquire_value());
                             finished->release_value();
                             boost::json::object jo;
-                            jo.emplace(f_key, f_val);
+                            jo.emplace(f_key, boost::json::parse(f_val));
                             boost::json::object jf_val;
                             jf_val.emplace("result", jo);
                             std::stringstream ss;
@@ -344,22 +344,28 @@ namespace app{
                             return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
                         });
                         if(server_ctx != ctx_ptrs.end()){
-                            for(auto it = (*server_ctx)->thread_controls().begin(); it != (*server_ctx)->thread_controls().end(); ++it){
-                                it->stop_thread();
-                                if(it != ((*server_ctx)->thread_controls().end()-1)){
-                                    it->invalidate();
+                            std::size_t num_valid_threads = 0;
+                            for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
+                                (*server_ctx)->thread_controls()[i].stop_thread();
+                                if((*server_ctx)->thread_controls()[i].is_valid()){
+                                    if(num_valid_threads >= 1){
+                                        (*server_ctx)->thread_controls()[i].invalidate();
+                                    } else {
+                                        ++num_valid_threads;
+                                    }
                                 }
                             }
-                        }
-                        std::string data("{}");
-                        for(auto& rel: (*server_ctx)->manifest()){
-                            auto& value = rel->acquire_value();
-                            if(value.empty()){
-                                value = data;
+                            std::string data("{}");
+                            for(auto& rel: (*server_ctx)->manifest()){
+                                auto& value = rel->acquire_value();
+                                if(value.empty()){
+                                    value = data;
+                                }
+                                rel->release_value();
                             }
-                            rel->release_value();
+                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                         }
-                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                         return;
                     }
                     boost::json::error_code ec;
@@ -388,19 +394,20 @@ namespace app{
                                     return (p.ipv4_addr.address.sin_addr.s_addr == peer.ipv4_addr.address.sin_addr.s_addr && p.ipv4_addr.address.sin_port == peer.ipv4_addr.address.sin_port);
                                 });
                                 if(it == old_peers.end()){
-                                    io_.async_connect(peer, [&, ctx](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                    std::shared_ptr<controller::app::ExecutionContext>& ctx_ptr = *ctx;
+                                    io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                         if(!ec){
                                             std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                             hcs_.push_back(client_session);
-                                            (*ctx)->peer_client_sessions().push_back(client_session);
+                                            ctx_ptr->peer_client_sessions().push_back(client_session);
 
                                             boost::json::object jo;
-                                            UUID::Uuid uuid = (*ctx)->execution_context_id();
+                                            UUID::Uuid uuid = ctx_ptr->execution_context_id();
                                             std::stringstream uuid_str;
                                             uuid_str << uuid;
                                             jo.emplace("uuid", boost::json::string(uuid_str.str()));
 
-                                            std::vector<server::Remote> peers = (*ctx)->get_peers();
+                                            std::vector<server::Remote> peers = ctx_ptr->get_peers();
                                             boost::json::array ja;
                                             for(auto& peer: peers){                                                         
                                                 ja.push_back(boost::json::string(rtostr(peer)));
@@ -440,7 +447,7 @@ namespace app{
                                 throw "This shouldn't be possible";
                             }
                             
-                            std::string data(kvp.value().as_string());
+                            std::string data = boost::json::serialize(kvp.value());
                             (*rel)->acquire_value() = data;
                             (*rel)->release_value();
 
@@ -526,22 +533,28 @@ namespace app{
                                 return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
                             });
                             if(server_ctx != ctx_ptrs.end()){
-                                for(auto it = (*server_ctx)->thread_controls().begin(); it != (*server_ctx)->thread_controls().end(); ++it){
-                                    it->stop_thread();
-                                    if(it != ((*server_ctx)->thread_controls().end()-1) ){
-                                        it->invalidate();
+                                std::size_t num_valid_threads = 0;
+                                for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
+                                    (*server_ctx)->thread_controls()[i].stop_thread();
+                                    if((*server_ctx)->thread_controls()[i].is_valid()){
+                                        if(num_valid_threads >= 1){
+                                            (*server_ctx)->thread_controls()[i].invalidate();
+                                        } else {
+                                            ++num_valid_threads;
+                                        }
                                     }
                                 }
-                            }
-                            std::string data("{}");
-                            for (auto& rel: (*server_ctx)->manifest()){
-                                auto& value = rel->acquire_value();
-                                if(value.empty()){
-                                    value = data;
+                                std::string data("{}");
+                                for (auto& rel: (*server_ctx)->manifest()){
+                                    auto& value = rel->acquire_value();
+                                    if(value.empty()){
+                                        value = data;
+                                    }
+                                    rel->release_value();
                                 }
-                                rel->release_value();
+                                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                             }
-                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                             return;
                         }
 
@@ -719,7 +732,7 @@ namespace app{
                                         for(auto& relation: (*it)->manifest()){
                                             auto& value = relation->acquire_value();
                                             if(!value.empty()){
-                                                ro.emplace(relation->key(), value);
+                                                ro.emplace(relation->key(), boost::json::parse(value));
                                             }
                                             relation->release_value();
                                         }
@@ -803,10 +816,7 @@ namespace app{
                                             if(relation == (*server_ctx)->manifest().end()){
                                                 throw "This should never happen.";
                                             }
-                                            std::stringstream ss;
-                                            ss << kvp.value();
-                                            std::string data(ss.str());
-
+                                            std::string data = boost::json::serialize(kvp.value());
                                             (*relation)->acquire_value() = data;
                                             (*relation)->release_value();
 
@@ -940,7 +950,7 @@ namespace app{
                     for ( auto& relation: ctx.manifest() ){
                         std::string value = relation->acquire_value();
                         relation->release_value();
-                        jrel.emplace(relation->key(), value);
+                        jrel.emplace(relation->key(), boost::json::parse(value));
                     }
                     boost::json::object jres;
                     jres.emplace("result", jrel);
