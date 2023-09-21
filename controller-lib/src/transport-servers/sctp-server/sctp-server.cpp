@@ -1,6 +1,7 @@
 #include "sctp-server.hpp"
 #include "sctp-session.hpp"
 #include <cerrno>
+#include <iostream>
 
 namespace sctp_transport{
     SctpServer::SctpServer(boost::asio::io_context& ioc)
@@ -68,34 +69,32 @@ namespace sctp_transport{
                 };
                 session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
                 acquire();
-                pending_connects_.emplace_back();
-                {
-                    auto& pending_connect = pending_connects_.back();
-                    pending_connect.session = session;
-                    pending_connect.cb = fn;
-                }
+                pending_connects_.push_back(PendingConnect{
+                    session,
+                    fn
+                });
                 release();
                 socket_.async_wait(
                     transport::protocols::sctp::socket::wait_type::wait_write,
-                    [fn, rmt, this, session](const boost::system::error_code& ec) mutable {
+                    [&, session, rmt, fn](const boost::system::error_code& ec) {
                         if(!ec){
-                            int err = connect(this->socket_.native_handle(), (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
+                            int err = connect(socket_.native_handle(), (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                             boost::system::error_code error;
-                            if(errno != EINPROGRESS){
-                                error = boost::system::error_code(errno, boost::system::system_category());
-                                this->erase_pending_connect(session);
-                                fn(error, session);
-                            } else {
+                            if(errno == 0 || errno == EINPROGRESS){
                                 transport::protocols::sctp::paddrinfo paddr;
                                 socklen_t paddr_size = sizeof(paddr);
                                 std::memcpy(&(paddr.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
-                                int ec = getsockopt(this->socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddr, &paddr_size);
+                                int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddr, &paddr_size);
                                 if(ec == -1){
                                     perror("getsockopt failed");
                                     throw "This really shouldn't happen.";
                                 }
                                 transport::protocols::sctp::assoc_t assoc_id = paddr.spinfo_assoc_id;
                                 session->set(assoc_id);
+                            } else {
+                                error = boost::system::error_code(errno, boost::system::system_category());
+                                fn(error, session);
+                                erase_pending_connect(session);
                             }
                         }
                         return;
@@ -193,8 +192,8 @@ namespace sctp_transport{
                                     boost::system::error_code error;
                                     const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
                                     push_back(sctp_session);
-                                    pending_connects_.erase(it);
                                     it->cb(error, sctp_session);
+                                    pending_connects_.erase(it);
                                 }
                                 release();
                                 /* Otherwise it's a brand new incoming connection. */

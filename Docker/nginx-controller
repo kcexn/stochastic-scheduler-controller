@@ -11,7 +11,8 @@ ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
     LUA_PATH=/var/controller/action-runtimes/lua/functions/?.lua;/var/controller/action-runtimes/lua/lib/?.lua;; \
     LUA_CPATH=/var/controller/action-runtimes/lua/functions/?.so;/var/controller/action-runtimes/lua/lib/?.so;; \
     __OW_ACTION_EXT=lua \
-    __OW_ACTION_BIN=/usr/bin/lua
+    __OW_ACTION_BIN=/usr/bin/lua \
+    __OW_KUBE_NET=192.168.0.0/16
     
 COPY action-runtimes/lua/ /var/controller/action-runtimes/lua/
 
