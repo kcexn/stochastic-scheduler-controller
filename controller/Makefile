@@ -19,7 +19,7 @@ DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 
 # NORMAL SETTINGS
 REL_CXX_FLAGS = -O3 -finline-atomics -flto=auto -fuse-linker-plugin -march=skylake -mtune=skylake -mno-direct-extern-access -fmodulo-sched \
--fmodulo-sched-allow-regmoves -fdevirtualize-speculatively -fdevirtualize-at-ltrans -fno-semantic-interposition -fipa-pta
+-fmodulo-sched-allow-regmoves -fipa-pta
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 

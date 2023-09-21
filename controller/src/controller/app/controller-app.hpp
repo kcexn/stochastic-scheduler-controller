@@ -5,6 +5,7 @@
 #include <application-servers/http/http-server.hpp>
 #include "../io/controller-io.hpp"
 #include <iostream>
+#include <filesystem>
 
 
 /*Forward Declarations*/
@@ -15,6 +16,7 @@ namespace app{
 }
 namespace http{
     class HttpSession;
+    class HttpClientSession;
     class HttpResponse;
 }
 
@@ -27,9 +29,10 @@ namespace app{
     {
     public:
         Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc);
+        Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc, const std::filesystem::path& upath, std::uint16_t sport);
         void start();
         void start_controller();
-        void route_response(std::shared_ptr<http::HttpSession>& session);
+        void route_response(std::shared_ptr<http::HttpClientSession>& session);
         void route_request(std::shared_ptr<http::HttpSession>& session);
         http::HttpResponse create_response(ExecutionContext& ctx, boost::json::value& val);
         void flush_wsk_logs() { std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; return;}

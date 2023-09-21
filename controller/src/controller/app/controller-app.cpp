@@ -119,6 +119,24 @@ namespace app{
         application.detach();
     }
 
+    Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc, const std::filesystem::path& upath, std::uint16_t sport)
+      : controller_mbox_ptr_(mbox_ptr),
+        initialized_{false},
+        io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
+        io_(io_mbox_ptr_, upath.string(), ioc, sport)
+    {
+        // Initialize parent controls
+        io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
+        io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<std::uint16_t> >();
+        io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
+
+        std::thread application(
+            &Controller::start, this
+        );
+        tid_ = application.native_handle();
+        application.detach();
+    }
+
     void Controller::start(){
         // Initialize resources I might need.
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
@@ -150,9 +168,9 @@ namespace app{
                 });
                 if(http_client != hcs_.end()){
                     /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
-                    http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_client);
-                    http_session_ptr->read();
-                    route_response(http_session_ptr);
+                    std::shared_ptr<http::HttpClientSession> http_client_ptr = std::static_pointer_cast<http::HttpClientSession>(*http_client);
+                    http_client_ptr->read();
+                    route_response(http_client_ptr);
                 } else {
                     /* Otherwise by default any read request must be a server session. */
                     auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
@@ -213,7 +231,7 @@ namespace app{
                             (*it)->peer_server_sessions().pop_back();
                         }
                         while((*it)->peer_client_sessions().size() > 0){
-                            std::shared_ptr<http::HttpSession> next_session = (*it)->peer_client_sessions().back();
+                            std::shared_ptr<http::HttpClientSession> next_session = (*it)->peer_client_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
                             req.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
@@ -302,7 +320,7 @@ namespace app{
         pthread_exit(0);
     }
 
-    void Controller::route_response(std::shared_ptr<http::HttpSession>& session){
+    void Controller::route_response(std::shared_ptr<http::HttpClientSession>& session){
         http::HttpReqRes req_res = session->get();
         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);  
         if(res.next_chunk > 0){
@@ -322,23 +340,26 @@ namespace app{
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
                         auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                            auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
-                            return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
-                        });
-                        http::HttpReqRes rr = session->get();
-                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                        res.chunks.push_back(http::HttpChunk{{1},"]"});
-                        res.chunks.push_back(http::HttpChunk{{0},""});
-                        session->set(rr);
-                        session->write([&,session](){
-                            session->close();
+                            auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
+                            return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
                         });
                         if(server_ctx != ctx_ptrs.end()){
-                            for(auto& thread: (*server_ctx)->thread_controls()){
-                                thread.stop_thread();
+                            for(auto it = (*server_ctx)->thread_controls().begin(); it != (*server_ctx)->thread_controls().end(); ++it){
+                                it->stop_thread();
+                                if(it != ((*server_ctx)->thread_controls().end()-1)){
+                                    it->invalidate();
+                                }
                             }
-                            ctx_ptrs.erase(server_ctx);
                         }
+                        std::string data("{}");
+                        for(auto& rel: (*server_ctx)->manifest()){
+                            auto& value = rel->acquire_value();
+                            if(value.empty()){
+                                value = data;
+                            }
+                            rel->release_value();
+                        }
+                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                         return;
                     }
                     boost::json::error_code ec;
@@ -369,7 +390,7 @@ namespace app{
                                 if(it == old_peers.end()){
                                     io_.async_connect(peer, [&, ctx](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                         if(!ec){
-                                            std::shared_ptr<http::HttpSession> client_session = std::make_shared<http::HttpSession>(hcs_, t_session);
+                                            std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                             hcs_.push_back(client_session);
                                             (*ctx)->peer_client_sessions().push_back(client_session);
 
@@ -381,26 +402,8 @@ namespace app{
 
                                             std::vector<server::Remote> peers = (*ctx)->get_peers();
                                             boost::json::array ja;
-                                            for(auto& peer: peers){
-                                                std::array<char,5> pbuf;
-                                                std::string port;
-                                                std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(peer.ipv4_addr.address.sin_port), 10);
-                                                if(tcres.ec == std::errc()){
-                                                    std::ptrdiff_t size = tcres.ptr - pbuf.data();
-                                                    port = std::string(pbuf.data(), size);
-                                                } else {
-                                                    std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
-                                                    throw "This shouldn't be possible.";
-                                                }
-
-                                                std::array<char, INET_ADDRSTRLEN> inbuf;
-                                                const char* addr = inet_ntop(AF_INET, &peer.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
-
-                                                std::string pstr(addr);
-                                                pstr.reserve(pstr.size() + port.size() + 1);
-                                                pstr.push_back(':');
-                                                pstr.insert(pstr.end(), port.begin(), port.end());                                                           
-                                                ja.push_back(boost::json::string(pstr));
+                                            for(auto& peer: peers){                                                         
+                                                ja.push_back(boost::json::string(rtostr(peer)));
                                             }                                                           
                                             jo.emplace("peers", ja);
                                             
@@ -522,20 +525,23 @@ namespace app{
                                 auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
                                 return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
                             });
-                            http::HttpReqRes rr = session->get();
-                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            res.chunks.push_back(http::HttpChunk{{1},"]"});
-                            res.chunks.push_back(http::HttpChunk{{0},""});
-                            session->set(rr);
-                            session->write([&,session](){
-                                session->close();
-                            });
                             if(server_ctx != ctx_ptrs.end()){
-                                for(auto& thread: (*server_ctx)->thread_controls()){
-                                    thread.stop_thread();
+                                for(auto it = (*server_ctx)->thread_controls().begin(); it != (*server_ctx)->thread_controls().end(); ++it){
+                                    it->stop_thread();
+                                    if(it != ((*server_ctx)->thread_controls().end()-1) ){
+                                        it->invalidate();
+                                    }
                                 }
-                                ctx_ptrs.erase(server_ctx);
                             }
+                            std::string data("{}");
+                            for (auto& rel: (*server_ctx)->manifest()){
+                                auto& value = rel->acquire_value();
+                                if(value.empty()){
+                                    value = data;
+                                }
+                                rel->release_value();
+                            }
+                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                             return;
                         }
 
@@ -598,11 +604,11 @@ namespace app{
                                             // a different execution context idx and the same execution context id each time.
                                         } else {
                                             /* This is a secondary context */
-                                            for(auto& peer: ctx_ptr->peer_addresses()){                                              
-                                                if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){
+                                            for(auto& peer: ctx_ptr->peer_addresses()){
+                                                if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){                                                    
                                                     io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                                         if(!ec){
-                                                            std::shared_ptr<http::HttpSession> client_session = std::make_shared<http::HttpSession>(hcs_, t_session);
+                                                            std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                                             hcs_.push_back(client_session);
                                                             ctx_ptr->peer_client_sessions().push_back(client_session);
                                                             boost::json::object jo;
@@ -640,14 +646,6 @@ namespace app{
                                                     });
                                                 }
                                             }
-
-                                            // 1. The secondary context will connect to the primary context to retrieve an updated state and peer table.
-                                            // 2. The secondary context will then merge the received peer table with its current peer table.
-                                            // 3. For each new peer that is inserted into the peer table, the execution context repeats steps 1-3.
-
-
-                                            // 4. For each peer in the peer table, the secondary context will listen for state update events that are emitted.
-                                            // 5. For each peer in the peer talbe, the secondary context will emit a state update event for every local state change.
                                         }
                                     }
                                     // This id is pushed in the context constructor.
@@ -937,26 +935,28 @@ namespace app{
                 }
                 std::filesystem::path path(__OW_ACTIONS);
                 std::filesystem::path manifest_path(path/"action-manifest.json");
-                bool manifest_exists = std::filesystem::exists(manifest_path);
-                for ( auto& relation: ctx.manifest() ){
-                    boost::json::error_code err;
-                    std::string value = relation->acquire_value();
-                    relation->release_value();
-                    boost::json::object val = boost::json::parse(value, err).as_object();
-                    auto it = std::find_if(val.begin(), val.end(), [&](auto kvp){ return kvp.key() == "error"; });
-                    if ( it != val.end() ){
-                        ec = true;
+                if(std::filesystem::exists(manifest_path)){
+                    boost::json::object jrel;
+                    for ( auto& relation: ctx.manifest() ){
+                        std::string value = relation->acquire_value();
+                        relation->release_value();
+                        jrel.emplace(relation->key(), value);
                     }
-                    if ( manifest_exists ){
-                        jv.emplace(relation->key(), val);
-                    } else {
-                        jv = val;
-                    }
-                }
-                std::string ss = boost::json::serialize(jv);
-                std::stringstream len;
-                len << ss.size();
-                if(!ec){
+                    boost::json::object jres;
+                    jres.emplace("result", jrel);
+
+                    UUID::Uuid uuid = ctx.execution_context_id();
+                    std::stringstream uuid_str;
+                    uuid_str << uuid;
+                    jres.emplace("uuid", uuid_str.str());
+
+
+                    boost::json::object jctx;
+                    jctx.emplace("execution_context", jres);
+
+                    std::string data = boost::json::serialize(jctx);
+                    std::stringstream len;
+                    len << data.size();
                     res = {
                         req.version,
                         http::HttpStatus::OK,
@@ -965,19 +965,24 @@ namespace app{
                             CONTROLLER_APP_COMMON_HTTP_HEADERS
                         },
                         {
-                            {{ss.size()}, ss}
+                            {{data.size()}, data}
                         }
                     };
                 } else {
+                    auto& relation = ctx.manifest()[0];
+                    std::string value = relation->acquire_value();
+                    relation->release_value();
+                    std::stringstream len;
+                    len << value.size();
                     res = {
                         req.version,
-                        http::HttpStatus::INTERNAL_SERVER_ERROR,
+                        http::HttpStatus::OK,
                         {
-                            {http::HttpHeaderField::CONTENT_LENGTH, "0"},
+                            {http::HttpHeaderField::CONTENT_LENGTH, len.str()},
                             CONTROLLER_APP_COMMON_HTTP_HEADERS
                         },
                         {
-                            {{0}, ""}
+                            {{value.size()}, value}
                         }
                     };
                 }

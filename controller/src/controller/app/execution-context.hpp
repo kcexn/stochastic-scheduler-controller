@@ -7,6 +7,10 @@
 #include "thread-controls.hpp"
 #include <transport-servers/server/server.hpp>
 
+namespace http{
+    class HttpClientSession;
+}
+
 namespace controller{
 namespace resources{
     enum class Routes 
@@ -35,14 +39,14 @@ namespace app{
         bool is_stopped();
 
         std::vector<std::shared_ptr<http::HttpSession> >& sessions() { return http_session_ptrs_; }
-        std::vector<std::shared_ptr<http::HttpSession> >& ow_client_sessions() { return http_ow_client_sessions_; }
+        std::vector<std::shared_ptr<http::HttpClientSession> >& ow_client_sessions() { return http_ow_client_sessions_; }
         std::vector<std::shared_ptr<http::HttpSession> >& peer_server_sessions() { return http_peer_server_sessions_; }
-        std::vector<std::shared_ptr<http::HttpSession> >& peer_client_sessions() { return http_peer_client_sessions_; }
+        std::vector<std::shared_ptr<http::HttpClientSession> >& peer_client_sessions() { return http_peer_client_sessions_; }
         std::vector<server::Remote>& peer_addresses() { return peers_; }
         std::vector<server::Remote> get_peers() { mtx_.lock(); std::vector<server::Remote> tmp = peers_; mtx_.unlock(); return tmp;}
         void merge_peer_addresses(const std::vector<std::string>&);
 
-        const UUID::Uuid& execution_context_id() const noexcept { return execution_context_id_; }
+        const UUID::Uuid& execution_context_id() const { return execution_context_id_; }
         ActionManifest& manifest() { return manifest_; }
         std::vector<std::size_t>& execution_context_idx_array() { return execution_context_idx_array_; }
         const controller::resources::Routes& route() { return route_; }
@@ -57,9 +61,9 @@ namespace app{
         /* ow invoker server sessions are kept as http_session_ptrs_ for backwards compatibility. */
         std::vector<std::shared_ptr<http::HttpSession> > http_session_ptrs_;
         // Http Session associated to the execution context.
-        std::vector<std::shared_ptr<http::HttpSession> > http_ow_client_sessions_;
+        std::vector<std::shared_ptr<http::HttpClientSession> > http_ow_client_sessions_;
         std::vector<std::shared_ptr<http::HttpSession> > http_peer_server_sessions_;
-        std::vector<std::shared_ptr<http::HttpSession> > http_peer_client_sessions_;
+        std::vector<std::shared_ptr<http::HttpClientSession> > http_peer_client_sessions_;
 
         UUID::Uuid execution_context_id_;
         // Action Manifest variables

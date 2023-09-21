@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <iostream>
+#include <charconv>
 
 // Global Scheduler Signals.
 std::shared_ptr<std::mutex> SIGNAL_MTX_PTR;
@@ -30,6 +31,39 @@ extern "C"{
 
 int main(int argc, char* argv[])
 {
+    int opt;
+    const char* port = nullptr;
+    const char* usock_path = nullptr;
+    while((opt = getopt(argc, argv, "u:p:")) != -1){
+        switch(opt)
+        {
+            case 'u':
+                usock_path = optarg;
+                break;
+            case 'p':
+                port = optarg;
+                break;
+            default:
+                std::cerr << "Usage: controller [-u unix_socket_path] [-p sctp_port_number]" << std::endl;
+                exit(EXIT_FAILURE);
+        }
+    }
+    if(port == nullptr){
+        port = "5100";
+    }
+    if(usock_path == nullptr){
+        usock_path = "/run/controller/controller.sock";
+    }
+    std::filesystem::path upath(usock_path);
+    std::uint16_t sport;
+    std::string_view sport_str(port);
+    std::from_chars_result fcres = std::from_chars(sport_str.data(), sport_str.data()+sport_str.size(), sport, 10);
+    if(fcres.ec != std::errc()){
+        std::cerr << std::make_error_code(fcres.ec).message() << std::endl;
+        throw "This should never happen.";
+    }
+
+    
     std::ios_base::sync_with_stdio(false); 
     SIGNAL_MTX_PTR = std::make_shared<std::mutex>();
     SIGNAL_PTR = std::make_shared<std::atomic<std::uint16_t> >();
@@ -49,7 +83,9 @@ int main(int argc, char* argv[])
     mbx->sched_signal_cv_ptr = SIGNAL_CV_PTR;
     controller::app::Controller controller(
         mbx,
-        ioc
+        ioc,
+        upath,
+        sport
     );
     std::unique_lock<std::mutex> lk(*SIGNAL_MTX_PTR);
     SIGNAL_CV_PTR->wait(lk, [&]{ return (SIGNAL_PTR->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT); });

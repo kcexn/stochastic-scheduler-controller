@@ -3,10 +3,6 @@
 #include <transport-servers/sctp-server/sctp-session.hpp>
 #include <ifaddrs.h>
 
-#ifdef DEBUG
-#include <iostream>
-#endif
-
 #define SCTP_PORT 5300
 
 
@@ -16,12 +12,13 @@ namespace io{
     IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
       : mbox_ptr_(mbox),
         ioc_(ioc),
-        us_(ioc, boost::asio::local::stream_protocol::endpoint("/run/controller/controller.sock")),
+        us_(ioc, boost::asio::local::stream_protocol::endpoint(local_endpoint)),
         ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), SCTP_PORT))
     { 
         /* Identify the local sctp server address. */
         // Start by hardcoding the local loop back network prefix.
-        std::string subnet("127.0.0.1/8");
+        const char* network_prefix = "127.0.0.1/8";
+        std::string subnet(network_prefix);
         std::size_t pos = subnet.find('/');
         if(pos == std::string::npos){
             throw "this shouldn't be possible";
@@ -70,6 +67,72 @@ namespace io{
         io_ = io.native_handle();
         io.detach();
     }
+
+    IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport)
+      : mbox_ptr_(mbox),
+        ioc_(ioc),
+        us_(ioc, boost::asio::local::stream_protocol::endpoint(local_endpoint)),
+        ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), sport))
+    { 
+        /* Identify the local sctp server address. */
+        const char* network_prefix;
+        char* __OW_KUBE_NET = getenv("__OW_KUBE_NET");
+        if(__OW_KUBE_NET == nullptr){
+            network_prefix = "127.0.0.0/8";
+        } else {
+            network_prefix = __OW_KUBE_NET;
+        }
+        std::string subnet(network_prefix);
+        std::size_t pos = subnet.find('/');
+        if(pos == std::string::npos){
+            throw "this shouldn't be possible";
+        }
+        std::string nprefix = subnet.substr(0, pos);
+        //Convert the network prefix into an ipv4 address in network byte order.
+        struct sockaddr_in npaddr;
+        npaddr.sin_family = AF_INET;
+        npaddr.sin_port = htons(sport);
+        int ec = inet_aton(nprefix.c_str(), &npaddr.sin_addr);
+        if(ec == -1){
+            perror("inet_aton failed");
+            throw "this shouldn't be possible.";
+        }
+        // Get the interface addresses.
+        struct ifaddrs* ifah;
+        if(getifaddrs(&ifah) == -1){
+            perror("getifaddrs failed");
+            throw "This shouldn't be possible.";
+        }
+        struct sockaddr_in laddr;
+        laddr.sin_family = AF_INET;
+        laddr.sin_port = htons(sport);
+        for(struct ifaddrs* ifa = ifah; ifa != nullptr; ifa = ifa->ifa_next){
+            if(ifa->ifa_addr->sa_family == AF_INET){
+                struct sockaddr_in* ifaddr_in = (struct sockaddr_in*)(ifa->ifa_addr);
+                if( (ifaddr_in->sin_addr.s_addr & npaddr.sin_addr.s_addr) == npaddr.sin_addr.s_addr){
+                    /* Since the network prefix of the interface matches the prefix of the defined network, we select this interface to be the 
+                        local address for SCTP. */
+                    laddr.sin_addr = ifaddr_in->sin_addr;
+                    break;
+                }
+            }
+        }
+        freeifaddrs(ifah);
+        /* Set the local SCTP address to this structure. */
+        local_sctp_address.ipv4_addr = {
+            SOCK_SEQPACKET,
+            IPPROTO_SCTP,
+            laddr
+        };
+
+        std::thread io(
+            &IO::start, this
+        );
+        io_ = io.native_handle();
+        io.detach();
+    }
+
+
 
     void IO::start(){
         std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> f = [&](const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket){

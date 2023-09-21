@@ -36,6 +36,7 @@ namespace io{
     {
     public:
         IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
+        IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport);
         void start();
         void stop();
 
