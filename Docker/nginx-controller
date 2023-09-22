@@ -11,8 +11,14 @@ ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
     LUA_PATH=/var/controller/action-runtimes/lua/functions/?.lua;/var/controller/action-runtimes/lua/lib/?.lua;; \
     LUA_CPATH=/var/controller/action-runtimes/lua/functions/?.so;/var/controller/action-runtimes/lua/lib/?.so;; \
     __OW_ACTION_EXT=lua \
-    __OW_ACTION_BIN=/usr/bin/lua \
-    __OW_KUBE_NET=192.168.0.0/16
+    __OW_ACTION_BIN=/usr/bin/lua
+	
+# __OW_KUBENET=192.168.0.0/16
+# __OW_NUM_CONCURRENT = 2
+# __OW_ALLOW_CONCURRENT = true
+# __OW_API_HOST=http://owdev-nginx.openwhisk.svc.cluster.local
+# __OW_ACTION_NAME = /guest/{Package}/action_name
+# __OW_NAMESPACE = guest
     
 COPY action-runtimes/lua/ /var/controller/action-runtimes/lua/
 
@@ -44,5 +50,7 @@ COPY Docker/init.sh /usr/local/bin/
 # Install some test data.
 COPY tests/ /root/tests/
 
-EXPOSE 8080
+EXPOSE 5100/sctp
+EXPOSE 8080/tcp
+# EXPOSE 5100/sctp
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/init.sh"]

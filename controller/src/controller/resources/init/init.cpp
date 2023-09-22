@@ -22,6 +22,13 @@ namespace init{
             std::string val;
             if ( kvp.value().is_string() ){
                 val = std::string( kvp.value().get_string() );
+                std::transform(key.cbegin(), key.cend(), key.begin(), []( unsigned char c ) { return std::toupper(c); });
+                int ec = setenv(key.c_str(), val.c_str(), 1);                    
+                if(ec == -1){
+                    std::cerr << "Setting environment variable: " << key << " with value: " << val << " failed." << std::endl;
+                    std::cerr << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "This shouldn't happen";
+                }
             } else if ( kvp.value().is_int64() ){
                 val = std::to_string( kvp.value().get_int64() );
             } else if ( kvp.value().is_uint64() ){

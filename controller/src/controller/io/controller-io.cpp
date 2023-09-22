@@ -17,7 +17,7 @@ namespace io{
     { 
         /* Identify the local sctp server address. */
         // Start by hardcoding the local loop back network prefix.
-        const char* network_prefix = "127.0.0.1/8";
+        const char* network_prefix = "127.0.0.0/8";
         std::string subnet(network_prefix);
         std::size_t pos = subnet.find('/');
         if(pos == std::string::npos){
@@ -76,11 +76,11 @@ namespace io{
     { 
         /* Identify the local sctp server address. */
         const char* network_prefix;
-        char* __OW_KUBE_NET = getenv("__OW_KUBE_NET");
-        if(__OW_KUBE_NET == nullptr){
+        char* __OW_KUBENET = getenv("__OW_KUBENET");
+        if(__OW_KUBENET == nullptr){
             network_prefix = "127.0.0.0/8";
         } else {
-            network_prefix = __OW_KUBE_NET;
+            network_prefix = __OW_KUBENET;
         }
         std::string subnet(network_prefix);
         std::size_t pos = subnet.find('/');

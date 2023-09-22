@@ -615,6 +615,130 @@ namespace app{
                                             // The primary context will have no client peer connections, only server peer connections.
                                             // The primary context must hit the OW API endpoint `concurrency' no. of times with the
                                             // a different execution context idx and the same execution context id each time.
+                                            std::size_t concurrency = 1;
+                                            char* __OW_NUM_CONCURRENT = getenv("__OW_NUM_CONCURRENT");
+                                            if(__OW_NUM_CONCURRENT != nullptr){
+                                                std::string concurrent_requests(__OW_NUM_CONCURRENT);
+                                                std::from_chars_result fcres = std::from_chars(concurrent_requests.data(), concurrent_requests.data()+concurrent_requests.size(), concurrency, 10);
+                                                if(fcres.ec != std::errc()){
+                                                    std::cerr << std::make_error_code(fcres.ec).message() << std::endl;
+                                                    throw "This shouldn't happen";
+                                                }
+                                            }
+                                            if(concurrency > 1){
+                                                char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
+                                                char* __OW_API_HOST = getenv("__OW_API_HOST");
+                                                if(__OW_ACTION_NAME == nullptr){
+                                                    std::cerr << "__OW_ACTION_NAME envvar is not set!" << std::endl;
+                                                    break;
+                                                } else if (__OW_API_HOST == nullptr){
+                                                    std::cerr << "__OW_API_HOST envvar is not set!" << std::endl;
+                                                    break;
+                                                }
+
+                                                auto env = run.env();
+                                                std::string __OW_API_KEY = env["__OW_API_KEY"];
+                                                if(__OW_API_KEY.empty()){
+                                                    std::cerr << "__OW_API_KEY envvar is not set!" << std::endl;
+                                                    break;
+                                                }
+
+                                                // Wrap the json parameter value val in an execution context.
+                                                std::stringstream uuid;
+                                                uuid << ctx_ptr->execution_context_id();
+                                                boost::json::object jo;
+                                                jo.emplace("uuid", boost::json::string(uuid.str()));
+                                                std::vector<server::Remote> peers = ctx_ptr->peer_addresses();
+                                                boost::json::array ja;
+                                                for(auto& peer: peers){
+                                                    ja.push_back(boost::json::string(rtostr(peer)));
+                                                }
+                                                jo.emplace("peers", ja);
+                                                jo.emplace("value", val.at("value").as_object());
+
+                                                // Dump all of cURLs output to /dev/null, we don't care about the server responses.
+                                                int dev_null = open("/dev/null", O_WRONLY);
+                                                if(dev_null == -1){
+                                                    std::cerr << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                    break;
+                                                }
+
+                                                // Construct the curl command.
+                                                const char* bin_curl = "/usr/bin/curl";
+                                                std::vector<const char*> argv;
+                                                argv.push_back(bin_curl);
+                                                argv.push_back("--no-progress-meter");
+                                                // Parallel requests.
+                                                // argv.push_back("--parallel-immediate");
+                                                // argv.push_back("--parallel");
+
+                                                /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
+                                                $__OW_API_HOST/api/v1/$__OW_ACTION_NAME. With basic http authentication -u "$__OW_API_KEY".
+                                                */
+                                                // The arguments required for each request before passing cURL the --next flag.
+                                                // HTTP basic authentication
+                                                argv.push_back("-u");
+                                                argv.push_back(__OW_API_KEY.c_str());
+
+                                                std::vector<std::string> data_vec;
+
+                                                // Emplace the first context index.
+                                                jo.emplace("idx", 1);
+                                                boost::json::object jctx;
+                                                jctx.emplace("execution_context", jo);
+                                                data_vec.emplace_back(boost::json::serialize(jctx));
+
+                                                // provide the data for the first request.
+                                                argv.push_back("--json");
+                                                argv.push_back(data_vec.back().c_str());
+
+                                                // Fully qualified action names are given in terms of a filesystem path.
+                                                // of the form /{NAMESPACE}/{PACKAGE}/{ACTION_NAME}
+                                                std::filesystem::path action_name(__OW_ACTION_NAME);
+                                                std::string url(__OW_API_HOST);
+                                                url.append("/api/v1/namespaces/");
+                                                url.append(action_name.relative_path().begin()->string());
+                                                url.append("/actions/");
+                                                url.append(action_name.filename().string());
+                                                argv.push_back(url.c_str());
+                                                argv.push_back("-o");
+                                                argv.push_back("/dev/null");
+
+                                                for(std::size_t i = 2; i < (concurrency); ++i){
+                                                    /* For every subsequent concurrent request add --next and repeat the data with a modified index. */
+                                                    argv.push_back("--next");
+                                                    argv.push_back("--no-progress-meter");
+                                                    argv.push_back("-u");
+                                                    argv.push_back(__OW_API_KEY.c_str());
+                                                    argv.push_back("--json");
+                                                    jctx["execution_context"].get_object()["idx"] = i;
+                                                    data_vec.emplace_back(boost::json::serialize(jctx));
+                                                    argv.push_back(data_vec.back().c_str());
+                                                    argv.push_back(url.c_str());
+                                                    argv.push_back("-o");
+                                                    argv.push_back("/dev/null");
+                                                }
+                                                argv.push_back(nullptr);
+
+                                                /* Since we do an immediate execve, vfork is a bit faster.*/
+                                                pid_t pid = vfork();
+                                                switch(pid)
+                                                {
+                                                    case 0:
+                                                    {
+                                                        execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
+                                                        break;
+                                                    }
+                                                    case -1:
+                                                    {
+                                                        std::cerr << "Fork Failed!" << std::endl;
+                                                        break;
+                                                    }
+                                                }
+                                                // waitpid is handled by trapping SIGCHLD.
+                                            }
+
+
                                         } else {
                                             /* This is a secondary context */
                                             for(auto& peer: ctx_ptr->peer_addresses()){
