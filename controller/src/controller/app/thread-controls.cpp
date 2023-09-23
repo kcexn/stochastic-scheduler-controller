@@ -1,10 +1,6 @@
 #include "thread-controls.hpp"
 #include <csignal>
 
-#ifdef DEBUG
-#include <iostream>
-#endif
-
 namespace controller{
 namespace app{    
     // Thread Controls
@@ -41,11 +37,14 @@ namespace app{
                 kill(pid_, SIGTERM);
             }
         }
-        std::vector<std::size_t> tmp(execution_context_idxs_.size());
-        std::memcpy(tmp.data(), execution_context_idxs_.data(), execution_context_idxs_.size());
-        // Clear the execution context idx vector so that subsequent invalidates do not
-        // receive a list of executions indexes to assign work to.
-        execution_context_idxs_.clear();
+        std::vector<std::size_t> tmp;
+        tmp.reserve(execution_context_idxs_.size());
+        if(!execution_context_idxs_.empty()){
+            tmp.insert(tmp.end(), execution_context_idxs_.begin(), execution_context_idxs_.end());
+            // Clear the execution context idx vector so that subsequent invalidates do not
+            // receive a list of executions indexes to assign work to.
+            execution_context_idxs_.clear();
+        }
         return tmp;
     }
 

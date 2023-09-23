@@ -3,8 +3,6 @@ FROM debian:stable-slim
 WORKDIR /root
 RUN apt-get update && apt-get install -y nginx curl coreutils procps lua5.4
 
-# lua5.4-dev
-
 # Set up the lua environment
 ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
     __OW_ACTION_LAUNCHER=/var/controller/action-runtimes/lua/launcher/launcher.lua \
@@ -52,5 +50,4 @@ COPY tests/ /root/tests/
 
 EXPOSE 5100/sctp
 EXPOSE 8080/tcp
-# EXPOSE 5100/sctp
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/init.sh"]

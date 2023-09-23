@@ -1,4 +1,5 @@
 #include "sctp-session.hpp"
+#include <iostream>
 
 namespace sctp_transport{
     void SctpSession::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
@@ -55,7 +56,7 @@ namespace sctp_transport{
             std::memcpy(CMSG_DATA(cmsg), &sndinfo, sizeof(sndinfo));
             int len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL);
             if(len == -1){
-                perror("sendmsg failed");
+                std::cerr << "sendmsg failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
             } else {
                 fn();
             }

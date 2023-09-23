@@ -15,7 +15,7 @@ namespace app{
     class ThreadControls
     {
     public:
-        explicit ThreadControls(): 
+        explicit ThreadControls():
             pid_{0},
             mtx_(std::make_unique<std::mutex>()), 
             cv_(std::make_unique<std::condition_variable>()), 

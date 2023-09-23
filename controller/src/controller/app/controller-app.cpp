@@ -322,170 +322,214 @@ namespace app{
 
     void Controller::route_response(std::shared_ptr<http::HttpClientSession>& session){
         http::HttpReqRes req_res = session->get();
-        http::HttpResponse& res = std::get<http::HttpResponse>(req_res);  
-        if(res.next_chunk > 0){
-            for(; res.pos < res.next_chunk; ++res.pos){
-                std::size_t next_comma = 0;
-                const http::HttpChunk& chunk = res.chunks[res.pos];
-                const std::size_t chunk_size = chunk.chunk_data.size();
-                if(chunk_size == 0){
-                    // A 0 length chunk indiciates the end of a session.
-                    session->close();
-                    return;        
-                }
-                while(next_comma < chunk_size){
-                    std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
-                    if(json_obj_str.empty()){
-                        continue;
-                    } else if (json_obj_str.front() == ']'){
-                        /* Function is complete. Terminate the execution context */
-                        auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                            auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
-                            return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
-                        });
-                        if(server_ctx != ctx_ptrs.end()){
-                            std::size_t num_valid_threads = 0;
-                            for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
-                                (*server_ctx)->thread_controls()[i].stop_thread();
-                                if((*server_ctx)->thread_controls()[i].is_valid()){
-                                    if(num_valid_threads >= 1){
-                                        (*server_ctx)->thread_controls()[i].invalidate();
-                                    } else {
-                                        ++num_valid_threads;
-                                    }
-                                }
-                            }
-                            std::string data("{}");
-                            for(auto& rel: (*server_ctx)->manifest()){
-                                auto& value = rel->acquire_value();
-                                if(value.empty()){
-                                    value = data;
-                                }
-                                rel->release_value();
-                            }
-                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                        }
-                        return;
-                    }
-                    boost::json::error_code ec;
-                    boost::json::value val = boost::json::parse(
-                        json_obj_str, 
-                        ec
-                    );
-                    auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
-                        auto tmp = std::find(cp->peer_client_sessions().begin(), cp->peer_client_sessions().end(), session);
-                        return (tmp == cp->peer_client_sessions().end()) ? false : true;
-                    });
-                    if(ctx == ctx_ptrs.end()){
+        http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
+        if(res.status == http::HttpStatus::OK){
+            if(res.next_chunk > 0){
+                for(; res.pos < res.next_chunk; ++res.pos){
+                    std::size_t next_comma = 0;
+                    const http::HttpChunk& chunk = res.chunks[res.pos];
+                    const std::size_t chunk_size = chunk.chunk_data.size();
+                    if(chunk_size == 0){
+                        // A 0 length chunk indiciates the end of a session.
                         session->close();
-                    } else {
-                        if(res.pos == 0){
-                            boost::json::array& ja = val.as_object().at("peers").as_array();
-                            std::vector<std::string> peers;
-                            for(auto& peer: ja){
-                                peers.emplace_back(peer.as_string());
-                            }
-                            std::vector<server::Remote> old_peers = (*ctx)->get_peers();
-                            (*ctx)->merge_peer_addresses(peers);
-                            std::vector<server::Remote> new_peers = (*ctx)->get_peers();
-                            for(auto& peer: new_peers){
-                                auto it = std::find_if(old_peers.begin(), old_peers.end(), [&](auto& p){
-                                    return (p.ipv4_addr.address.sin_addr.s_addr == peer.ipv4_addr.address.sin_addr.s_addr && p.ipv4_addr.address.sin_port == peer.ipv4_addr.address.sin_port);
-                                });
-                                if(it == old_peers.end()){
-                                    std::shared_ptr<controller::app::ExecutionContext>& ctx_ptr = *ctx;
-                                    io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
-                                        if(!ec){
-                                            std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
-                                            hcs_.push_back(client_session);
-                                            ctx_ptr->peer_client_sessions().push_back(client_session);
-
-                                            boost::json::object jo;
-                                            UUID::Uuid uuid = ctx_ptr->execution_context_id();
-                                            std::stringstream uuid_str;
-                                            uuid_str << uuid;
-                                            jo.emplace("uuid", boost::json::string(uuid_str.str()));
-
-                                            std::vector<server::Remote> peers = ctx_ptr->get_peers();
-                                            boost::json::array ja;
-                                            for(auto& peer: peers){                                                         
-                                                ja.push_back(boost::json::string(rtostr(peer)));
-                                            }                                                           
-                                            jo.emplace("peers", ja);
-                                            
-                                            boost::json::object jo_ctx;
-                                            jo_ctx.emplace("execution_context", jo);
-                                            std::stringstream ss;
-                                            ss << jo_ctx;
-                                            std::string data(ss.str());
-
-                                            std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
-                                                http::HttpVerb::PUT,
-                                                "/run",
-                                                http::HttpVersion::V1_1,
-                                                {
-                                                    CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                                },
-                                                {
-                                                    {{data.size()}, data}
-                                                }
-                                            };
-                                            client_session->write([&](){ return; });
-                                        }
-                                    });
-                                }
-                            }
-                        } 
-                        boost::json::object& jr = val.as_object().at("result").as_object();
-                        for(auto& kvp: jr){
-                            std::string k(kvp.key());
-                            auto rel = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& r){
-                                return r->key() == k;
+                        return;        
+                    }
+                    while(next_comma < chunk_size){
+                        std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
+                        if(json_obj_str.empty()){
+                            continue;
+                        } else if (json_obj_str.front() == ']'){
+                            /* Function is complete. Terminate the execution context */
+                            auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                                auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
+                                return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
                             });
-                            if(rel == (*ctx)->manifest().end()){
-                                throw "This shouldn't be possible";
-                            }
-                            
-                            std::string data = boost::json::serialize(kvp.value());
-                            (*rel)->acquire_value() = data;
-                            (*rel)->release_value();
-
-                            /* Reschedule if necessary */
-                            std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
-                            auto& thread = (*ctx)->thread_controls()[idx];     
-                            auto execution_idxs = thread.stop_thread();
-
-                            std::size_t manifest_size = (*ctx)->manifest().size();
-                            for(auto& i: execution_idxs){
-                                // Get the starting relation.
-                                std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
-                                std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
-                                if(start->key().size() == 0){
-                                    // If the start key is empty, that means that all tasks in the schedule are complete.
-                                    // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
-                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                    break;
-                                } else {
-                                    // Find the index in the manifest of the starting relation.
-                                    auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
-                                        return rel->key() == start->key();
-                                    });
-                                    if(start_it == (*ctx)->manifest().end()){
-                                        throw "This shouldn't be possible";
+                            if(server_ctx != ctx_ptrs.end()){
+                                std::size_t num_valid_threads = 0;
+                                for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
+                                    (*server_ctx)->thread_controls()[i].stop_thread();
+                                    if((*server_ctx)->thread_controls()[i].is_valid()){
+                                        if(num_valid_threads >= 1){
+                                            (*server_ctx)->thread_controls()[i].invalidate();
+                                        } else {
+                                            ++num_valid_threads;
+                                        }
                                     }
-                                    std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
-                                    (*ctx)->thread_controls()[start_idx].notify(i);
-                                }                 
+                                }
+                                std::string data("{}");
+                                for(auto& rel: (*server_ctx)->manifest()){
+                                    auto& value = rel->acquire_value();
+                                    if(value.empty()){
+                                        value = data;
+                                    }
+                                    rel->release_value();
+                                }
+                                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                            }
+                            return;
+                        }
+                        boost::json::error_code ec;
+                        boost::json::value val = boost::json::parse(
+                            json_obj_str, 
+                            ec
+                        );
+                        auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
+                            auto tmp = std::find(cp->peer_client_sessions().begin(), cp->peer_client_sessions().end(), session);
+                            return (tmp == cp->peer_client_sessions().end()) ? false : true;
+                        });
+                        if(ctx == ctx_ptrs.end()){
+                            session->close();
+                        } else {
+                            if(res.pos == 0){
+                                boost::json::array& ja = val.as_object().at("peers").as_array();
+                                std::vector<std::string> peers;
+                                for(auto& peer: ja){
+                                    peers.emplace_back(peer.as_string());
+                                }
+                                std::vector<server::Remote> old_peers = (*ctx)->get_peers();
+                                (*ctx)->merge_peer_addresses(peers);
+                                std::vector<server::Remote> new_peers = (*ctx)->get_peers();
+                                for(auto& peer: new_peers){
+                                    auto it = std::find_if(old_peers.begin(), old_peers.end(), [&](auto& p){
+                                        return (p.ipv4_addr.address.sin_addr.s_addr == peer.ipv4_addr.address.sin_addr.s_addr && p.ipv4_addr.address.sin_port == peer.ipv4_addr.address.sin_port);
+                                    });
+                                    if(it == old_peers.end()){
+                                        std::shared_ptr<controller::app::ExecutionContext>& ctx_ptr = *ctx;
+                                        io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                            if(!ec){
+                                                std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
+                                                hcs_.push_back(client_session);
+                                                ctx_ptr->peer_client_sessions().push_back(client_session);
+
+                                                boost::json::object jo;
+                                                UUID::Uuid uuid = ctx_ptr->execution_context_id();
+                                                std::stringstream uuid_str;
+                                                uuid_str << uuid;
+                                                jo.emplace("uuid", boost::json::string(uuid_str.str()));
+
+                                                std::vector<server::Remote> peers = ctx_ptr->get_peers();
+                                                boost::json::array ja;
+                                                for(auto& peer: peers){                                                         
+                                                    ja.push_back(boost::json::string(rtostr(peer)));
+                                                }                                                           
+                                                jo.emplace("peers", ja);
+                                                
+                                                boost::json::object jo_ctx;
+                                                jo_ctx.emplace("execution_context", jo);
+                                                std::stringstream ss;
+                                                ss << jo_ctx;
+                                                std::string data(ss.str());
+
+                                                std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
+                                                    http::HttpVerb::PUT,
+                                                    "/run",
+                                                    http::HttpVersion::V1_1,
+                                                    {
+                                                        CONTROLLER_APP_COMMON_HTTP_HEADERS
+                                                    },
+                                                    {
+                                                        {{data.size()}, data}
+                                                    }
+                                                };
+                                                client_session->write([&](){ return; });
+                                            }
+                                        });
+                                    }
+                                }
+                            } 
+                            boost::json::object& jr = val.as_object().at("result").as_object();
+                            for(auto& kvp: jr){
+                                std::string k(kvp.key());
+                                auto rel = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& r){
+                                    return r->key() == k;
+                                });
+                                if(rel == (*ctx)->manifest().end()){
+                                    throw "This shouldn't be possible";
+                                }
+                                
+                                std::string data = boost::json::serialize(kvp.value());
+                                (*rel)->acquire_value() = data;
+                                (*rel)->release_value();
+
+                                /* Reschedule if necessary */
+                                std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
+                                auto& thread = (*ctx)->thread_controls()[idx];     
+                                auto execution_idxs = thread.stop_thread();
+
+                                std::size_t manifest_size = (*ctx)->manifest().size();
+                                for(auto& i: execution_idxs){
+                                    // Get the starting relation.
+                                    std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
+                                    std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
+                                    if(start->key().size() == 0){
+                                        // If the start key is empty, that means that all tasks in the schedule are complete.
+                                        // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
+                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                        break;
+                                    } else {
+                                        // Find the index in the manifest of the starting relation.
+                                        auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
+                                            return rel->key() == start->key();
+                                        });
+                                        if(start_it == (*ctx)->manifest().end()){
+                                            throw "This shouldn't be possible";
+                                        }
+                                        std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
+                                        (*ctx)->thread_controls()[start_idx].notify(i);
+                                    }                 
+                                }
                             }
                         }
                     }
                 }
+                http::HttpReqRes rr = session->get();
+                std::get<http::HttpResponse>(rr) = res;
+                session->set(rr);
             }
-            http::HttpReqRes rr = session->get();
-            std::get<http::HttpResponse>(rr) = res;
-            session->set(rr);
+        } else {
+            std::cerr << "Route Response received an error code!" << std::endl;
+            auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
+                auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
+                return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
+            });
+            if(server_ctx == ctx_ptrs.end()){
+                // The doesn't belong to a context so just close it.
+                session->close();
+            }
+            auto& ctx_ptr = *server_ctx;
+            std::vector<server::Remote> peers = ctx_ptr->get_peers();
+            if(peers.size() < 3){
+                // A peer list size of 1 indicates that the only peer is myself.
+                // A peer list size of 2 indicates that the only peers I have are myself, and a primary context.
+                // If the only peers I have in my list are myself and a primary context AND an error code is returned by a peer (MUST be the primary context).
+                // Then the execution context is finished and I should terminate the context.
+                std::size_t num_valid_threads = 0;
+                for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
+                    auto& thread = ctx_ptr->thread_controls()[i];
+                    auto& relation = ctx_ptr->manifest()[i];
+                    auto& value = relation->acquire_value();
+                    if(value.empty()){
+                        value = "{}";
+                    }
+                    relation->release_value();
+                    thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                    if(num_valid_threads > 0){
+                        thread.invalidate();
+                    } else {
+                        ++num_valid_threads;
+                    }
+                }
+                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                return;
+            } else {
+                // A peer list of >= 3 AND an error code in the response message indiciates that 
+                // one of the peers that ARE NOT the primary context has a failure (or perhaps a race condition).
+                // The correct behaviour here is to close the session and not retry.
+                session->close();
+            }
         }
         return;
     }
@@ -578,8 +622,63 @@ namespace app{
                                     // If ctx_ptr is already in the controller ctx_ptrs then threads don't need to be initialized again.
                                     auto ctx_it = std::find(ctx_ptrs.begin(), ctx_ptrs.end(), ctx_ptr);
                                     if (ctx_it == ctx_ptrs.end()){
-                                        ctx_ptr->peer_addresses().push_back(io_.local_sctp_address);
+                                        auto it = std::find_if(ctx_ptr->peer_addresses().begin(), ctx_ptr->peer_addresses().end(), [&](auto& peer){
+                                            return (peer.ipv4_addr.address.sin_addr.s_addr == io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr && peer.ipv4_addr.address.sin_port == io_.local_sctp_address.ipv4_addr.address.sin_port);
+                                        });
+                                        if(it == ctx_ptr->peer_addresses().end()){
+                                            ctx_ptr->peer_addresses().push_back(io_.local_sctp_address);
+                                        }
                                         ctx_ptrs.push_back(ctx_ptr);
+                                        #ifndef DEBUG
+                                        if(val.get_object().at("value").as_object().contains("execution_context")){
+                                            // If this is a new execution_context AND the function input parameters
+                                            // are wrapped in an existing execution context AND the primary peer address in the 
+                                            // incoming execution context is equal to the local SCTP address; then this execution context has already
+                                            // completed. The correct behaviour here is to terminate the context.
+
+                                            // We don't want to execute this logic in debug builds as it guards against explicitly setting 
+                                            // the UUID for new execution contexts (new execution contexts MUST use a locally generated UUID).
+                                            boost::json::array& ja = val.get_object()["value"].get_object()["execution_context"].at("peers").as_array();
+                                            std::string p(ja[0].as_string());
+                                            std::size_t pos = p.find(':');
+                                            std::string_view pip(&p[0],pos);
+                                            std::string_view pport(&p[pos+1], p.size()-pos-1);
+                                            std::uint16_t portnum = 0;
+                                            std::from_chars_result fcres = std::from_chars(pport.data(), pport.data()+pport.size(), portnum,10);
+                                            if(fcres.ec != std::errc()){
+                                                std::cerr << "Converting: " << pport << " to uint16_t failed: " << std::make_error_code(fcres.ec).message() << std::endl;
+                                                throw "This shouldn't happen!";
+                                            }
+                                            struct sockaddr_in rip = {
+                                                AF_INET,
+                                                htons(portnum)
+                                            };
+                                            std::string pip_str(pip);
+                                            int ec = inet_aton(pip_str.c_str(), &rip.sin_addr);
+                                            if(ec == 0){
+                                                std::cerr << "Converting: " << pip << " to struct in_addr failed." << std::endl;
+                                                throw "This shouldn't happen!";
+                                            }
+                                            if(rip.sin_addr.s_addr == io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr && rip.sin_port == io_.local_sctp_address.ipv4_addr.address.sin_port){
+                                                std::size_t num_valid_threads = 0;
+                                                for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
+                                                    auto& thread = ctx_ptr->thread_controls()[i];
+                                                    auto& relation = ctx_ptr->manifest()[i];
+                                                    relation->acquire_value() = "{}";
+                                                    relation->release_value();
+                                                    thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    if(num_valid_threads > 0){
+                                                        thread.invalidate();
+                                                    } else {
+                                                        ++num_valid_threads;
+                                                    }
+                                                }
+                                                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                                break;                   
+                                            }
+                                        }
+                                        #endif
                                         const std::size_t& manifest_size = ctx_ptr->manifest().size();
                                         for( std::size_t i = 0; i < manifest_size; ++i ){
                                             std::thread executor(
@@ -668,9 +767,6 @@ namespace app{
                                                 std::vector<const char*> argv;
                                                 argv.push_back(bin_curl);
                                                 argv.push_back("--no-progress-meter");
-                                                // Parallel requests.
-                                                // argv.push_back("--parallel-immediate");
-                                                // argv.push_back("--parallel");
 
                                                 /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
                                                 $__OW_API_HOST/api/v1/$__OW_ACTION_NAME. With basic http authentication -u "$__OW_API_KEY".
@@ -737,14 +833,18 @@ namespace app{
                                                 }
                                                 // waitpid is handled by trapping SIGCHLD.
                                             }
-
-
                                         } else {
                                             /* This is a secondary context */
                                             for(auto& peer: ctx_ptr->peer_addresses()){
-                                                if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){                                                    
+                                                std::cerr << "Connecting to Peer: " << rtostr(peer) << std::endl;
+
+
+                                                if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){   
+                                                    std::cerr << "Connect to peer!" << std::endl;                                                 
                                                     io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                                        std::cerr << "Async Connect Returned!" << std::endl;
                                                         if(!ec){
+                                                            std::cerr << "Async Connect Succeeded!" << std::endl;
                                                             std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                                             hcs_.push_back(client_session);
                                                             ctx_ptr->peer_client_sessions().push_back(client_session);
@@ -778,7 +878,7 @@ namespace app{
                                                                     {{data.size()}, data}
                                                                 }
                                                             };
-                                                            client_session->write([&](){ return; });
+                                                            client_session->write([&](){ std::cerr<< "Write to SCTP Succeeded!" << std::endl; return; });
                                                         }
                                                     });
                                                 }
