@@ -85,6 +85,7 @@ namespace io{
         std::string subnet(network_prefix);
         std::size_t pos = subnet.find('/');
         if(pos == std::string::npos){
+            std::cerr << "subnet string doesn't have a / in it." << std::endl;
             throw "this shouldn't be possible";
         }
         std::string nprefix = subnet.substr(0, pos);
@@ -94,13 +95,13 @@ namespace io{
         npaddr.sin_port = htons(sport);
         int ec = inet_aton(nprefix.c_str(), &npaddr.sin_addr);
         if(ec == -1){
-            perror("inet_aton failed");
+            std::cerr << "Inet_aton failed." << std::endl;
             throw "this shouldn't be possible.";
         }
         // Get the interface addresses.
         struct ifaddrs* ifah;
         if(getifaddrs(&ifah) == -1){
-            perror("getifaddrs failed");
+            std::cerr << "Get interface addresses failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
             throw "This shouldn't be possible.";
         }
         struct sockaddr_in laddr;

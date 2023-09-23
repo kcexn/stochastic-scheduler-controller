@@ -142,7 +142,7 @@ namespace app{
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
         // Scheduling Loop.
-        // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
+        // The TERMIN   TE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while( !(controller_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT) ){
             std::shared_ptr<server::Session> server_session;
             lk.lock();
@@ -489,7 +489,6 @@ namespace app{
                 session->set(rr);
             }
         } else {
-            std::cerr << "Route Response received an error code!" << std::endl;
             auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
                 auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
                 return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
@@ -767,6 +766,8 @@ namespace app{
                                                 std::vector<const char*> argv;
                                                 argv.push_back(bin_curl);
                                                 argv.push_back("--no-progress-meter");
+                                                argv.push_back("--parallel-immediate");
+                                                argv.push_back("--parallel");
 
                                                 /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
                                                 $__OW_API_HOST/api/v1/$__OW_ACTION_NAME. With basic http authentication -u "$__OW_API_KEY".
@@ -836,15 +837,9 @@ namespace app{
                                         } else {
                                             /* This is a secondary context */
                                             for(auto& peer: ctx_ptr->peer_addresses()){
-                                                std::cerr << "Connecting to Peer: " << rtostr(peer) << std::endl;
-
-
                                                 if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){   
-                                                    std::cerr << "Connect to peer!" << std::endl;                                                 
                                                     io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
-                                                        std::cerr << "Async Connect Returned!" << std::endl;
                                                         if(!ec){
-                                                            std::cerr << "Async Connect Succeeded!" << std::endl;
                                                             std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                                             hcs_.push_back(client_session);
                                                             ctx_ptr->peer_client_sessions().push_back(client_session);
@@ -878,7 +873,7 @@ namespace app{
                                                                     {{data.size()}, data}
                                                                 }
                                                             };
-                                                            client_session->write([&](){ std::cerr<< "Write to SCTP Succeeded!" << std::endl; return; });
+                                                            client_session->write([&](){ return; });
                                                         }
                                                     });
                                                 }
