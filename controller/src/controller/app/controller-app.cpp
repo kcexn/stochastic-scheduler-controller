@@ -754,13 +754,6 @@ namespace app{
                                                 jo.emplace("peers", ja);
                                                 jo.emplace("value", val.at("value").as_object());
 
-                                                // Dump all of cURLs output to /dev/null, we don't care about the server responses.
-                                                int dev_null = open("/dev/null", O_WRONLY);
-                                                if(dev_null == -1){
-                                                    std::cerr << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                    break;
-                                                }
-
                                                 // Construct the curl command.
                                                 const char* bin_curl = "/usr/bin/curl";
                                                 std::vector<const char*> argv;
