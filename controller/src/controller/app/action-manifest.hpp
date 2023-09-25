@@ -27,6 +27,7 @@ namespace app{
         ActionManifest();
         void emplace(const std::string& key, const boost::json::object& manifest);
         std::shared_ptr<Relation> next(const std::string& key, const std::size_t& idx);
+        std::size_t& concurrency(){ return concurrency_; }
 
         // Reexport the std::vector interface.
         std::vector<std::shared_ptr<Relation> >::iterator begin();
@@ -45,6 +46,7 @@ namespace app{
 
         std::vector<std::shared_ptr<Relation> >::size_type size(){ return index_.size(); }
     private:
+        std::size_t concurrency_;
         std::vector<std::shared_ptr<Relation> > index_;
     };
 }//namespace app

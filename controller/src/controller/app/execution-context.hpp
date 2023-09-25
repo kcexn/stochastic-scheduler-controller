@@ -28,13 +28,10 @@ namespace app{
     public:
         constexpr static struct Init{} init{};
         constexpr static struct Run{} run{};
-        /* Hardcode concurrency for now */
-        const static std::size_t concurrency = 2;
         
         ExecutionContext(): execution_context_id_(UUID::Uuid(UUID::Uuid::v4)), execution_context_idx_stack_{0} {}
         explicit ExecutionContext(Init init);
         explicit ExecutionContext(Run run);
-        explicit ExecutionContext(Run run, const UUID::Uuid& uuid);
         explicit ExecutionContext(Run run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers);
         bool is_stopped();
 

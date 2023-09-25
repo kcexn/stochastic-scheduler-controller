@@ -217,6 +217,7 @@ namespace app{
                                 }
                             );
                             (*it)->sessions().pop_back();
+                            flush_wsk_logs();
                         }
                         while((*it)->peer_server_sessions().size() > 0){
                             std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
@@ -250,7 +251,6 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end())? false : true;
                         });
-                        flush_wsk_logs();
                     } else {
                         // Evaluate which thread to execute next and notify it.
                         auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
@@ -713,16 +713,7 @@ namespace app{
                                             // The primary context will have no client peer connections, only server peer connections.
                                             // The primary context must hit the OW API endpoint `concurrency' no. of times with the
                                             // a different execution context idx and the same execution context id each time.
-                                            std::size_t concurrency = 1;
-                                            char* __OW_NUM_CONCURRENT = getenv("__OW_NUM_CONCURRENT");
-                                            if(__OW_NUM_CONCURRENT != nullptr){
-                                                std::string concurrent_requests(__OW_NUM_CONCURRENT);
-                                                std::from_chars_result fcres = std::from_chars(concurrent_requests.data(), concurrent_requests.data()+concurrent_requests.size(), concurrency, 10);
-                                                if(fcres.ec != std::errc()){
-                                                    std::cerr << std::make_error_code(fcres.ec).message() << std::endl;
-                                                    throw "This shouldn't happen";
-                                                }
-                                            }
+                                            std::size_t concurrency = ctx_ptr->manifest().concurrency();
                                             if(concurrency > 1){
                                                 char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
                                                 char* __OW_API_HOST = getenv("__OW_API_HOST");
@@ -761,6 +752,20 @@ namespace app{
                                                 argv.push_back("--no-progress-meter");
                                                 argv.push_back("--parallel-immediate");
                                                 argv.push_back("--parallel");
+                                                argv.push_back("--parallel-max");
+
+                                                // construct the integer string for concurrency.
+                                                std::array<char, 32> concurrency_string;
+                                                std::string cstr;
+                                                std::to_chars_result tcres = std::to_chars(concurrency_string.data(), concurrency_string.data()+concurrency_string.size(), concurrency, 10);
+                                                if(tcres.ec == std::errc()){
+                                                    std::ptrdiff_t size = tcres.ptr - concurrency_string.data();
+                                                    cstr = std::string(concurrency_string.data(), size);
+                                                } else {
+                                                    std::cerr << "To Chars conversion failed: " << std::make_error_code(tcres.ec).message() << std::endl;
+                                                    throw "This Shouldn't happen.";
+                                                }
+                                                argv.push_back(cstr.c_str());
 
                                                 /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
                                                 $__OW_API_HOST/api/v1/$__OW_ACTION_NAME. With basic http authentication -u "$__OW_API_KEY".
