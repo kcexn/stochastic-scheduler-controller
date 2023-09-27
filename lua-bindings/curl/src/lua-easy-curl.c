@@ -5,6 +5,62 @@
 #include <stdio.h>
 #include <string.h>
 
+static int new_readbuf(lua_State* L){
+    int n;
+    int type;
+    size_t len;
+    const char* data;
+
+    void* buf;
+    FILE* stream;
+
+    n = lua_gettop(L);
+    if(n != 1){
+        return luaL_error(L, "This function takes 1 argument.");
+    }
+    type = lua_type(L,1);
+    if(type != LUA_TSTRING){
+        return luaL_error(L, "The first argument must be of type string.");
+    }
+    
+    data = lua_tolstring(L,1,NULL);
+    len = strlen(data);
+    buf = malloc(len);
+    memcpy(buf, data, len);
+    stream = fmemopen(buf, len, "r");
+    lua_pushlightuserdata(L, buf);
+    lua_pushlightuserdata(L, stream);
+    return 2;
+}
+
+static int close_readbuf(lua_State* L){
+    int n;
+    int type;
+    void* buf;
+    FILE* stream;
+
+    n = lua_gettop(L);
+    if(n != 2){
+        return luaL_error(L, "This function takes two arguments.");
+    }
+    type = lua_type(L,2);
+    if(type != LUA_TLIGHTUSERDATA){
+        return luaL_error(L, "The second argument must be a FILE* stream.");
+    }
+    stream = lua_touserdata(L, 2);
+    fclose(stream);
+
+    type = lua_type(L,1);
+    if(type != LUA_TLIGHTUSERDATA){
+        return luaL_error(L, "The first argument must be a void* buffer.");
+    }
+    buf = lua_touserdata(L,1);
+    free(buf);
+    lua_pushnil(L);
+    lua_pushnil(L);
+    return 2;
+}
+
 static int new_writebuf(lua_State* L){
     int n;
     FILE* stream;
@@ -201,6 +257,8 @@ static const struct luaL_Reg easyCurl[] = {
     {"easy_init", easy_init},
     {"new_writebuf", new_writebuf},
     {"close_writebuf", close_writebuf}, 
+    {"new_readbuf", new_readbuf},
+    {"close_readbuf", close_readbuf},
     {NULL, NULL} 
 };
 
