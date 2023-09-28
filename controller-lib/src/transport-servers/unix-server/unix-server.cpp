@@ -34,6 +34,8 @@ namespace UnixServer{
                             // handler.
                             fn();
                         }
+                    } else {
+                        std::cerr << "Unix Domain Socket Async Write error: " << ec.what() << std::endl;
                     }
                 }
             );

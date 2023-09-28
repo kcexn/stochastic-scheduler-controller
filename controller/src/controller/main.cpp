@@ -15,23 +15,26 @@ extern "C"{
     void handler(int signum){
         switch(signum){
             case SIGTERM:
+            {
                 SIGNAL_PTR->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
                 SIGNAL_CV_PTR->notify_all();
                 break;
+            }
             case SIGCHLD:
+            {
                 int wstatus = 0;
                 pid_t pid = 0;
                 do{
                     pid = waitpid(0, &wstatus, WNOHANG);
                 } while(pid > 0);
                 break;
+            }
         }
     }
 }
 
 int main(int argc, char* argv[])
 {
-    std::ios_base::sync_with_stdio(false);
     int opt;
     const char* port = nullptr;
     const char* usock_path = nullptr;
@@ -63,7 +66,7 @@ int main(int argc, char* argv[])
         std::cerr << std::make_error_code(fcres.ec).message() << std::endl;
         throw "This should never happen.";
     }
- 
+
     SIGNAL_MTX_PTR = std::make_shared<std::mutex>();
     SIGNAL_PTR = std::make_shared<std::atomic<std::uint16_t> >();
     SIGNAL_CV_PTR = std::make_shared<std::condition_variable>();
@@ -74,7 +77,7 @@ int main(int argc, char* argv[])
     new_action.sa_flags=0;
     sigaction(SIGTERM, &new_action, NULL);
     sigaction(SIGCHLD, &new_action, NULL);
-
+    
     boost::asio::io_context ioc;
     std::shared_ptr<controller::io::MessageBox> mbx = std::make_shared<controller::io::MessageBox>();
     mbx->sched_signal_mtx_ptr = SIGNAL_MTX_PTR;

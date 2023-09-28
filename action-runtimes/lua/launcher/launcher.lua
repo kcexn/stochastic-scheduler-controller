@@ -7,6 +7,13 @@ io.stdout:flush()
 
 -- Begin execution.
 input = io.stdin:read()
+if(input == nil) then
+    io.stdout:write(
+        cjson.encode({["error"]="Action input was empty."})
+    )
+    io.stdout:flush()
+    os.exit(false)
+end
 params = cjson.decode(input)
 
 res = main(params)

@@ -142,8 +142,8 @@ namespace app{
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
         // Scheduling Loop.
-        // The TERMIN   TE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
-        while( !(controller_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT) ){
+        // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
+        while(!(controller_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed)&CTL_TERMINATE_EVENT) || !ctx_ptrs.empty()){
             std::shared_ptr<server::Session> server_session;
             lk.lock();
             io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ 
@@ -158,7 +158,7 @@ namespace app{
                 io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
             }
             lk.unlock();
-            if(thread_local_signal & CTL_TERMINATE_EVENT){
+            if( (thread_local_signal&CTL_TERMINATE_EVENT) && ctx_ptrs.empty()){
                 break;
             }
             if(server_session){
@@ -203,22 +203,8 @@ namespace app{
                 while(it != ctx_ptrs.end()){
                     // Check to see if the context is stopped.
                     if ((*it)->is_stopped()){
-                        // create the response.
                         boost::json::value val;
                         // Finish and close all of the HTTP sessions.
-                        while((*it)->sessions().size() > 0 ){
-                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
-                            http::HttpReqRes rr;
-                            std::get<http::HttpResponse>(rr) = create_response(**it, val);
-                            next_session->write(
-                                rr,
-                                [&, next_session](){
-                                    next_session->close();
-                                }
-                            );
-                            (*it)->sessions().pop_back();
-                            flush_wsk_logs();
-                        }
                         while((*it)->peer_server_sessions().size() > 0){
                             std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
                             http::HttpReqRes rr = next_session->get();
@@ -243,6 +229,20 @@ namespace app{
                             });
                             (*it)->peer_client_sessions().pop_back();
                         }
+                        // create the response.
+                        http::HttpReqRes rr;
+                        std::get<http::HttpResponse>(rr) = create_response(**it, val);
+                        while((*it)->sessions().size() > 0 ){
+                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
+                            next_session->set(rr);
+                            next_session->write(
+                                [&, next_session](){
+                                    next_session->close();
+                                }
+                            );
+                            (*it)->sessions().pop_back();
+                            flush_wsk_logs();
+                        }
                         ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
                         // Find a context that has a stopped thread.
                         it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
@@ -258,6 +258,7 @@ namespace app{
                         });
                         // invalidate the thread.
                         std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
+                        // Do the subsequent steps only if there are execution idxs that exited normally.
                         // get the index of the stopped thread.
                         std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
                         /* For every peer in the peer table notify them with a state update */
@@ -323,7 +324,7 @@ namespace app{
     void Controller::route_response(std::shared_ptr<http::HttpClientSession>& session){
         http::HttpReqRes req_res = session->get();
         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
-        if(res.status == http::HttpStatus::OK){
+        if(res.status == http::HttpStatus::CREATED){
             if(res.next_chunk > 0){
                 for(; res.pos < res.next_chunk; ++res.pos){
                     std::size_t next_comma = 0;
@@ -347,10 +348,10 @@ namespace app{
                             if(server_ctx != ctx_ptrs.end()){
                                 std::size_t num_valid_threads = 0;
                                 for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
-                                    (*server_ctx)->thread_controls()[i].stop_thread();
+                                    auto tmp = (*server_ctx)->thread_controls()[i].stop_thread();
                                     if((*server_ctx)->thread_controls()[i].is_valid()){
-                                        if(num_valid_threads >= 1){
-                                            (*server_ctx)->thread_controls()[i].invalidate();
+                                        if(num_valid_threads > 0){
+                                            tmp = (*server_ctx)->thread_controls()[i].invalidate();
                                         } else {
                                             ++num_valid_threads;
                                         }
@@ -445,18 +446,21 @@ namespace app{
                                     return r->key() == k;
                                 });
                                 if(rel == (*ctx)->manifest().end()){
+                                    std::cerr << "No relation with this key could be found in the manifest." << std::endl;
                                     throw "This shouldn't be possible";
                                 }
                                 
                                 std::string data = boost::json::serialize(kvp.value());
-                                (*rel)->acquire_value() = data;
+                                auto& value = (*rel)->acquire_value();
+                                if(value.empty()){
+                                    value = data;
+                                }
                                 (*rel)->release_value();
 
                                 /* Reschedule if necessary */
                                 std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
                                 auto& thread = (*ctx)->thread_controls()[idx];     
                                 auto execution_idxs = thread.stop_thread();
-
                                 std::size_t manifest_size = (*ctx)->manifest().size();
                                 for(auto& i: execution_idxs){
                                     // Get the starting relation.
@@ -474,6 +478,7 @@ namespace app{
                                             return rel->key() == start->key();
                                         });
                                         if(start_it == (*ctx)->manifest().end()){
+                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
                                             throw "This shouldn't be possible";
                                         }
                                         std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
@@ -515,7 +520,7 @@ namespace app{
                     relation->release_value();
                     thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                     if(num_valid_threads > 0){
-                        thread.invalidate();
+                        auto tmp = thread.invalidate();
                     } else {
                         ++num_valid_threads;
                     }
@@ -578,10 +583,10 @@ namespace app{
                             if(server_ctx != ctx_ptrs.end()){
                                 std::size_t num_valid_threads = 0;
                                 for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
-                                    (*server_ctx)->thread_controls()[i].stop_thread();
+                                    auto tmp = (*server_ctx)->thread_controls()[i].stop_thread();
                                     if((*server_ctx)->thread_controls()[i].is_valid()){
                                         if(num_valid_threads >= 1){
-                                            (*server_ctx)->thread_controls()[i].invalidate();
+                                            tmp = (*server_ctx)->thread_controls()[i].invalidate();
                                         } else {
                                             ++num_valid_threads;
                                         }
@@ -606,7 +611,10 @@ namespace app{
                             json_obj_str,
                             ec
                         );
-                        if(ec){throw "Json Parsing failed.";}
+                        if(ec){
+                            std::cerr << "JSON parsing failed." << std::endl;
+                            throw "Json Parsing failed.";
+                        }
                         if(req.route == "/run"){
                             if(req.verb == http::HttpVerb::POST){
                                 controller::resources::run::Request run(val.as_object());
@@ -667,7 +675,7 @@ namespace app{
                                                     relation->release_value();
                                                     thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                     if(num_valid_threads > 0){
-                                                        thread.invalidate();
+                                                        auto tmp = thread.invalidate();
                                                     } else {
                                                         ++num_valid_threads;
                                                     }
@@ -1016,6 +1024,7 @@ namespace app{
                                         /* There has been an error, the execution context no longer exists. Simply terminate the stream. */
                                         http::HttpReqRes rr = session->get();
                                         http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                        res.chunks.push_back(http::HttpChunk{{1},"]"});
                                         res.chunks.push_back(http::HttpChunk{{0},""});
                                         session->set(rr);
                                         session->write([&,session](){
@@ -1031,17 +1040,20 @@ namespace app{
                                                 return r->key() == k;
                                             });
                                             if(relation == (*server_ctx)->manifest().end()){
+                                                std::cerr << "Relation does not exist in the active manifest." << std::endl;
                                                 throw "This should never happen.";
                                             }
                                             std::string data = boost::json::serialize(kvp.value());
-                                            (*relation)->acquire_value() = data;
+                                            auto& value = (*relation)->acquire_value();
+                                            if(value.empty()){
+                                                value = data;
+                                            }
                                             (*relation)->release_value();
 
                                             /* Trigger rescheduling if necessary */
                                             std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
                                             auto& thread = (*server_ctx)->thread_controls()[idx];     
                                             auto execution_idxs = thread.stop_thread();
-
                                             std::size_t manifest_size = (*server_ctx)->manifest().size();
                                             for(auto& i: execution_idxs){
                                                 // Get the starting relation.
@@ -1059,6 +1071,7 @@ namespace app{
                                                         return rel->key() == start->key();
                                                     });
                                                     if(start_it == (*server_ctx)->manifest().end()){
+                                                        std::cerr << "Relation does not exist in the active manifest." << std::endl;
                                                         throw "This shouldn't be possible";
                                                     }
                                                     std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
@@ -1158,6 +1171,7 @@ namespace app{
                 bool ec{false};
                 const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
                 if ( __OW_ACTIONS == nullptr ){
+                    std::cerr << "Environment Variable __OW_ACTIONS is not defined." << std::endl;
                     throw "environment variable __OW_ACTIONS is not defined.";
                 }
                 std::filesystem::path path(__OW_ACTIONS);
@@ -1218,11 +1232,11 @@ namespace app{
                     req.version,
                     http::HttpStatus::INTERNAL_SERVER_ERROR,
                     {
-                        {http::HttpHeaderField::CONTENT_LENGTH, "0"},
+                        {http::HttpHeaderField::CONTENT_LENGTH, "33"},
                         CONTROLLER_APP_COMMON_HTTP_HEADERS
                     },
                     {
-                        {{0}, ""}
+                        {{33}, "{\"error\":\"Internal Server Error\"}"}
                     }
                 };
             }            

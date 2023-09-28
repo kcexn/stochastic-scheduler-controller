@@ -11,19 +11,25 @@ namespace app{
     }
 
     void ThreadControls::notify(std::size_t idx){ 
+        ctx_mtx_->lock();
         execution_context_idxs_.push_back(idx);
+        ctx_mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed); 
         cv_->notify_all(); 
         return; 
     }
 
     std::vector<std::size_t> ThreadControls::invalidate() {
-        valid_->store(false, std::memory_order::memory_order_relaxed);  
-        std::vector<std::size_t> tmp(execution_context_idxs_.size());
-        std::memcpy(tmp.data(), execution_context_idxs_.data(), execution_context_idxs_.size());
-        // Clear the execution context idx vector so that subsequent invalidates do not
-        // receive a list of executions indexes to assign work to.
-        execution_context_idxs_.clear();
+        valid_->store(false, std::memory_order::memory_order_relaxed); 
+        std::vector<std::size_t> tmp;
+        ctx_mtx_->lock();
+        if(!execution_context_idxs_.empty()){
+            tmp.insert(tmp.end(), execution_context_idxs_.begin(), execution_context_idxs_.end());
+            // Clear the execution context idx vector so that subsequent invalidates do not
+            // receive a list of executions indexes to assign work to.
+            execution_context_idxs_.clear();
+        }
+        ctx_mtx_->unlock();
         return tmp;
     }
 
@@ -38,13 +44,14 @@ namespace app{
             }
         }
         std::vector<std::size_t> tmp;
-        tmp.reserve(execution_context_idxs_.size());
+        ctx_mtx_->lock();
         if(!execution_context_idxs_.empty()){
             tmp.insert(tmp.end(), execution_context_idxs_.begin(), execution_context_idxs_.end());
             // Clear the execution context idx vector so that subsequent invalidates do not
             // receive a list of executions indexes to assign work to.
             execution_context_idxs_.clear();
         }
+        ctx_mtx_->unlock();
         return tmp;
     }
 

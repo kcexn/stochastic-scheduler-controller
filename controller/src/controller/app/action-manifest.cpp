@@ -9,7 +9,8 @@
 namespace controller{
 namespace app{
     ActionManifest::ActionManifest()
-      : index_()
+      : concurrency_{1},
+        index_()
     {}
 
     void ActionManifest::emplace(const std::string& key, const boost::json::object& manifest){

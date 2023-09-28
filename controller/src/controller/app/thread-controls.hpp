@@ -18,6 +18,7 @@ namespace app{
         explicit ThreadControls():
             pid_{0},
             mtx_(std::make_unique<std::mutex>()), 
+            ctx_mtx_(std::make_unique<std::mutex>()),
             cv_(std::make_unique<std::condition_variable>()), 
             signal_(std::make_unique<std::atomic<std::uint16_t> >()),
             valid_(std::make_unique<std::atomic<bool> >(true))
@@ -38,6 +39,7 @@ namespace app{
         pthread_t tid_;
         pid_t pid_;
         std::unique_ptr<std::mutex> mtx_;
+        std::unique_ptr<std::mutex> ctx_mtx_;
         std::unique_ptr<std::condition_variable> cv_;
         std::unique_ptr<std::atomic<std::uint16_t> > signal_;
         std::unique_ptr<std::atomic<bool> > valid_;
