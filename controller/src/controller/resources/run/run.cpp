@@ -108,31 +108,40 @@ namespace run{
                     std::string k = relation->key();
                     std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, f.c_str(), k.c_str(), nullptr};
                     pid_t pid = fork();
-                    if ( pid == 0 ){
-                        //Child Process.
-                        if( close(downstream[1]) == -1 ){
-                            perror("closing the downstream write in the child process failed.");
-                        }
-                        if ( close(upstream[0]) == -1 ){
-                            perror("closing the upstream read in the child process failed.");
-                        }
-                        if (dup2(downstream[0], STDIN_FILENO) == -1){
-                            perror("Failed to map the downstream read to STDIN.");
-                        }
-                        if (dup2(upstream[1], STDOUT_FILENO) == -1){
-                            perror("Failed to map the upstream write to STDOUT.");
-                        }
-                        // Since this happens AFTER the fork, this is thread safe.
-                        // fork(2) means that the child process makes a COPY of the parents environment variables.s
-                        for ( auto pair: req.env() ){
-                            if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
-                                std::cerr << "Exporting environment variable failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                    switch(pid){
+                        case 0:
+                            //Child Process.
+                            if( close(downstream[1]) == -1 ){
+                                perror("closing the downstream write in the child process failed.");
                             }
-                        }
-                        execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
-                        exit(1);
+                            if ( close(upstream[0]) == -1 ){
+                                perror("closing the upstream read in the child process failed.");
+                            }
+                            if (dup2(downstream[0], STDIN_FILENO) == -1){
+                                perror("Failed to map the downstream read to STDIN.");
+                            }
+                            if (dup2(upstream[1], STDOUT_FILENO) == -1){
+                                perror("Failed to map the upstream write to STDOUT.");
+                            }
+                            // Since this happens AFTER the fork, this is thread safe.
+                            // fork(2) means that the child process makes a COPY of the parents environment variables.s
+                            for ( auto pair: req.env() ){
+                                if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
+                                    std::cerr << "Exporting environment variable failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                                }
+                            }
+                            execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
+                            exit(1);
+                        case -1:
+                            // Error
+                            std::cerr << "Fork failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                            throw "This shouldn't happen.";
                     }
                     // Save the PID in the relevant thread control.
+                    if(setpgid(pid, pid) == -1){
+                        std::cerr << "setpgid failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                        throw "This shouldn't happen.";
+                    }
                     ctx_ptr->thread_controls()[idx].pid() = pid;
 
                     //Parent Process.

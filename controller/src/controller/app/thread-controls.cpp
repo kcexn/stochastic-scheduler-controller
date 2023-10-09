@@ -40,7 +40,7 @@ namespace app{
             // Stop the thread.
             signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
             if(pid_ > 0){
-                kill(pid_, SIGTERM);
+                kill(-pid_, SIGTERM);
             }
         }
         std::vector<std::size_t> tmp;
