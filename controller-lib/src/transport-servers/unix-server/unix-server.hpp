@@ -20,6 +20,8 @@ namespace UnixServer{
         ~unix_session() {
             boost::system::error_code ec;
             socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
+            boost::asio::local::stream_protocol::socket::linger opt(true, 10);
+            socket_.set_option(opt);
             socket_.close(ec);
         }
     

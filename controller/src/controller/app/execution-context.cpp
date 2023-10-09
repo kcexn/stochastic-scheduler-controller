@@ -48,11 +48,8 @@ namespace app{
                     manifest_.concurrency() = manifest["__OW_NUM_CONCURRENCY"].get_uint64();
                 } else {
                     std::cerr << "Manifest __OW_NUM_CONCURRENCY is too large, or is not an integer." << std::endl;
-                    manifest_.concurrency() = 1;
                 }
                 manifest.erase("__OW_NUM_CONCURRENCY");
-            } else {
-                manifest_.concurrency() = 1;
             }
 
             // Loop through manifest.json until manifest_ contains the same number of keys.
@@ -180,7 +177,7 @@ namespace app{
                 });
                 // Insert it into the manifest, using a recursive tree traversal method.
                 std::string key(it->key());
-                manifest_.emplace(key, manifest); 
+                manifest_.emplace(key, manifest);
             }
             // Reverse lexicographically sort the manifest.
             std::sort(manifest_.begin(), manifest_.end(), [&](std::shared_ptr<Relation> a, std::shared_ptr<Relation> b){

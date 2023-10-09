@@ -95,6 +95,18 @@ namespace run{
                     if (pipe(upstream) == -1){
                         perror("Upstream pip failed to open.");
                     }
+
+                    const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
+                    if ( __OW_ACTION_BIN == nullptr ){
+                        throw "__OW_ACTION_BIN environment variable not set.";
+                    }
+                    const char* __OW_ACTION_LAUNCHER = getenv("__OW_ACTION_LAUNCHER");
+                    if ( __OW_ACTION_LAUNCHER == nullptr ){
+                        throw "__OW_ACTION_LAUNCHER environment varible not set.";
+                    }
+                    std::string f = relation->path().stem().string();
+                    std::string k = relation->key();
+                    std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, f.c_str(), k.c_str(), nullptr};
                     pid_t pid = fork();
                     if ( pid == 0 ){
                         //Child Process.
@@ -110,20 +122,11 @@ namespace run{
                         if (dup2(upstream[1], STDOUT_FILENO) == -1){
                             perror("Failed to map the upstream write to STDOUT.");
                         }
-                        const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
-                        if ( __OW_ACTION_BIN == nullptr ){
-                            throw "__OW_ACTION_BIN environment variable not set.";
-                        }
-                        const char* __OW_ACTION_LAUNCHER = getenv("__OW_ACTION_LAUNCHER");
-                        if ( __OW_ACTION_LAUNCHER == nullptr ){
-                            throw "__OW_ACTION_LAUNCHER environment varible not set.";
-                        }
-                        std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, relation->path().stem().string().c_str(), relation->key().c_str(), NULL};
                         // Since this happens AFTER the fork, this is thread safe.
                         // fork(2) means that the child process makes a COPY of the parents environment variables.s
                         for ( auto pair: req.env() ){
                             if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
-                                perror("Exporting environment variable failed.");
+                                std::cerr << "Exporting environment variable failed: " << std::make_error_code(std::errc(errno)) << std::endl;
                             }
                         }
                         execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);

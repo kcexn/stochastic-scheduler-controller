@@ -269,7 +269,14 @@ namespace app{
                             std::string f_val(finished->acquire_value());
                             finished->release_value();
                             boost::json::object jo;
-                            jo.emplace(f_key, boost::json::parse(f_val));
+                            boost::json::error_code ec;
+                            boost::json::value jv = boost::json::parse(f_val, ec);
+                            if(ec){
+                                std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
+                                std::cerr << "Value: " << f_val << std::endl;
+                                throw "This shouldn't happen.";
+                            }
+                            jo.emplace(f_key, jv);
                             boost::json::object jf_val;
                             jf_val.emplace("result", jo);
                             std::stringstream ss;
@@ -375,6 +382,11 @@ namespace app{
                             json_obj_str, 
                             ec
                         );
+                        if(ec){
+                            std::cerr << "JSON Parsing failed: " << ec.message() << std::endl;
+                            std::cerr << "Value: " << json_obj_str << std::endl;
+                            throw "this shouldn't happen.";
+                        }
                         auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
                             auto tmp = std::find(cp->peer_client_sessions().begin(), cp->peer_client_sessions().end(), session);
                             return (tmp == cp->peer_client_sessions().end()) ? false : true;
@@ -612,7 +624,8 @@ namespace app{
                             ec
                         );
                         if(ec){
-                            std::cerr << "JSON parsing failed." << std::endl;
+                            std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
+                            std::cerr << "Value: " << json_obj_str << std::endl;
                             throw "Json Parsing failed.";
                         }
                         if(req.route == "/run"){
@@ -957,7 +970,14 @@ namespace app{
                                         for(auto& relation: (*it)->manifest()){
                                             auto& value = relation->acquire_value();
                                             if(!value.empty()){
-                                                ro.emplace(relation->key(), boost::json::parse(value));
+                                                boost::json::error_code ec;
+                                                boost::json::value jv = boost::json::parse(value, ec);
+                                                if(ec){
+                                                    std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
+                                                    std::cerr << "Value: " << value << "." << std::endl;
+                                                    throw "This shouldn't be possible.";
+                                                }
+                                                ro.emplace(relation->key(), jv);
                                             }
                                             relation->release_value();
                                         }
@@ -1181,7 +1201,14 @@ namespace app{
                     for ( auto& relation: ctx.manifest() ){
                         std::string value = relation->acquire_value();
                         relation->release_value();
-                        jrel.emplace(relation->key(), boost::json::parse(value));
+                        boost::json::error_code ec;
+                        boost::json::value jv = boost::json::parse(value, ec);
+                        if(ec){
+                            std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
+                            std::cerr << "Value: " << value << std::endl;
+                            throw "This shouldn't happen.";
+                        }
+                        jrel.emplace(relation->key(), jv);
                     }
                     boost::json::object jres;
                     jres.emplace("result", jrel);
