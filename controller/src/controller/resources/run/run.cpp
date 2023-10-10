@@ -90,10 +90,19 @@ namespace run{
 
                     //syscall return two pipes.
                     if (pipe(downstream) == -1){
-                        perror("Downstream pipe failed to open.");
+                        std::cerr << "Downstream pipe filed to open: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "this shouldn't happen!";
                     }
                     if (pipe(upstream) == -1){
-                        perror("Upstream pip failed to open.");
+                        std::cerr << "Upstream pipe failed to open: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "this shouldn't happen!";
+                    }
+
+                    // Declare a synchronization pipe.
+                    int sync[2] = {};
+                    if(pipe(sync) == -1){
+                        std::cerr << "Synchronization pipe failed to open: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "this shouldn't happen!";
                     }
 
                     const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
@@ -110,12 +119,36 @@ namespace run{
                     pid_t pid = fork();
                     switch(pid){
                         case 0:
+                        {
                             //Child Process.
+                            setpgid(0,0);
+                            char notice[1] = {'\0'};
+                            if(close(sync[0]) == -1){
+                                std::cerr << "Closing the sync read side in the child process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
+                            }
+                            int count = 0;
+                            while(true){
+                                count = write(sync[1], notice, 1);
+                                if(count == -1 && errno != EINTR){
+                                    std::cerr << "Writing to the synchronization pipe failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    throw "This shouldn't happen.";
+                                } else if ( count >= 0 ){
+                                    break;
+                                }
+                            }
+                            if( close(sync[1]) == -1 ){
+                                std::cerr << "Closing the write side of the synchronization pipe in the child failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
+                            }
+
                             if( close(downstream[1]) == -1 ){
-                                perror("closing the downstream write in the child process failed.");
+                                std::cerr << "Closing the downstream write in the child process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
                             }
                             if ( close(upstream[0]) == -1 ){
-                                perror("closing the upstream read in the child process failed.");
+                                std::cerr << "Closing the upstream read in the child process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
                             }
                             if (dup2(downstream[0], STDIN_FILENO) == -1){
                                 perror("Failed to map the downstream read to STDIN.");
@@ -123,49 +156,73 @@ namespace run{
                             if (dup2(upstream[1], STDOUT_FILENO) == -1){
                                 perror("Failed to map the upstream write to STDOUT.");
                             }
+                            
                             // Since this happens AFTER the fork, this is thread safe.
                             // fork(2) means that the child process makes a COPY of the parents environment variables.s
                             for ( auto pair: req.env() ){
                                 if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
-                                    std::cerr << "Exporting environment variable failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                                    std::cerr << "Exporting environment variable failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 }
                             }
                             execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
                             exit(1);
+                        }
                         case -1:
+                        {
                             // Error
-                            std::cerr << "Fork failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                            std::cerr << "Fork failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "This shouldn't happen.";
+                        }
                     }
-                    // Save the PID in the relevant thread control.
-                    if(setpgid(pid, pid) == -1){
-                        std::cerr << "setpgid failed: " << std::make_error_code(std::errc(errno)) << std::endl;
+                    if(close(sync[1]) == -1){
+                        std::cerr << "Closing the write side of the synchronization pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
+                    // Block until the child process sets the pgid.
+                    char notice[1] = {};
+                    int count = 0;
+                    while(true){
+                        count = read(sync[0], notice, 1);
+                        if( count == -1 && errno != EINTR ){
+                            std::cerr << "Read from the synchronization pipe failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            throw "This shouldn't happen.";
+                        } else if (count >= 0){
+                            break;
+                        }
+                    }
+                    if(close(sync[0]) == -1){
+                        std::cerr << "Closing the read side of the synchronization pipe in the parent failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
+                    }
+                    // Save the PID in the relevant thread control.
                     ctx_ptr->thread_controls()[idx].pid() = pid;
 
                     //Parent Process.
                     if( close(downstream[0]) == -1 ){
-                        perror("closing the downstream read in the parent process failed.");
+                        std::cerr << "Closing the downstream read in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "this shouldn't happen.";
                     }
                     if ( close(upstream[1]) == -1 ){
-                        perror("closing the upstream write in the parent process failed.");
+                        std::cerr << "Closing the upstream write in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "this shouldn't happen.";
                     }
-
 
                     char ready[1] = {};
                     int length = read(upstream[0], ready, 1);
                     if( length == -1 ){
-                        perror("Upstream read in the parent process failed.");
+                        std::cerr << "Upstream read of the action launcher ready byte failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
                     }
                     if (kill(pid, SIGSTOP) == -1){
-                        perror("Pausing the child process failed.");
+                        std::cerr << "Pausing the child action launcher failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
                     }
 
                     g = std::move(g).resume();
 
                     if (kill(pid, SIGCONT) == -1 ){
-                        perror("Parent process failed to unpause child process.");
+                        std::cerr << "Unpausing the child action launcher failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "this shouldn't happen.";
                     }
                     if(relation->size() == 0){
                         // continue to use params if the relation has no dependencies.
@@ -183,12 +240,13 @@ namespace run{
                         params = boost::json::serialize(jv);
                         params.append("\n");
                     }
-
                     if( write(downstream[1], params.data(), params.size()) == -1 ){
-                        perror("Downstream write in the parent failed");
+                        std::cerr << "Downstream write from the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
                     }
                     if (close(downstream[1]) == -1){
-                        perror("closing the downstream write failed.");
+                        std::cerr << "Closing the downstream write side of the pipe from the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
                     }
 
                     std::size_t max_length = 65536;
@@ -206,7 +264,8 @@ namespace run{
                         }
                     } while( (value_size % max_length ) == 0 || errsv == EINTR);
                     if (close(upstream[0]) == -1){
-                        perror("closing the upstream read failed.");
+                        std::cerr << "Closing the upstream read side of the pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
                     }
                     val.resize(value_size);
                     relation->acquire_value() = val;

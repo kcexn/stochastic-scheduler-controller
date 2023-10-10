@@ -37,7 +37,7 @@ namespace UnixServer{
 
         void async_connect(server::Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn) override;
 
-        void accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn);
+        void accept(std::function<void(const boost::system::error_code& ec, std::shared_ptr<UnixServer::unix_session> session)> fn);
         void stop() { acceptor_.close(); return; }
         ~unix_server();
             

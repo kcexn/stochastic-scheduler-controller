@@ -35,7 +35,7 @@ namespace UnixServer{
                             fn();
                         }
                     } else {
-                        std::cerr << "Unix Domain Socket Async Write error: " << ec.what() << std::endl;
+                        std::cerr << "Unix Domain Socket Async Write error: " << ec.message() << std::endl;
                     }
                 }
             );
@@ -79,8 +79,17 @@ namespace UnixServer{
         return;
     }
 
-    void unix_server::accept(std::function<void(const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket)> fn){
-        acceptor_.async_accept(fn);
+    void unix_server::accept(std::function<void(const boost::system::error_code& ec, std::shared_ptr<UnixServer::unix_session> session)> fn){
+        acceptor_.async_accept([&, fn](const boost::system::error_code& ec, boost::asio::local::stream_protocol::socket socket){
+            if(!ec){
+                std::shared_ptr<UnixServer::unix_session> session =  std::make_shared<UnixServer::unix_session>(std::move(socket), *this);
+                push_back(session);
+                fn(ec, session);
+                accept(fn);
+            } else {
+                std::cerr << ec.message() << std::endl;
+            }
+        });
     }
 
     unix_server::~unix_server(){

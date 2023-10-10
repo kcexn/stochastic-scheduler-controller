@@ -157,6 +157,7 @@ namespace app{
             if(thread_local_signal != 0){
                 io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
             }
+            io_mbox_ptr_->mbx_cv.notify_all();
             lk.unlock();
             if( (thread_local_signal&CTL_TERMINATE_EVENT) && ctx_ptrs.empty()){
                 break;
@@ -771,22 +772,6 @@ namespace app{
                                                 std::vector<const char*> argv;
                                                 argv.push_back(bin_curl);
                                                 argv.push_back("--no-progress-meter");
-                                                argv.push_back("--parallel-immediate");
-                                                argv.push_back("--parallel");
-                                                argv.push_back("--parallel-max");
-
-                                                // construct the integer string for concurrency.
-                                                std::array<char, 32> concurrency_string;
-                                                std::string cstr;
-                                                std::to_chars_result tcres = std::to_chars(concurrency_string.data(), concurrency_string.data()+concurrency_string.size(), concurrency, 10);
-                                                if(tcres.ec == std::errc()){
-                                                    std::ptrdiff_t size = tcres.ptr - concurrency_string.data();
-                                                    cstr = std::string(concurrency_string.data(), size);
-                                                } else {
-                                                    std::cerr << "To Chars conversion failed: " << std::make_error_code(tcres.ec).message() << std::endl;
-                                                    throw "This Shouldn't happen.";
-                                                }
-                                                argv.push_back(cstr.c_str());
 
                                                 /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
                                                 $__OW_API_HOST/api/v1/$__OW_ACTION_NAME. With basic http authentication -u "$__OW_API_KEY".
