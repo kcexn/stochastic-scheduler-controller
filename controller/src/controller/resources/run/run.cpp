@@ -107,10 +107,12 @@ namespace run{
 
                     const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
                     if ( __OW_ACTION_BIN == nullptr ){
+                        std::cerr << "__OW_ACTION_BIN envvar is not set." << std::endl;
                         throw "__OW_ACTION_BIN environment variable not set.";
                     }
                     const char* __OW_ACTION_LAUNCHER = getenv("__OW_ACTION_LAUNCHER");
                     if ( __OW_ACTION_LAUNCHER == nullptr ){
+                        std::cerr << "__OW_ACTION_LAUNCHER envvar is not set." << std::endl;
                         throw "__OW_ACTION_LAUNCHER environment varible not set.";
                     }
                     std::string f = relation->path().stem().string();
@@ -151,10 +153,12 @@ namespace run{
                                 throw "This shouldn't happen.";
                             }
                             if (dup2(downstream[0], STDIN_FILENO) == -1){
-                                perror("Failed to map the downstream read to STDIN.");
+                                std::cerr << "Failed to map the downstream read to STDIN: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
                             }
-                            if (dup2(upstream[1], STDOUT_FILENO) == -1){
-                                perror("Failed to map the upstream write to STDOUT.");
+                            if (dup2(upstream[1], 3) == -1){
+                                std::cerr << "Failed to map the upstream write to fd3: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
                             }
                             
                             // Since this happens AFTER the fork, this is thread safe.

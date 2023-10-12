@@ -1,7 +1,7 @@
 FROM debian:stable-slim
 
 WORKDIR /root
-RUN apt-get update && apt-get install -y nginx curl coreutils procps lua5.4 openssh-client
+RUN apt-get update && apt-get install -y nginx libnginx-mod-http-js curl coreutils procps lua5.4 openssh-client imagemagick ffmpeg
 
 # Set up the lua environment
 ENV __OW_ACTIONS=/var/controller/action-runtimes/lua/functions \
@@ -31,8 +31,9 @@ COPY action-runtimes/lua/ /var/controller/action-runtimes/lua/
 # Install Nginx
 RUN mkdir -p /var/log/nginx/ &&\
     mkdir -p /run/nginx/ && \
-    mkdir -p /etc/nginx/
+    mkdir -p /etc/nginx/njs
 COPY nginx/nginx.conf /etc/nginx/
+COPY nginx/njs/ /etc/nginx/njs/
 
 # Install the Controller
 RUN mkdir -p /usr/local/lib/ && \

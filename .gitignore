@@ -16,3 +16,4 @@ action-runtimes/python3/functions/__pycache__/
 lib/
 *.tgz
 *.o
+secrets/
