@@ -784,7 +784,9 @@ namespace app{
                                                 std::vector<std::string> data_vec;
 
                                                 // Emplace the first context index.
-                                                jo.emplace("idx", 1);
+                                                std::size_t manifest_size = ctx_ptr->manifest().size();
+                                                std::size_t prime_power = PRIME_GENERATOR(manifest_size);
+                                                jo.emplace("idx", prime_power % manifest_size);
                                                 boost::json::object jctx;
                                                 jctx.emplace("execution_context", jo);
                                                 data_vec.emplace_back(boost::json::serialize(jctx));
@@ -812,7 +814,8 @@ namespace app{
                                                     argv.push_back("-u");
                                                     argv.push_back(__OW_API_KEY.c_str());
                                                     argv.push_back("--json");
-                                                    jctx["execution_context"].get_object()["idx"] = i;
+                                                    prime_power = prime_power * PRIME_GENERATOR(manifest_size);
+                                                    jctx["execution_context"].get_object()["idx"] = prime_power % manifest_size;
                                                     data_vec.emplace_back(boost::json::serialize(jctx));
                                                     argv.push_back(data_vec.back().c_str());
                                                     argv.push_back(url.c_str());
