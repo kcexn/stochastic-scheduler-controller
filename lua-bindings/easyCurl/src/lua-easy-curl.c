@@ -5,6 +5,49 @@
 #include <stdio.h>
 #include <string.h>
 
+static int open_readdata_from_file(lua_State* L){
+    int n;
+    int type;
+    const char* path;
+    FILE* stream;
+
+    n = lua_gettop(L);
+    if(n != 1){
+        return luaL_error(L, "This function takes 1 argument.");
+    }
+    type = lua_type(L,1);
+    if(type != LUA_TSTRING){
+        return luaL_error(L, "The first argument must be absolute path string i.e. /home/user/data/file.txt");
+    }
+    path = lua_tolstring(L,1,NULL);
+    stream = fopen(path, "r");
+    if(!stream){
+        perror("fopen failed");
+        return luaL_error(L, "fopen failed.");
+    }
+    lua_pushlightuserdata(L, stream);
+    return 1;
+}
+
+static int close_readdata_from_file(lua_State* L){
+    int n;
+    int type;
+    FILE* stream;
+    
+    n = lua_gettop(L);
+    if(n != 1){
+        return luaL_error(L, "This function takes 1 argument.");
+    }
+    type = lua_type(L,1);
+    if(type != LUA_TSTRING){
+        return luaL_error(L, "The first argument must be a FILE* stream.");
+    }
+    stream = lua_touserdata(L,1);
+    fclose(stream);
+    lua_pushnil(L);
+    return 1;
+}
+
 static int new_readbuf(lua_State* L){
     int n;
     int type;
@@ -91,14 +134,14 @@ static int close_writebuf(lua_State* L){
     if(n != 2){
         return luaL_error(L, "This function takes 2 arguments.");
     }
-    type = lua_type(L,1);
+    type = lua_type(L,2);
     if(type != LUA_TLIGHTUSERDATA){
         return luaL_error(L, "The second argument must be of type FILE* stream");
     }
     stream = lua_touserdata(L,2);
     fclose(stream);
     
-    type = lua_type(L,2);
+    type = lua_type(L,1);
     if(type != LUA_TLIGHTUSERDATA){
         return luaL_error(L, "The first argument must be of type void* buf");
     }
@@ -155,12 +198,12 @@ static int easy_setopt(lua_State* L){
     int type;
     const char* easy_option;
     FILE* stream;
+    struct curl_slist* slist;
     const struct curl_easyoption* opt;
     easy_opt_parameter_t p; 
     CURL* hnd;
     CURLcode ec;
     lua_Integer num;
-
 
     n = lua_gettop(L);
     if( n != 3){
@@ -179,33 +222,46 @@ static int easy_setopt(lua_State* L){
     easy_option = lua_tolstring(L, 2, NULL);
     
     type = lua_type(L,3);
-    if(type == LUA_TSTRING){
-        p.param_str.param = lua_tolstring(L, 3, NULL);
-        p.param_str.t = EASY_OPT_STRING_T;
-    } else if (type == LUA_TNUMBER){
-        p.param_long.param = lua_tointeger(L, 3);
-        p.param_long.t = EASY_OPT_LONG_T;
-    } else {
-        err = strcmp(easy_option, "WRITEDATA");
-        if(err == 0 && type == LUA_TLIGHTUSERDATA){ 
-            stream = lua_touserdata(L, 3);
-            p.param_long.param = (long)stream;
+    switch(type)
+    {
+        case LUA_TSTRING:
+            p.param_str.param = lua_tolstring(L, 3, NULL);
+            p.param_str.t = EASY_OPT_STRING_T;
+            break;
+        case LUA_TNUMBER:
+            p.param_long.param = lua_tointeger(L,3);
             p.param_long.t = EASY_OPT_LONG_T;
-        } else {
-            return luaL_error(L, "The third argument must be a CURL easy option parameter, either of type LONG, or of type STRING.");
-        }
+            break;
+        case LUA_TLIGHTUSERDATA:
+            if(strcmp(easy_option, "WRITEDATA") == 0 || strcmp(easy_option, "READDATA") == 0){
+                stream = lua_touserdata(L,3);
+                p.param_long.param = (long)stream;
+                p.param_long.t = EASY_OPT_LONG_T;
+            } else if (strcmp(easy_option, "HTTPHEADER")){
+                slist = lua_touserdata(L,3);
+                p.param_long.param = (long)slist;
+                p.param_long.t = EASY_OPT_LONG_T;
+            } else {
+                return luaL_error(L, "The third argument must be a CURL easy option parameter.");
+            }
+            break;
+        default:
+            return luaL_error(L, "The third argument must be a CURL easy option parameter.");
+            break;
     }
     opt = curl_easy_option_by_name(easy_option); 
     if(opt){
-        if(p.type.t == EASY_OPT_STRING_T){
-            ec = curl_easy_setopt(hnd, (int)(opt->id), p.param_str.param);
-        } else if(p.type.t == EASY_OPT_LONG_T){
-            ec = curl_easy_setopt(hnd, (int)(opt->id), p.param_long.param);
-        } else {
-            return luaL_error(L, "No value option found.");
+        switch(p.type.t)
+        {
+            case EASY_OPT_STRING_T:
+                ec = curl_easy_setopt(hnd, (int)(opt->id), p.param_str.param);
+                break;
+            case EASY_OPT_LONG_T:
+                ec = curl_easy_setopt(hnd, (int)(opt->id), p.param_long.param);
+                break;
         }
     } else {
-        return luaL_error(L, "The option string passed in is not a value CURL easy option parameter.");
+        return luaL_error(L, "The option string passed in is not a valid CURL easy option parameter.");
     }
     return 0;
 }
@@ -279,6 +335,57 @@ static int easy_getinfo(lua_State* L){
     return 1;
 }
 
+static int new_slist(lua_State* L){
+    struct curl_slist* slist;
+    slist = NULL;
+    lua_pushlightuserdata(L, slist);
+    return 1;
+}
+
+static int slist_append(lua_State* L){
+    struct curl_slist* slist;
+    const char* s;
+    int n;
+    int type;
+    n = lua_gettop(L);
+    if(n != 2){
+        return luaL_error(L, "This function must take 2 arguments.");
+    }
+    type = lua_type(L,1);
+    if(type != LUA_TLIGHTUSERDATA){
+        return luaL_error(L, "This function must take a curl_slist* as its first argument.");
+    }
+    slist = lua_touserdata(L,1);
+
+    type = lua_type(L,2);
+    if(type != LUA_TSTRING){
+        return luaL_error(L, "This function must take a string as its second argument.");
+    }
+    s = lua_tolstring(L, 2, NULL);
+
+    slist = curl_slist_append(slist, s);
+    lua_pushlightuserdata(L, slist);
+    return 1;
+}
+
+static int slist_free_all(lua_State* L){
+    struct curl_slist* slist;
+    int n;
+    int type;
+    n = lua_gettop(L);
+    if(n != 1){
+        return luaL_error(L, "This function must take 1 argument.");
+    }
+    type = lua_type(L,1);
+    if(type != LUA_TLIGHTUSERDATA){
+        return luaL_error(L, "This function must take a curl_slist* as its argument.");
+    }
+    slist = lua_touserdata(L,1);
+    curl_slist_free_all(slist);
+    lua_pushnil(L);
+    return 1;
+}
+
 
 static const struct luaL_Reg easyCurl[] = {
     {"easy_cleanup", easy_cleanup},
@@ -289,8 +396,13 @@ static const struct luaL_Reg easyCurl[] = {
     {"easy_getinfo", easy_getinfo},
     {"new_writebuf", new_writebuf},
     {"close_writebuf", close_writebuf}, 
+    {"open_readdata_from_file", open_readdata_from_file},
+    {"close_readdata_from_file", close_readdata_from_file},
     {"new_readbuf", new_readbuf},
     {"close_readbuf", close_readbuf},
+    {"new_slist", new_slist},
+    {"slist_append", slist_append},
+    {"slist_free_all", slist_free_all},
     {NULL, NULL} 
 };
 
