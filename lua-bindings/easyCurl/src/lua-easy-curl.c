@@ -39,7 +39,7 @@ static int close_readdata_from_file(lua_State* L){
         return luaL_error(L, "This function takes 1 argument.");
     }
     type = lua_type(L,1);
-    if(type != LUA_TSTRING){
+    if(type != LUA_TLIGHTUSERDATA){
         return luaL_error(L, "The first argument must be a FILE* stream.");
     }
     stream = lua_touserdata(L,1);
@@ -152,6 +152,54 @@ static int close_writebuf(lua_State* L){
     return 2;
 }
 
+static int open_writedata_file(lua_State* L){
+    int n;
+    int type;
+    FILE* stream;
+    const char* path;
+
+    n = lua_gettop(L);
+    if(n != 1){
+        return luaL_error(L, "This function takes one argument.");
+    }
+    type = lua_type(L,1);
+    switch(type)
+    {
+        case LUA_TSTRING:
+            path = lua_tolstring(L, 1, NULL);
+            stream = fopen(path, "w");
+            if(!stream){
+                perror("fopen failed");
+            } else {
+                lua_pushlightuserdata(L, stream);
+                return 1;
+            }
+        default:
+            return luaL_error(L, "The first argument must be a path string to a file.");
+    }
+}
+
+static int close_writedata_file(lua_State* L){
+    int n;
+    int type;
+    FILE* stream;
+
+    n = lua_gettop(L);
+    if(n != 1){
+        return luaL_error(L, "This function takes one argument.");
+    }
+    type = lua_type(L,1);
+    switch(type)
+    {
+        case LUA_TLIGHTUSERDATA:
+            stream = lua_touserdata(L, 1);
+            fclose(stream);
+            lua_pushnil(L);
+            return 1;
+        default:
+            return luaL_error(L, "The first argument must be a FILE* stream.");
+    }
+}
 
 static int easy_init(lua_State* L){
     CURL* hnd;
@@ -237,16 +285,16 @@ static int easy_setopt(lua_State* L){
                 stream = lua_touserdata(L,3);
                 p.param_long.param = (long)stream;
                 p.param_long.t = EASY_OPT_LONG_T;
-            } else if (strcmp(easy_option, "HTTPHEADER")){
+            } else if (strcmp(easy_option, "HTTPHEADER") == 0){
                 slist = lua_touserdata(L,3);
                 p.param_long.param = (long)slist;
                 p.param_long.t = EASY_OPT_LONG_T;
             } else {
-                return luaL_error(L, "The third argument must be a CURL easy option parameter.");
+                return luaL_error(L, "The third argument was a LIGHTUSERDATA, but it was not a WRITEDATA, a READDATA, or a HTTPHEADER.");
             }
             break;
         default:
-            return luaL_error(L, "The third argument must be a CURL easy option parameter.");
+            return luaL_error(L, "The third argument was not a STRING, a NUMBER, or a LIGHTUSERDATA.");
             break;
     }
     opt = curl_easy_option_by_name(easy_option); 
@@ -386,7 +434,6 @@ static int slist_free_all(lua_State* L){
     return 1;
 }
 
-
 static const struct luaL_Reg easyCurl[] = {
     {"easy_cleanup", easy_cleanup},
     {"easy_perform", easy_perform},
@@ -394,6 +441,8 @@ static const struct luaL_Reg easyCurl[] = {
     {"easy_setopt", easy_setopt},
     {"easy_init", easy_init},
     {"easy_getinfo", easy_getinfo},
+    {"open_writedata_file", open_writedata_file},
+    {"close_writedata_file", close_writedata_file},
     {"new_writebuf", new_writebuf},
     {"close_writebuf", close_writebuf}, 
     {"open_readdata_from_file", open_readdata_from_file},
@@ -405,7 +454,6 @@ static const struct luaL_Reg easyCurl[] = {
     {"slist_free_all", slist_free_all},
     {NULL, NULL} 
 };
-
 
 int luaopen_easyCurl(lua_State* L){
     luaL_newlib(L, easyCurl);
