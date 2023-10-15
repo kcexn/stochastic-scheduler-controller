@@ -222,19 +222,19 @@ static int http_version(lua_State* L){
         return luaL_error(L, "The argument must be a string.");
     }
     version_string = lua_tolstring(L, 1, NULL);
-    if(version_string == "1.0"){
+    if(strcmp(version_string,"1.0") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_1_0);
-    } else if (version_string == "1.1"){
+    } else if (strcmp(version_string, "1.1") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_1_1);
-    } else if (version_string == "2.0"){
+    } else if (strcmp(version_string, "2.0") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_2_0);
-    } else if (version_string == "2TLS"){
+    } else if (strcmp(version_string, "2TLS") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_2TLS);
-    } else if (version_string == "2_PRIOR_KNOWLEDGE"){
+    } else if (strcmp(version_string, "2_PRIOR_KNOWLEDGE") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE);
-    } else if (version_string == "3.0"){
+    } else if (strcmp(version_string, "3.0") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_3);
-    } else if (version_string == "3_ONLY"){
+    } else if (strcmp(version_string, "3_ONLY") == 0){
         lua_pushinteger(L, CURL_HTTP_VERSION_3ONLY);
     }
     return 1;
