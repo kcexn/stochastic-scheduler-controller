@@ -24,5 +24,5 @@ $(OBJ_DIR)/%.o: %.c %.h
 	$(CC) -c $(SHARED_CFLAGS) $(CFLAGS) $< -o $@
 
 clean:
-rm -f $(LIB_DIR)/*
-rm -f $(OBJ_DIR)/*
+	rm -f $(LIB_DIR)/*
+	rm -f $(OBJ_DIR)/*

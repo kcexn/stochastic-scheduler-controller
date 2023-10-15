@@ -248,6 +248,37 @@ static int easy_cleanup(lua_State* L){
     return 1;
 }
 
+static int easy_getinfo(lua_State* L){
+    CURL* hnd;
+    int n;
+    int type;
+    const char* option;
+    n = lua_gettop(L);
+    if(n != 2){
+        return luaL_error(L, "This function must take 2 arguments.");
+    }
+    type = lua_type(L,1);
+    if(type != LUA_TLIGHTUSERDATA){
+        return luaL_error(L, "The first function argument must be a CURL* easy handle.");
+    }
+    hnd = lua_touserdata(L,1);
+
+    type = lua_type(L,2);
+    if(type != LUA_TSTRING){
+        return luaL_error(L, "The second function argument must be a CURL_INFO Option string.");
+    }
+    option = lua_tolstring(L,2,NULL);
+
+    if(strcmp(option, "RESPONSE_CODE") == 0){
+        long res_code;
+        curl_easy_getinfo(hnd, CURLINFO_RESPONSE_CODE, &res_code);
+        lua_pushinteger(L, res_code);
+    } else {
+        return luaL_error(L, "easy_getinfo does not support this option yet.");
+    }
+    return 1;
+}
+
 
 static const struct luaL_Reg easyCurl[] = {
     {"easy_cleanup", easy_cleanup},
@@ -255,6 +286,7 @@ static const struct luaL_Reg easyCurl[] = {
     {"http_version", http_version},
     {"easy_setopt", easy_setopt},
     {"easy_init", easy_init},
+    {"easy_getinfo", easy_getinfo},
     {"new_writebuf", new_writebuf},
     {"close_writebuf", close_writebuf}, 
     {"new_readbuf", new_readbuf},

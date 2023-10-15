@@ -741,17 +741,17 @@ namespace app{
                                                 char* __OW_API_HOST = getenv("__OW_API_HOST");
                                                 if(__OW_ACTION_NAME == nullptr){
                                                     std::cerr << "__OW_ACTION_NAME envvar is not set!" << std::endl;
-                                                    break;
+                                                    throw "This shouldn't happen.";
                                                 } else if (__OW_API_HOST == nullptr){
                                                     std::cerr << "__OW_API_HOST envvar is not set!" << std::endl;
-                                                    break;
+                                                    throw "This shouldn't happen.";
                                                 }
 
                                                 auto env = run.env();
                                                 std::string __OW_API_KEY = env["__OW_API_KEY"];
                                                 if(__OW_API_KEY.empty()){
                                                     std::cerr << "__OW_API_KEY envvar is not set!" << std::endl;
-                                                    break;
+                                                    throw "This shouldn't happen.";
                                                 }
 
                                                 // Wrap the json parameter value val in an execution context.
@@ -770,6 +770,7 @@ namespace app{
                                                 // Construct the curl command.
                                                 const char* bin_curl = "/usr/bin/curl";
                                                 std::vector<const char*> argv;
+                                                argv.reserve(9*concurrency);
                                                 argv.push_back(bin_curl);
                                                 argv.push_back("--no-progress-meter");
 
@@ -780,13 +781,24 @@ namespace app{
                                                 // HTTP basic authentication
                                                 argv.push_back("-u");
                                                 argv.push_back(__OW_API_KEY.c_str());
-
                                                 std::vector<std::string> data_vec;
+                                                data_vec.reserve(concurrency);
 
-                                                // Emplace the first context index.
+                                                // Compute the index for each subsequent context by partitioning the manifest.
                                                 std::size_t manifest_size = ctx_ptr->manifest().size();
-                                                std::size_t prime_power = PRIME_GENERATOR(manifest_size);
-                                                jo.emplace("idx", prime_power % manifest_size);
+                                                std::vector<std::size_t> indices;
+                                                indices.reserve(concurrency);
+                                                if(manifest_size < concurrency){
+                                                    for (std::size_t i = 0; i < concurrency; ++i){
+                                                        indices.push_back(i);
+                                                    }
+                                                } else {
+                                                    for (std::size_t i = 0; i < concurrency; ++i){
+                                                        indices.push_back(i*(manifest_size/concurrency));
+                                                    }
+                                                }
+                                                // Emplace the first context index.
+                                                jo.emplace("idx", indices[1]);
                                                 boost::json::object jctx;
                                                 jctx.emplace("execution_context", jo);
                                                 data_vec.emplace_back(boost::json::serialize(jctx));
@@ -807,15 +819,14 @@ namespace app{
                                                 argv.push_back("-o");
                                                 argv.push_back("/dev/null");
 
-                                                for(std::size_t i = 2; i < (concurrency); ++i){
-                                                    /* For every subsequent concurrent request add --next and repeat the data with a modified index. */
+                                                for(std::size_t i = 2; i < concurrency; ++i){
+                                                    /* For every subsequent request add --next and repeat the data with a modified index. */
                                                     argv.push_back("--next");
                                                     argv.push_back("--no-progress-meter");
                                                     argv.push_back("-u");
                                                     argv.push_back(__OW_API_KEY.c_str());
                                                     argv.push_back("--json");
-                                                    prime_power = prime_power * PRIME_GENERATOR(manifest_size);
-                                                    jctx["execution_context"].get_object()["idx"] = prime_power % manifest_size;
+                                                    jctx["execution_context"].get_object()["idx"] = indices[i];
                                                     data_vec.emplace_back(boost::json::serialize(jctx));
                                                     argv.push_back(data_vec.back().c_str());
                                                     argv.push_back(url.c_str());
@@ -835,8 +846,8 @@ namespace app{
                                                     }
                                                     case -1:
                                                     {
-                                                        std::cerr << "Fork Failed!" << std::endl;
-                                                        break;
+                                                        std::cerr << "Fork cURL failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                        throw "This shouldn't happen!";
                                                     }
                                                 }
                                                 // waitpid is handled by trapping SIGCHLD.

@@ -217,14 +217,14 @@ namespace run{
                         std::cerr << "Upstream read of the action launcher ready byte failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
-                    if (kill(pid, SIGSTOP) == -1){
+                    if (kill(-pid, SIGSTOP) == -1){
                         std::cerr << "Pausing the child action launcher failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
 
                     g = std::move(g).resume();
 
-                    if (kill(pid, SIGCONT) == -1 ){
+                    if (kill(-pid, SIGCONT) == -1 ){
                         std::cerr << "Unpausing the child action launcher failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "this shouldn't happen.";
                     }
