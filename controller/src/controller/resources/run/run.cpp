@@ -124,6 +124,7 @@ namespace run{
                         case 0:
                         {
                             //Child Process.
+                            nice(5);
                             setpgid(0,0);
                             char notice[1] = {'\0'};
                             if(close(sync[0]) == -1){
