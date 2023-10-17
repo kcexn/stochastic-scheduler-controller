@@ -1,10 +1,7 @@
 #include "action-manifest.hpp"
 #include <boost/json.hpp>
 #include "action-relation.hpp"
-
-#ifdef DEBUG
 #include <iostream>
-#endif
 
 namespace controller{
 namespace app{
@@ -76,6 +73,7 @@ namespace app{
         });
         // If key isn't in index. Throw an exception, this shouldn't be possible.
         if (it == index_.end() ){
+            std::cerr << "action-manifest.cpp:79:Key not in index!" << std::endl;
             throw "Key not in index!";
         }
 

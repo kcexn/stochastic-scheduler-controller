@@ -36,11 +36,13 @@ namespace app{
 
     std::vector<std::size_t> ThreadControls::stop_thread() {
         if(!is_stopped()){
+            ctx_mtx_->lock();
             pthread_cancel(tid_);
+            ctx_mtx_->unlock();
             // Stop the thread.
             signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
             if(pid_ > 0){
-                kill(-pid_, SIGTERM);
+                kill(-pid_, SIGKILL);
             }
         }
         std::vector<std::size_t> tmp;
@@ -56,7 +58,11 @@ namespace app{
     }
 
     void ThreadControls::resume() {
-        f_ = std::move(f_).resume();
+        ctx_mtx_->lock();
+        f_ = std::move(f_).resume_with([&](boost::context::fiber&& f2){
+            ctx_mtx_->unlock();
+            return std::move(f2);
+        });
         return;
     }
 

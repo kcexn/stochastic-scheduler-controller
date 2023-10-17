@@ -23,14 +23,14 @@ DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 DEBUG_TESTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # RELEASE SETTINGS
-REL_CXX_FLAGS = -O3 -flto=auto -fuse-linker-plugin
+REL_CXX_FLAGS = -O3 -DNDEBUG -flto=auto -fuse-linker-plugin
 REL_LD_FLAGS = $(LIBRARY_PATH) $(LD_FLAGS)
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # SHARED LIBRARY SETTINGS
-SHARED_CXX_FLAGS = -O3 -flto=auto -fuse-linker-plugin -fpic -finline-atomics -march=x86-64-v3 -mtune=generic -mno-direct-extern-access -fmodulo-sched \
+SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic -finline-atomics -march=x86-64-v3 -mtune=generic -mno-direct-extern-access -fmodulo-sched \
 -fmodulo-sched-allow-regmoves -fipa-pta
 STATIC_AR_FLAGS = rcs
 SHARED_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))

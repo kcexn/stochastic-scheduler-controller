@@ -205,6 +205,20 @@ namespace app{
                     // Check to see if the context is stopped.
                     if ((*it)->is_stopped()){
                         boost::json::value val;
+                        // create the response.
+                        http::HttpReqRes rr;
+                        std::get<http::HttpResponse>(rr) = create_response(**it, val);
+                        while((*it)->sessions().size() > 0 ){
+                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
+                            next_session->set(rr);
+                            next_session->write(
+                                [&, next_session](){
+                                    next_session->close();
+                                }
+                            );
+                            (*it)->sessions().pop_back();
+                            flush_wsk_logs();
+                        }
                         // Finish and close all of the HTTP sessions.
                         while((*it)->peer_server_sessions().size() > 0){
                             std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
@@ -230,20 +244,7 @@ namespace app{
                             });
                             (*it)->peer_client_sessions().pop_back();
                         }
-                        // create the response.
-                        http::HttpReqRes rr;
-                        std::get<http::HttpResponse>(rr) = create_response(**it, val);
-                        while((*it)->sessions().size() > 0 ){
-                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
-                            next_session->set(rr);
-                            next_session->write(
-                                [&, next_session](){
-                                    next_session->close();
-                                }
-                            );
-                            (*it)->sessions().pop_back();
-                            flush_wsk_logs();
-                        }
+                        
                         ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
                         // Find a context that has a stopped thread.
                         it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
@@ -262,6 +263,7 @@ namespace app{
                         // Do the subsequent steps only if there are execution idxs that exited normally.
                         // get the index of the stopped thread.
                         std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
+                        
                         /* For every peer in the peer table notify them with a state update */
                         // It's only worth constructing the state update values if there are peers to update.
                         if( ((*it)->peer_client_sessions().size() + (*it)->peer_server_sessions().size()) > 0 ){
@@ -273,22 +275,21 @@ namespace app{
                             boost::json::error_code ec;
                             boost::json::value jv = boost::json::parse(f_val, ec);
                             if(ec){
-                                std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
-                                std::cerr << "Value: " << f_val << std::endl;
+                                std::cerr << "controller-app.cpp:278:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                                 throw "This shouldn't happen.";
                             }
                             jo.emplace(f_key, jv);
                             boost::json::object jf_val;
                             jf_val.emplace("result", jo);
-                            std::stringstream ss;
-                            ss << jf_val;
                             std::string data(",");
-                            data.insert(data.size(), ss.str());
+                            std::string jsonf_val = boost::json::serialize(jf_val);
+                            data.append(jsonf_val);
                             for(auto& peer_session: (*it)->peer_client_sessions()){
                                 /* Update peers */
                                 http::HttpReqRes rr = peer_session->get();
                                 http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                                req.chunks.push_back(http::HttpChunk{{data.size()}, data});
+                                http::HttpChunk chunk{http::HttpBigNum{data.size()}, data};
+                                req.chunks.push_back(chunk);
                                 peer_session->set(rr);
                                 peer_session->write([](){return;});
                             }
@@ -296,11 +297,12 @@ namespace app{
                                 /* Update peers */
                                 http::HttpReqRes rr = peer_session->get();
                                 http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                res.chunks.push_back(http::HttpChunk{{data.size()}, data});
+                                http::HttpChunk chunk{http::HttpBigNum{data.size()}, data};
+                                res.chunks.push_back(chunk);
                                 peer_session->set(rr);
                                 peer_session->write([](){return;});
                             }
-                        }
+                        }    
 
                         // Get the key of the action at this index+1 (mod thread_controls.size())
                         std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
@@ -314,7 +316,7 @@ namespace app{
                             std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
                             //Start the thread at this index.
                             (*it)->thread_controls()[next_idx].notify(idx);
-                        }
+                        }                    
                         // Search through remaining contexts.
                         it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
                             auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
@@ -384,8 +386,7 @@ namespace app{
                             ec
                         );
                         if(ec){
-                            std::cerr << "JSON Parsing failed: " << ec.message() << std::endl;
-                            std::cerr << "Value: " << json_obj_str << std::endl;
+                            std::cerr << "controller-app.cpp:387:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
                             throw "this shouldn't happen.";
                         }
                         auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -431,9 +432,7 @@ namespace app{
                                                 
                                                 boost::json::object jo_ctx;
                                                 jo_ctx.emplace("execution_context", jo);
-                                                std::stringstream ss;
-                                                ss << jo_ctx;
-                                                std::string data(ss.str());
+                                                std::string data(boost::json::serialize(jo_ctx));
 
                                                 std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
                                                     http::HttpVerb::PUT,
@@ -443,7 +442,7 @@ namespace app{
                                                         CONTROLLER_APP_COMMON_HTTP_HEADERS
                                                     },
                                                     {
-                                                        {{data.size()}, data}
+                                                        {http::HttpBigNum{data.size()}, data}
                                                     }
                                                 };
                                                 client_session->write([&](){ return; });
@@ -625,8 +624,7 @@ namespace app{
                             ec
                         );
                         if(ec){
-                            std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
-                            std::cerr << "Value: " << json_obj_str << std::endl;
+                            std::cerr << "controller-app.cpp:627:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                             throw "Json Parsing failed.";
                         }
                         if(req.route == "/run"){
@@ -770,8 +768,10 @@ namespace app{
                                                 // Construct the curl command.
                                                 const char* bin_curl = "/usr/bin/curl";
                                                 std::vector<const char*> argv;
-                                                argv.reserve(9*concurrency);
+                                                argv.reserve(9*concurrency+2);
                                                 argv.push_back(bin_curl);
+                                                argv.push_back("--parallel-immediate");
+                                                argv.push_back("-Z");
                                                 argv.push_back("--no-progress-meter");
 
                                                 /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
@@ -876,9 +876,7 @@ namespace app{
                                                             
                                                             boost::json::object jo_ctx;
                                                             jo_ctx.emplace("execution_context", jo);
-                                                            std::stringstream ss;
-                                                            ss << jo_ctx;
-                                                            std::string data(ss.str());
+                                                            std::string data(boost::json::serialize(jo_ctx));
 
                                                             std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
                                                                 http::HttpVerb::PUT,
@@ -972,8 +970,7 @@ namespace app{
                                                 boost::json::error_code ec;
                                                 boost::json::value jv = boost::json::parse(value, ec);
                                                 if(ec){
-                                                    std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
-                                                    std::cerr << "Value: " << value << "." << std::endl;
+                                                    std::cerr << "controller-app.cpp:973:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                     throw "This shouldn't be possible.";
                                                 }
                                                 ro.emplace(relation->key(), jv);
@@ -985,10 +982,9 @@ namespace app{
                                         // Prepare data for writing back to the peer.
                                         // The reponse format is:
                                         // [{"peers":["127.0.0.1:5200", "127.0.0.1:5300"], "result":{}}
-                                        std::stringstream ss;
-                                        ss << retjo;
                                         std::string data("[");
-                                        data.insert(data.size(), ss.str());
+                                        std::string json_str = boost::json::serialize(retjo);
+                                        data.append(json_str);
                                         http::HttpReqRes rr = session->get();
                                         http::HttpResponse& res = std::get<http::HttpResponse>(rr);
                                         res = {
@@ -1203,8 +1199,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "JSON parsing failed: " << ec.message() << std::endl;
-                            std::cerr << "Value: " << value << std::endl;
+                            std::cerr << "controller-app.cpp:1202:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);

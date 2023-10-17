@@ -23,7 +23,8 @@ namespace app{
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
-            throw "Environment variable __OW_ACTIONS not defined!";
+            std::cerr << "execution-context.cpp:26:__OW_ACTIONS not defined." << std::endl;
+            throw "This shouldn't happen.";
         }
         std::filesystem::path action_path(__OW_ACTIONS);
         std::filesystem::path manifest_path(action_path / "action-manifest.json");
@@ -33,11 +34,13 @@ namespace app{
             boost::json::value tmp = boost::json::parse(f,ec);
             boost::json::object& manifest = tmp.as_object();
             if (ec){
-                throw "boost json parse failed.";
+                std::cerr << "execution-context.cpp:37:boost json parse failed." << std::endl;
+                throw "This shouldn't happen.";
             }
             // If the manifest is empty throw an exception.
             if(manifest.empty()){
-                throw "action-manifest.json can't be empty.";
+                std::cerr << "execution-context.cpp:42:action-manifest.json can't be empty." << std::endl;
+                throw "This shouldn't happen.";
             }
             /* If the action manifest contains an __OW_NUM_CONCURRENCY key, set the manifest concurrency to that value, otherwise set it to 1.*/
             // Subsequently erase the __OW_NUM_CONCURRENCY KEY from the ingested manifest to ensure that the subsequent logic continues to work.
@@ -72,7 +75,8 @@ namespace app{
         } else {
             const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
             if ( __OW_ACTION_EXT == nullptr ){
-                throw "Environment variable __OW_ACTION_EXT is not defined!";
+                std::cerr << "execution-context.cpp:78:__OW_ACTION_EXT envvar is not defined." << std::endl;
+                throw "this shouldn't happen.";
             }
             // By default the file is called "main" + __OW_ACTION_EXT.
             // e.g. "main.lua", or "main.py", or "main.js".
@@ -109,7 +113,7 @@ namespace app{
             std::uint16_t port;
             std::from_chars_result fcres = std::from_chars(inet_port_a.data(), inet_port_a.data()+inet_port_a.size(), port, 10);
             if(fcres.ec != std::errc()){
-                std::cerr << std::make_error_code(fcres.ec).message() << std::endl;
+                std::cerr << "execution-context.cpp:116:std::from_chars failed:" << std::make_error_code(fcres.ec).message() << std::endl;
                 throw "This shouldn't be possible";
             }
 
@@ -118,7 +122,7 @@ namespace app{
             paddr.sin_port = htons(port);
             int ec = inet_aton(inet_addr_a.c_str(), &paddr.sin_addr);
             if(ec == -1){
-                perror("inet_aton");
+                std::cerr << "execution-context.cpp:125:inet_aton failed." << std::endl;
                 throw "this shouldn't be possible";
             }
 
@@ -133,7 +137,8 @@ namespace app{
 
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
-            throw "Environment variable __OW_ACTIONS not defined!";
+            std::cerr << "execution-context.cpp:140:__OW_ACTIONS envvar not defined." << std::endl;
+            throw "this shouldn't happen.";
         }
         std::filesystem::path action_path(__OW_ACTIONS);
         std::filesystem::path manifest_path(action_path / "action-manifest.json");
@@ -142,7 +147,7 @@ namespace app{
             boost::json::error_code ec;
             boost::json::value tmp = boost::json::parse(f,ec);
             if (ec){
-                std::cerr << ec.message() << std::endl;
+                std::cerr << "execution-context.cpp:150:" << ec.message() << std::endl;
                 throw "boost json parse failed.";
             }
             boost::json::object& manifest = tmp.as_object();
@@ -186,6 +191,7 @@ namespace app{
         } else {
             const char* __OW_ACTION_EXT = getenv("__OW_ACTION_EXT");
             if ( __OW_ACTION_EXT == nullptr ){
+                std::cerr << "execution-context.cpp:194:__OW_ACTION_EXT envvar is not defined." << std::endl;
                 throw "Environment variable __OW_ACTION_EXT is not defined!";
             }
             // By default the file is called "main" + __OW_ACTION_EXT.
@@ -225,6 +231,7 @@ namespace app{
         for(auto& rpeer: remote_peers){
             std::size_t pos = rpeer.find(':', 0);
             if(pos == std::string::npos){
+                std::cerr << "execution-context.cpp:234:can't find ':' in rpeer." << std::endl;
                 throw "This should never happen.";
             }
             std::string rpip = rpeer.substr(0, pos);
@@ -232,6 +239,7 @@ namespace app{
             std::uint16_t rpp;
             std::from_chars_result fcres = std::from_chars(rpport.data(), rpport.data()+rpport.size(), rpp, 10);
             if(fcres.ec != std::errc()){
+                std::cerr << "execution-context.cpp:242:std::from_chars failed." << std::endl;
                 throw "This should never happen.";
             }
             struct sockaddr_in raddr ={
@@ -240,6 +248,7 @@ namespace app{
             };
             int ec = inet_aton(rpip.c_str(), &raddr.sin_addr);
             if(ec == 0){
+                std::cerr << "execution-context.cpp:251:inet_aton failed." << std::endl;
                 throw "This should never happen.";
             }
             auto it = std::find_if(peers_.cbegin(), peers_.cend(), [&](const auto& p){
@@ -260,6 +269,7 @@ namespace app{
 
     std::size_t ExecutionContext::pop_execution_idx() {
         if (execution_context_idx_stack_.empty()){
+            std::cerr << "execution-context.cpp:272:execution context idx stack shouldn't be empty when calling pop." << std::endl;
             throw "Execution Context idx stack shouldn't be empty when calling pop.";
         }
         std::size_t idx = execution_context_idx_stack_.back();

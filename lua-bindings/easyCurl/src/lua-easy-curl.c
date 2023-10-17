@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <errno.h>
 
 static int open_readdata_from_file(lua_State* L){
     int n;
@@ -22,8 +23,9 @@ static int open_readdata_from_file(lua_State* L){
     path = lua_tolstring(L,1,NULL);
     stream = fopen(path, "r");
     if(!stream){
-        perror("fopen failed");
-        return luaL_error(L, "fopen failed.");
+        perror("lua-easy-curl.c:26:fopen");
+        lua_pushnil(L);
+        return 1;
     }
     lua_pushlightuserdata(L, stream);
     return 1;

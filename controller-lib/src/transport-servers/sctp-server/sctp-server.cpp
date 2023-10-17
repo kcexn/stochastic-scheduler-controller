@@ -86,8 +86,18 @@ namespace sctp_transport{
                                 std::memcpy(&(paddr.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                                 int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddr, &paddr_size);
                                 if(ec == -1){
-                                    perror("getsockopt failed");
-                                    throw "This really shouldn't happen.";
+                                    switch(errno)
+                                    {
+                                        case EINVAL:
+                                            std::cerr << "sctp-server.cpp:91:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                            error = boost::system::error_code(errno, boost::system::system_category());
+                                            fn(error, session);
+                                            erase_pending_connect(session);
+                                            return;
+                                        default:
+                                            std::cerr << "sctp-server.cpp:94:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                            throw "This really shouldn't happen.";
+                                    }
                                 }
                                 transport::protocols::sctp::assoc_t assoc_id = paddr.spinfo_assoc_id;
                                 session->set(assoc_id);
@@ -240,6 +250,7 @@ namespace sctp_transport{
                     sctp::cmsghdr* cmsg;
                     for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr; cmsg = CMSG_NXTHDR(&msg, cmsg)){
                         if(cmsg->cmsg_len == 0){
+                            std::cerr << "sctp-server.cpp:243:cmsg_len == 0." << std::endl;
                             throw "cmsg_len should never be 0.";
                         }
                         if(cmsg->cmsg_level == sctp::v4().protocol() && SCTP_RCVINFO){

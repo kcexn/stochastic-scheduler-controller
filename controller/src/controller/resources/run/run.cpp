@@ -28,6 +28,7 @@ namespace run{
             } else if (idx.is_uint64()){
                 execution_context_idx_ = idx.get_uint64();
             } else {
+                std::cerr << "run.cpp:31:execution context index is too large." << std::endl;
                 throw "execution context index is too large.";
             }
             boost::json::array& peers = context.at("peers").as_array();
@@ -214,8 +215,14 @@ namespace run{
                     char ready[1] = {};
                     int length = read(upstream[0], ready, 1);
                     if( length == -1 ){
-                        std::cerr << "Upstream read of the action launcher ready byte failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "This shouldn't happen.";
+                        switch(errno)
+                        {
+                            case EINTR:
+                                return std::move(g);
+                            default:
+                                std::cerr << "run.cpp:223:upstream read of the ready byte failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "This shouldn't happen.";
+                        }  
                     }
                     if (kill(-pid, SIGSTOP) == -1){
                         std::cerr << "Pausing the child action launcher failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;

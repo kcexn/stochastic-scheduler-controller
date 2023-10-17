@@ -104,8 +104,10 @@ namespace http{
         std::string chunk_header;
         // Set to true if the chunk size has been parsed already.
         // Is set to false by default.
+        bool chunk_size_started;
         bool chunk_size_found;
         bool chunk_body_start;
+        bool chunk_body_finished;
         // Chunk complete guards against ingesting bytes from the stream
         // that do not belong to this chunk.
         bool chunk_complete;

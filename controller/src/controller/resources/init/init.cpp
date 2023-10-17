@@ -44,6 +44,7 @@ namespace init{
                 const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
                 std::filesystem::path path;
                 if (__OW_ACTIONS == nullptr){
+                    std::cerr << "init.cpp:47:__OW_ACTIONS envvar not defined." << std::endl;
                     throw "Environment variable __OW_ACTIONS not defined.";
                 }
                 path = std::filesystem::path(__OW_ACTIONS);
@@ -73,6 +74,7 @@ namespace init{
                     std::string filename("main");
                     std::string ext;
                     if (__OW_ACTION_EXT == nullptr){
+                        std::cerr << "init.cpp:77:__OW_ACTION_EXT envvar not defined." << std::endl;
                         throw "Environment variable __OW_ACTION_EXT not defined.";
                     }
                     filename.append(".");
@@ -148,6 +150,7 @@ namespace init{
         if ( __OW_ACTIONS != nullptr ){
             fn_path = std::string(__OW_ACTIONS);
         } else {
+            std::cerr << "init.cpp:153:__OW_ACTIONS envvar not defiend." << std::endl;
             throw "__OW_ACTIONS environment variable has not been defined.";
         }
         pid_t pid = fork();

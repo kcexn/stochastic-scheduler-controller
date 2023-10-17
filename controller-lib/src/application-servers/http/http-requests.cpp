@@ -5,6 +5,7 @@
 #include <ostream>
 #include <iomanip>
 #include <algorithm>
+#include <iostream>
 
 namespace http
 {
@@ -27,6 +28,7 @@ namespace http
             std::size_t num;
             std::from_chars_result res = std::from_chars(it->data(), it->data()+it->size(), num, 16);
             if(res.ec != std::errc{}){
+                std::cerr << "http-requests.cpp:30:std::from_chars failed:" << std::make_error_code(std::errc(res.ec)).message() << ":value:" << *it << std::endl;
                 throw "char conversion failed.";
             }
             push_back(num);
@@ -39,6 +41,7 @@ namespace http
         for(std::size_t i = 0; i < dec_str.size(); ++i){
             res = std::from_chars(&(dec_str[i]),&(dec_str[i])+1, val, 10);
             if(res.ec != std::errc{}){
+                std::cerr << "http-requests.cpp:43:std::from_chars failed:" << std::make_error_code(std::errc(res.ec)).message() << std::endl;
                 throw "Char conversion failed.";
             }
             HttpBigNum tmp = *this;
@@ -420,61 +423,33 @@ namespace http
         // Get the stream locale for parsing.
         // std::locale loc = is.getloc();
         std::streamsize bytes_available = is.rdbuf()->in_avail();
+        char c;
         // While there are bytes available in the input stream, keep parsing.
         while(bytes_available > 0 && !chunk.chunk_complete){
-            if(!chunk.chunk_body_start){
-                if(!chunk.chunk_size_found){
-                    // This is the initial state for parsing a new chunk.
-                    // Read until we have skipped all of the leading whitespaces
-                    // according to the current locale.
-                    char first_char;
-                    while(bytes_available > 0){
-                        first_char = is.rdbuf()->sbumpc();
-                        --bytes_available;
-                        if(!std::isspace(first_char)){
-                            break;
-                        }
-                    }
-                    // first char is now the first non-whitespace character.
-                    chunk.chunk_header.push_back(first_char);
-
-                    // Now we are scanning the chunk-size portion of the string.
-                    // Push back all of the next non-white space characters.
-                    char last_char;
-                    while(bytes_available > 0){
-                        last_char = is.rdbuf()->sbumpc();
-                        --bytes_available;
-                        if(!std::isspace(last_char)){
-                            chunk.chunk_header.push_back(last_char);
-                        } else {
-                            //last_char now points to the first white space character after the
-                            //chunk-size.
-                            chunk.chunk_size_found = true;
-                            // Set the chunk size.
-                            chunk.chunk_size = HttpBigNum(HttpBigNum::hex, chunk.chunk_header);
-                            break;
-                        }
-                    }
+            c = is.rdbuf()->sbumpc();
+            --bytes_available;
+            if(!chunk.chunk_size_started){
+                // Skip all of the leading whitespace.
+                if(!std::isspace(c)){
+                    chunk.chunk_size_started = true;
+                    chunk.chunk_header.push_back(c);
                 }
-                // The chunk size has been found at this point, now we just need to seek the stream until we find a new line.
-                char cur;
-                while(bytes_available > 0){
-                    cur = is.rdbuf()->sbumpc();
-                    --bytes_available;
-                    if(cur == '\n'){
-                        chunk.chunk_body_start = true;
-                        break;
-                    }
+            } else if(!chunk.chunk_size_found){
+                if(!std::isspace(c)){
+                    chunk.chunk_header.push_back(c);
+                } else {
+                    chunk.chunk_size_found = true;
+                    chunk.chunk_size = HttpBigNum(HttpBigNum::hex, chunk.chunk_header);
                 }
-            } else if(chunk.received_bytes < chunk.chunk_size){
-                // Fill the buffer with chunk-size bytes.
-                char cur;
-                while(bytes_available > 0 && chunk.received_bytes < chunk.chunk_size){
-                    cur = is.rdbuf()->sbumpc();
-                    --bytes_available;
-                    chunk.chunk_data.push_back(cur);
-                    ++(chunk.received_bytes);
+            } else if(!chunk.chunk_body_start){
+                // Skip all of the characters until the next newline characters.
+                if(c == '\n'){
+                    chunk.chunk_body_start = true;
+                    chunk.received_bytes = {0};
                 }
+            } else if(!chunk.chunk_body_finished && chunk.received_bytes < chunk.chunk_size){
+                chunk.chunk_data.push_back(c);
+                ++(chunk.received_bytes);
             } else {
                 // For chunked transfer, there will be another \r\n after the
                 // chunk data to delimit the beginning of the next chunk.
@@ -483,17 +458,13 @@ namespace http
                 // Not marking the chunk complete will prevent the parser from
                 // constructing and back emplacing a new chunk, and beginning
                 // the search for a new chunk header line.
-                char cur;
-                while(bytes_available > 0){
-                    cur = is.rdbuf()->sbumpc();
-                    --bytes_available;
-                    if(cur == '\n'){
-                        chunk.chunk_complete = true;
-                        break;
-                    }
+                if(c == '\n'){
+                    chunk.chunk_complete = true;
                 }
             }
-            bytes_available = is.rdbuf()->in_avail();
+            if(bytes_available == 0){
+                bytes_available = is.rdbuf()->in_avail();
+            }
         }
         return is;
     }
@@ -657,7 +628,12 @@ namespace http
             req.num_headers = 1;
             req.num_chunks = 1;
             req.headers.emplace_back();
-            req.chunks.emplace_back();
+            HttpChunk new_chunk = {
+                {0},"",{0},"",false,false,false,false,false
+            };
+            req.chunks.push_back(
+                new_chunk
+            );
 
             // For clarity we will explicitly 0 initialize
             // the next indices.
@@ -820,6 +796,7 @@ namespace http
                             return header.field_name == HttpHeaderField::CONTENT_LENGTH;
                         });
                         next_chunk.chunk_size = HttpBigNum(HttpBigNum::dec, it->field_value);
+                        next_chunk.chunk_size_started = true;
                         next_chunk.chunk_size_found = true;
                         next_chunk.chunk_body_start = true;
                     }
@@ -833,7 +810,10 @@ namespace http
                     if(next_chunk.chunk_complete){
                         if(next_chunk.chunk_size != HttpBigNum{0}){
                             ++(req.num_chunks);
-                            req.chunks.emplace_back();
+                            HttpChunk new_chunk = {
+                                {0},"",{0},"",false,false,false,false,false
+                            };
+                            req.chunks.push_back(new_chunk);
                         }
                         ++(req.next_chunk);
                     }
@@ -1005,7 +985,10 @@ namespace http
             res.num_headers = 1;
             res.num_chunks = 1;
             res.headers.emplace_back();
-            res.chunks.emplace_back();
+            HttpChunk new_chunk = {
+                {0},"",{0},"",false,false,false,false,false
+            };
+            res.chunks.push_back(new_chunk);
 
             // For clarity we will explicitly 0 initialize
             // the next indices.
@@ -1148,6 +1131,7 @@ namespace http
                             return header.field_name == HttpHeaderField::CONTENT_LENGTH;
                         });
                         next_chunk.chunk_size = HttpBigNum(HttpBigNum::dec, it->field_value);
+                        next_chunk.chunk_size_started = true;
                         next_chunk.chunk_size_found = true;
                         next_chunk.chunk_body_start = true;
                     }
@@ -1161,7 +1145,10 @@ namespace http
                     if(next_chunk.chunk_complete){
                         if(next_chunk.chunk_size != HttpBigNum{0}){
                             ++(res.num_chunks);
-                            res.chunks.emplace_back();
+                            HttpChunk new_chunk = {
+                                {0},"",{0},"",false,false,false,false,false
+                            };
+                            res.chunks.push_back(new_chunk);
                         }
                         ++(res.next_chunk);
                     }
