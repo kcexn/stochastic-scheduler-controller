@@ -134,9 +134,12 @@ namespace io{
         io.detach();
     }
 
-
-
     void IO::start(){
+        errno = 0;
+        int nice_val = nice(1);
+        if(nice_val == -1 && errno != 0){
+            std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        }
         std::shared_ptr<MessageBox> mbox = mbox_ptr_;
         us_.accept([&, mbox](const boost::system::error_code& ec, std::shared_ptr<UnixServer::unix_session> session){
             if (!ec){

@@ -7,6 +7,7 @@ namespace app{
     void ThreadControls::wait(){
         std::unique_lock<std::mutex> lk(*mtx_); 
         cv_->wait(lk, [&]{ return (signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_START_EVENT); }); 
+        lk.unlock();
         return;
     }
 
@@ -36,14 +37,14 @@ namespace app{
 
     std::vector<std::size_t> ThreadControls::stop_thread() {
         if(!is_stopped()){
+            if(pid_ > 0){
+                kill(-pid_, SIGKILL);
+            }
             ctx_mtx_->lock();
             pthread_cancel(tid_);
             ctx_mtx_->unlock();
             // Stop the thread.
             signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-            if(pid_ > 0){
-                kill(-pid_, SIGKILL);
-            }
         }
         std::vector<std::size_t> tmp;
         ctx_mtx_->lock();

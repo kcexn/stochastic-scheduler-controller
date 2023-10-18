@@ -139,6 +139,11 @@ namespace app{
 
     void Controller::start(){
         // Initialize resources I might need.
+        errno = 0;
+        int nice_val = nice(3);
+        if(nice_val == -1 && errno != 0){
+            std::cerr << "controller-app.cpp:145:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
         // Scheduling Loop.
@@ -726,6 +731,7 @@ namespace app{
                                                 },  io_mbox_ptr_
                                             );
                                             executor.detach();
+                                            ctx_ptr->wait_for_sync();
                                         }
                                         /* Initialize the http client sessions */
                                         if(ctx_ptr->execution_context_idx_array().front() == 0){
@@ -835,23 +841,54 @@ namespace app{
                                                 }
                                                 argv.push_back(nullptr);
 
-                                                /* Since we do an immediate execve, vfork is a bit faster.*/
-                                                pid_t pid = vfork();
-                                                switch(pid)
-                                                {
-                                                    case 0:
+                                                std::size_t max_retries = 5;
+                                                std::size_t counter = 0;
+                                                while(counter < max_retries){
+                                                    pid_t pid = fork();
+                                                    switch(pid)
                                                     {
-                                                        execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
-                                                        break;
-                                                    }
-                                                    case -1:
-                                                    {
-                                                        std::cerr << "Fork cURL failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                        throw "This shouldn't happen!";
+                                                        case 0:
+                                                        {
+                                                            errno = 0;
+                                                            int nice_val = nice(15);
+                                                            if(nice_val == -1 && errno != 0){
+                                                                std::cerr << "controller-app.cpp:855:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            }
+                                                            execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
+                                                            exit(1);
+                                                            break;
+                                                        }
+                                                        case -1:
+                                                        {
+                                                            switch(errno)
+                                                            {
+                                                                case EAGAIN:
+                                                                {
+                                                                    ++counter;
+                                                                    if(counter >= max_retries){
+                                                                        std::cerr << "controller-app.cpp:864:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
+                                                                        //SEND SIGTERM TO THE INIT PROCESS.
+                                                                        kill(1, SIGTERM);
+                                                                        break;
+                                                                    }
+                                                                    struct timespec ts = {0,5000000};
+                                                                    nanosleep(&ts, nullptr);
+                                                                    std::cerr << "controller-app.cpp:871:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":RETRYING" << std::endl;
+                                                                    break;
+                                                                }
+                                                                default:
+                                                                    std::cerr << "Fork cURL failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                                    throw "This shouldn't happen!";      
+                                                            }
+                                                            break;
+                                                        }
+                                                        default:
+                                                            counter = max_retries;
+                                                            break;
                                                     }
                                                 }
-                                                // waitpid is handled by trapping SIGCHLD.
                                             }
+                                            // waitpid is handled by trapping SIGCHLD.
                                         } else {
                                             /* This is a secondary context */
                                             for(auto& peer: ctx_ptr->peer_addresses()){
@@ -1131,7 +1168,7 @@ namespace app{
                                 [&, session](){
                                     session->close();
                                 }
-                            );         
+                            );
                         }
                     }
                 }

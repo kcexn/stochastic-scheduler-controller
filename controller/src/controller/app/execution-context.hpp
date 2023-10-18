@@ -54,6 +54,10 @@ namespace app{
 
         // Thread Control Members
         std::vector<ThreadControls>& thread_controls() { return thread_controls_; }
+
+        void wait_for_sync(){ std::unique_lock<std::mutex> lk(sync_); sync_cv_.wait(lk); lk.unlock(); return;}
+        void synchronize(){ sync_cv_.notify_all(); }
+
     private:
         /* ow invoker server sessions are kept as http_session_ptrs_ for backwards compatibility. */
         std::vector<std::shared_ptr<http::HttpSession> > http_session_ptrs_;
@@ -75,6 +79,10 @@ namespace app{
         // Execution Context Peering Members.
         std::vector<server::Remote> peers_;
         std::mutex mtx_;
+
+        // Synchronization
+        std::mutex sync_;
+        std::condition_variable sync_cv_;
     };
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs);
 }//namepsace app

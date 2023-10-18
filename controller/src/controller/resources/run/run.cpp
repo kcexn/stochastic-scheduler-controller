@@ -125,7 +125,7 @@ namespace run{
                         {
                             //Child Process.
                             errno = 0;
-                            int nice_val = nice(5);
+                            int nice_val = nice(3);
                             if(nice_val == -1 && errno != 0){
                                 std::cerr << "run.cpp:130:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             }
@@ -184,10 +184,6 @@ namespace run{
                             throw "This shouldn't happen.";
                         }
                     }
-                    if(close(sync[1]) == -1){
-                        std::cerr << "Closing the write side of the synchronization pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "This shouldn't happen.";
-                    }
                     // Block until the child process sets the pgid.
                     char notice[1] = {};
                     int count = 0;
@@ -200,12 +196,18 @@ namespace run{
                             break;
                         }
                     }
+                    // Save the PID in the relevant thread control.
+                    ctx_ptr->thread_controls()[idx].pid() = pid;
+                    // Synchronize with the scheduler. We are now ready for preemption.
+                    ctx_ptr->synchronize();
+                    if(close(sync[1]) == -1){
+                        std::cerr << "Closing the write side of the synchronization pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "This shouldn't happen.";
+                    }
                     if(close(sync[0]) == -1){
                         std::cerr << "Closing the read side of the synchronization pipe in the parent failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
-                    // Save the PID in the relevant thread control.
-                    ctx_ptr->thread_controls()[idx].pid() = pid;
 
                     //Parent Process.
                     if( close(downstream[0]) == -1 ){
