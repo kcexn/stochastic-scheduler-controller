@@ -124,7 +124,11 @@ namespace run{
                         case 0:
                         {
                             //Child Process.
-                            nice(5);
+                            errno = 0;
+                            int nice_val = nice(5);
+                            if(nice_val == -1 && errno != 0){
+                                std::cerr << "run.cpp:130:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            }
                             setpgid(0,0);
                             char notice[1] = {'\0'};
                             if(close(sync[0]) == -1){
