@@ -116,16 +116,16 @@ namespace run{
                         std::cerr << "__OW_ACTION_LAUNCHER envvar is not set." << std::endl;
                         throw "__OW_ACTION_LAUNCHER environment varible not set.";
                     }
-                    std::string f = relation->path().stem().string();
+                    std::string p = relation->path().stem().string();
                     std::string k = relation->key();
-                    std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, f.c_str(), k.c_str(), nullptr};
+                    std::vector<const char*> argv{__OW_ACTION_BIN, __OW_ACTION_LAUNCHER, p.c_str(), k.c_str(), nullptr};
                     pid_t pid = fork();
                     switch(pid){
                         case 0:
                         {
                             //Child Process.
                             errno = 0;
-                            int nice_val = nice(3);
+                            int nice_val = nice(2);
                             if(nice_val == -1 && errno != 0){
                                 std::cerr << "run.cpp:130:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             }
@@ -187,15 +187,13 @@ namespace run{
                     // Block until the child process sets the pgid.
                     char notice[1] = {};
                     int count = 0;
-                    while(true){
+                    do{
                         count = read(sync[0], notice, 1);
-                        if( count == -1 && errno != EINTR ){
-                            std::cerr << "Read from the synchronization pipe failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        if(count < 0 && errno != EINTR && errno != EAGAIN){
+                            std::cerr << "run.cpp:193:read from the synchronization pipe failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "This shouldn't happen.";
-                        } else if (count >= 0){
-                            break;
                         }
-                    }
+                    }while(errno == EINTR || errno == EAGAIN);
                     // Save the PID in the relevant thread control.
                     ctx_ptr->thread_controls()[idx].pid() = pid;
                     // Synchronize with the scheduler. We are now ready for preemption.
@@ -220,17 +218,14 @@ namespace run{
                     }
 
                     char ready[1] = {};
-                    int length = read(upstream[0], ready, 1);
-                    if( length == -1 ){
-                        switch(errno)
-                        {
-                            case EINTR:
-                                return std::move(g);
-                            default:
-                                std::cerr << "run.cpp:223:upstream read of the ready byte failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                throw "This shouldn't happen.";
-                        }  
-                    }
+                    int length = 0;
+                    do{
+                        length = read(upstream[0], ready, 1);
+                        if(length == -1 && errno != EINTR && errno != EAGAIN){
+                            std::cerr << "run.cpp:226:upstream read of the ready byte failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            throw "This shouldn't happen.";
+                        }
+                    }while(errno == EINTR || errno == EAGAIN);
                     if (kill(-pid, SIGSTOP) == -1){
                         std::cerr << "Pausing the child action launcher failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";

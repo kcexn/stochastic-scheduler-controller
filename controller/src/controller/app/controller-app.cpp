@@ -140,7 +140,7 @@ namespace app{
     void Controller::start(){
         // Initialize resources I might need.
         errno = 0;
-        int nice_val = nice(3);
+        int nice_val = nice(2);
         if(nice_val == -1 && errno != 0){
             std::cerr << "controller-app.cpp:145:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         }
@@ -731,8 +731,8 @@ namespace app{
                                                 },  io_mbox_ptr_
                                             );
                                             executor.detach();
-                                            ctx_ptr->wait_for_sync();
                                         }
+                                        ctx_ptr->wait_for_sync();
                                         /* Initialize the http client sessions */
                                         if(ctx_ptr->execution_context_idx_array().front() == 0){
                                             /* This is the primary context */
@@ -926,7 +926,7 @@ namespace app{
                                                                     {{data.size()}, data}
                                                                 }
                                                             };
-                                                            client_session->write([&](){ return; });
+                                                            client_session->write([](){ return; });
                                                         }
                                                     });
                                                 }
@@ -945,6 +945,7 @@ namespace app{
                                         return rel->key() == start->key();
                                     });
                                     if (start_it == ctx_ptr->manifest().end()){
+                                        std::cerr << "controller-app.cpp:948:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
                                         // If the start key is past the end of the manifest, that means that
                                         // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);

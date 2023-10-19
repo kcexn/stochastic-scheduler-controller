@@ -96,6 +96,7 @@ namespace app{
             // By default, the entry point has no dependencies.
             manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
         }
+        sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 
     ExecutionContext::ExecutionContext(ExecutionContext::Run run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers)
@@ -212,6 +213,7 @@ namespace app{
             // By default, the entry point has no dependencies.
             manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
         }
+        sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs){

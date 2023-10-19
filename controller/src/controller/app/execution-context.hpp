@@ -55,8 +55,13 @@ namespace app{
         // Thread Control Members
         std::vector<ThreadControls>& thread_controls() { return thread_controls_; }
 
-        void wait_for_sync(){ std::unique_lock<std::mutex> lk(sync_); sync_cv_.wait(lk); lk.unlock(); return;}
-        void synchronize(){ sync_cv_.notify_all(); }
+        void wait_for_sync(){ 
+            std::unique_lock<std::mutex> lk(sync_); 
+            sync_cv_.wait(lk, [&](){return (sync_counter_.load(std::memory_order::memory_order_relaxed)==0);}); 
+            lk.unlock();
+            return;
+        }
+        void synchronize(){ sync_.lock(); sync_counter_.fetch_sub(1, std::memory_order::memory_order_relaxed); sync_cv_.notify_all(); sync_.unlock(); return;}
 
     private:
         /* ow invoker server sessions are kept as http_session_ptrs_ for backwards compatibility. */
@@ -82,6 +87,7 @@ namespace app{
 
         // Synchronization
         std::mutex sync_;
+        std::atomic<std::size_t> sync_counter_;
         std::condition_variable sync_cv_;
     };
     bool operator==(const ExecutionContext& lhs, const ExecutionContext& rhs);

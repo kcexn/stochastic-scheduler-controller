@@ -38,13 +38,12 @@ namespace app{
     std::vector<std::size_t> ThreadControls::stop_thread() {
         if(!is_stopped()){
             if(pid_ > 0){
-                kill(-pid_, SIGKILL);
+                kill(-pid_, SIGTERM);
+                kill(-pid_, SIGCONT);
             }
-            ctx_mtx_->lock();
-            pthread_cancel(tid_);
-            ctx_mtx_->unlock();
             // Stop the thread.
             signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+            pthread_cancel(tid_);
         }
         std::vector<std::size_t> tmp;
         ctx_mtx_->lock();

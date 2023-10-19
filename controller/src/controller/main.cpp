@@ -25,7 +25,7 @@ extern "C"{
                 int wstatus = 0;
                 pid_t pid = 0;
                 do{
-                    pid = waitpid(0, &wstatus, WNOHANG);
+                    pid = waitpid(-1, &wstatus, WNOHANG);
                 } while(pid > 0);
                 break;
             }
