@@ -141,11 +141,6 @@ namespace app{
 
     void Controller::start(){
         // Initialize resources I might need.
-        // errno = 0;
-        // int nice_val = nice(2);
-        // if(nice_val == -1 && errno != 0){
-        //     std::cerr << "controller-app.cpp:145:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-        // }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
         // Scheduling Loop.
