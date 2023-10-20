@@ -10,6 +10,7 @@ namespace sctp_transport{
     struct PendingConnect {
         std::shared_ptr<SctpSession> session;
         std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> cb;
+        struct sockaddr addr;
     };
 
     class SctpServer: public server::Server

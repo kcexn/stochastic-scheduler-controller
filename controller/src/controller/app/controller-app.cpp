@@ -10,7 +10,7 @@
 
 namespace controller{
 namespace app{
-    std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
+    static std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
         std::string_view obj;
         // Count the number of unclosed braces.
         std::size_t brace_count = 0;
@@ -79,7 +79,7 @@ namespace app{
         return obj;
     }
 
-    std::string rtostr(const server::Remote& raddr){
+    static std::string rtostr(const server::Remote& raddr){
         std::array<char,5> pbuf;
         std::string port;
         std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(raddr.ipv4_addr.address.sin_port), 10);
@@ -105,7 +105,8 @@ namespace app{
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
-        io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc)
+        io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc),
+        ioc_(ioc)
     {
         // Initialize parent controls
         io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
@@ -123,7 +124,8 @@ namespace app{
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
-        io_(io_mbox_ptr_, upath.string(), ioc, sport)
+        io_(io_mbox_ptr_, upath.string(), ioc, sport),
+        ioc_(ioc)
     {
         // Initialize parent controls
         io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
@@ -139,16 +141,16 @@ namespace app{
 
     void Controller::start(){
         // Initialize resources I might need.
-        errno = 0;
-        int nice_val = nice(2);
-        if(nice_val == -1 && errno != 0){
-            std::cerr << "controller-app.cpp:145:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-        }
+        // errno = 0;
+        // int nice_val = nice(2);
+        // if(nice_val == -1 && errno != 0){
+        //     std::cerr << "controller-app.cpp:145:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        // }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
-        while(!(controller_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed)&CTL_TERMINATE_EVENT) || !ctx_ptrs.empty()){
+        while(true){
             std::shared_ptr<server::Session> server_session;
             lk.lock();
             io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ 
@@ -160,11 +162,12 @@ namespace app{
             }
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             if(thread_local_signal != 0){
-                io_mbox_ptr_->sched_signal_ptr->store(0, std::memory_order::memory_order_relaxed);
+                io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             }
             io_mbox_ptr_->mbx_cv.notify_all();
             lk.unlock();
             if( (thread_local_signal&CTL_TERMINATE_EVENT) && ctx_ptrs.empty()){
+                controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                 break;
             }
             if(server_session){
@@ -362,11 +365,11 @@ namespace app{
                             });
                             if(server_ctx != ctx_ptrs.end()){
                                 std::size_t num_valid_threads = 0;
-                                for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
-                                    auto tmp = (*server_ctx)->thread_controls()[i].stop_thread();
-                                    if((*server_ctx)->thread_controls()[i].is_valid()){
+                                for(auto& thread_control: (*server_ctx)->thread_controls()){
+                                    auto tmp = thread_control.stop_thread();
+                                    if(thread_control.is_valid()){
                                         if(num_valid_threads > 0){
-                                            tmp = (*server_ctx)->thread_controls()[i].invalidate();
+                                            tmp = thread_control.invalidate();
                                         } else {
                                             ++num_valid_threads;
                                         }
@@ -599,11 +602,11 @@ namespace app{
                             });
                             if(server_ctx != ctx_ptrs.end()){
                                 std::size_t num_valid_threads = 0;
-                                for(std::size_t i = 0; i < (*server_ctx)->thread_controls().size(); ++i){
-                                    auto tmp = (*server_ctx)->thread_controls()[i].stop_thread();
-                                    if((*server_ctx)->thread_controls()[i].is_valid()){
-                                        if(num_valid_threads >= 1){
-                                            tmp = (*server_ctx)->thread_controls()[i].invalidate();
+                                for(auto& thread_control: (*server_ctx)->thread_controls()){
+                                    auto tmp = thread_control.stop_thread();
+                                    if(thread_control.is_valid()){
+                                        if(num_valid_threads > 0){
+                                            tmp = thread_control.invalidate();
                                         } else {
                                             ++num_valid_threads;
                                         }
@@ -636,7 +639,7 @@ namespace app{
                             if(req.verb == http::HttpVerb::POST){
                                 controller::resources::run::Request run(val.as_object());
                                 // Create a fiber continuation for processing the request.
-                                std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs); 
+                                std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs, ioc_); 
                                 auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
                                 if(http_it == ctx_ptr->sessions().cend()){
                                     ctx_ptr->sessions().push_back(session);
@@ -1341,9 +1344,8 @@ namespace app{
         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
 
-        // Wait a reasonable amount of time for the threads to stop gracefully.
-        struct timespec ts = {0,50000000};
-        nanosleep(&ts, nullptr);
+        std::unique_lock<std::mutex> lk(*(controller_mbox_ptr_->sched_signal_mtx_ptr));
+        controller_mbox_ptr_->sched_signal_cv_ptr->wait(lk);
     }
 
     Controller::~Controller()

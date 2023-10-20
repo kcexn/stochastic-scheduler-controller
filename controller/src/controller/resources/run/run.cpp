@@ -2,11 +2,7 @@
 #include "../../app/action-relation.hpp"
 #include "../../app/execution-context.hpp"
 #include <csignal>
-
-
-#ifdef DEBUG
-#include <iostream>
-#endif
+#include <boost/asio.hpp>
 
 namespace controller{
 namespace resources{
@@ -58,7 +54,7 @@ namespace run{
         }
     }
 
-    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs){
+    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs, boost::asio::io_context& ioc){
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr;
         if(req.execution_context_id() != UUID::Uuid()){
             auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
@@ -124,11 +120,11 @@ namespace run{
                         case 0:
                         {
                             //Child Process.
-                            errno = 0;
-                            int nice_val = nice(2);
-                            if(nice_val == -1 && errno != 0){
-                                std::cerr << "run.cpp:130:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            }
+                            // errno = 0;
+                            // int nice_val = nice(2);
+                            // if(nice_val == -1 && errno != 0){
+                            //     std::cerr << "run.cpp:130:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            // }
                             setpgid(0,0);
                             char notice[1] = {'\0'};
                             if(close(sync[0]) == -1){
@@ -162,6 +158,7 @@ namespace run{
                                 std::cerr << "Failed to map the downstream read to STDIN: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "This shouldn't happen.";
                             }
+
                             if (dup2(upstream[1], 3) == -1){
                                 std::cerr << "Failed to map the upstream write to fd3: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "This shouldn't happen.";

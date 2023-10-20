@@ -6,6 +6,13 @@
 #include <uuid/uuid.hpp>
 #include <memory>
 
+
+namespace boost{
+namespace asio{
+    class io_context;
+}
+}
+
 namespace controller{
 namespace app{
     /*Forward Declarations*/
@@ -30,7 +37,7 @@ namespace run{
         boost::json::object value_;
         std::map<std::string, std::string> env_;
     };
-    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs);
+    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs, boost::asio::io_context& ioc);
 }//namespace run
 }//namespace resources
 }//namespace controller

@@ -135,11 +135,11 @@ namespace io{
     }
 
     void IO::start(){
-        errno = 0;
-        int nice_val = nice(1);
-        if(nice_val == -1 && errno != 0){
-            std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-        }
+        // errno = 0;
+        // int nice_val = nice(1);
+        // if(nice_val == -1 && errno != 0){
+        //     std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        // }
         std::shared_ptr<MessageBox> mbox = mbox_ptr_;
         us_.accept([&, mbox](const boost::system::error_code& ec, std::shared_ptr<UnixServer::unix_session> session){
             if (!ec){
@@ -174,7 +174,10 @@ namespace io{
                 mbox->sched_signal_cv_ptr->notify_all();
             }
         });
-        ioc_.run();
+        while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
+            ioc_.run();
+        }
+        std::cerr << "controller-io.cpp:181:IO thread terminated." << std::endl;
         pthread_exit(0);
     }
 

@@ -1,5 +1,6 @@
 #!/bin/bash
 function terminate {
+	echo "APPLICATION TERMINATED" >> /var/log/controller.stdout.log
 	/usr/sbin/nginx -s quit
 	kill %1
 }

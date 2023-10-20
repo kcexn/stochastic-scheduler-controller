@@ -2,6 +2,7 @@
 #define OWLIB_IP_SCTP_HPP
 #include <boost/asio.hpp>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <netinet/sctp.h>
 
 namespace transport{
@@ -21,6 +22,7 @@ namespace protocols{
         typedef sctp_assoc_t assoc_t;
         typedef std::uint16_t sid_t;
         typedef struct sctp_paddrinfo paddrinfo;
+        typedef struct sctp_getaddrs_old getaddrs_old;
         struct stream_t {
             assoc_t assoc;
             sid_t sid;

@@ -22,9 +22,6 @@ namespace http{
 
 namespace controller{
 namespace app{
-    std::string_view find_next_json_object(const std::string&, std::size_t&);
-    std::string rtostr(const server::Remote&);
-
     class Controller
     {
     public:
@@ -66,6 +63,7 @@ namespace app{
         // IO
         std::shared_ptr<controller::io::MessageBox> io_mbox_ptr_;
         controller::io::IO io_;
+        boost::asio::io_context& ioc_;
     };
 
 }// namespace app

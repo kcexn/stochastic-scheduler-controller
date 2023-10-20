@@ -38,7 +38,7 @@ namespace app{
     std::vector<std::size_t> ThreadControls::stop_thread() {
         if(!is_stopped()){
             if(pid_ > 0){
-                kill(-pid_, SIGTERM);
+                kill(-pid_, SIGKILL);
                 kill(-pid_, SIGCONT);
             }
             // Stop the thread.

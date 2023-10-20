@@ -18,32 +18,80 @@ namespace sctp_transport{
     {
         buf_.fill(0);
         cbuf_.fill(0);
-        transport::protocols::sctp::acceptor acceptor(ioc, transport::protocols::sctp::v4());
-        acceptor.bind(endpoint);
-        transport::protocols::sctp::recvrcvinfo option(1);
-        acceptor.set_option(option);
-
+        int sockfd = socket(AF_INET, SOCK_SEQPACKET | SOCK_CLOEXEC, IPPROTO_SCTP);
+        if(sockfd == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:25:sctp_server failed to open:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
+        int recvrcvinfo = 1;
+        int status = setsockopt(sockfd, IPPROTO_SCTP, SCTP_RECVRCVINFO, &recvrcvinfo, sizeof(recvrcvinfo));
+        if(status == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:36:SCTP_RECVRCVINFO socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
         struct sctp_event subscribe = {
             SCTP_ALL_ASSOC,
             SCTP_ASSOC_CHANGE,
             1
         };
-        int val = setsockopt(acceptor.native_handle(), IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe));
-
+        status = setsockopt(sockfd, IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe));
+        if(status == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:51:SCTP_EVENT socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
         int autoclose = 60;
-        val = setsockopt(acceptor.native_handle(), IPPROTO_SCTP, SCTP_AUTOCLOSE, &autoclose, sizeof(autoclose));
-
-
-        acceptor.listen();
-        int sockfd = acceptor.native_handle();
-        acceptor.release();
+        status = setsockopt(sockfd, IPPROTO_SCTP, SCTP_AUTOCLOSE, &autoclose, sizeof(autoclose));
+        if(status == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:62:SCTP_AUTOCLOSE socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
+        struct sockaddr_in local_address = {};
+        local_address.sin_family = AF_INET;
+        local_address.sin_port = htons(endpoint.port());
+        local_address.sin_addr.s_addr = htonl(endpoint.address().to_v4().to_uint());
+        status = bind(sockfd, (const struct sockaddr*)(&local_address), sizeof(local_address));
+        if(status == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:78:bind failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
+        status = listen(sockfd, 256);
+        if(status == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:87:listen failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
         socket_.assign(transport::protocols::sctp::v4(), sockfd);
     }
 
     void SctpServer::init(std::function<void(const boost::system::error_code&, std::shared_ptr<SctpSession>)> fn){
         socket_.async_wait(
             transport::protocols::sctp::socket::wait_type::wait_read,
-            std::bind(&SctpServer::read, this, fn, std::placeholders::_1)
+            [&, this, fn](const boost::system::error_code& ec){
+                this->read(fn, ec);
+            }
         );
     }
 
@@ -68,11 +116,10 @@ namespace sctp_transport{
                     0
                 };
                 session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
+                PendingConnect connection = {session, fn};
+                std::memcpy(&connection.addr, (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                 acquire();
-                pending_connects_.push_back(PendingConnect{
-                    session,
-                    fn
-                });
+                pending_connects_.push_back(connection);
                 release();
                 socket_.async_wait(
                     transport::protocols::sctp::socket::wait_type::wait_write,
@@ -80,58 +127,43 @@ namespace sctp_transport{
                         if(!ec){
                             int err = connect(socket_.native_handle(), (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                             boost::system::error_code error;
-                            if(errno == 0 || errno == EINPROGRESS){
-                                transport::protocols::sctp::paddrinfo paddr;
-                                socklen_t paddr_size = sizeof(paddr);
-                                std::memcpy(&(paddr.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
-                                int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddr, &paddr_size);
-                                if(ec == -1){
-                                    switch(errno)
-                                    {
-                                        case EINVAL:
-                                            std::cerr << "sctp-server.cpp:91:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                            error = boost::system::error_code(errno, boost::system::system_category());
-                                            fn(error, session);
-                                            erase_pending_connect(session);
-                                            return;
-                                        default:
-                                            std::cerr << "sctp-server.cpp:94:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                            throw "This really shouldn't happen.";
-                                    }
-                                }
-                                transport::protocols::sctp::assoc_t assoc_id = paddr.spinfo_assoc_id;
-                                session->set(assoc_id);
-                            } else {
+                            if(err < 0 && errno != EINPROGRESS){
+                                std::cerr << "sctp-server.cpp:83:connect failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 error = boost::system::error_code(errno, boost::system::system_category());
                                 fn(error, session);
                                 erase_pending_connect(session);
                             }
+                            return;
                         }
                         return;
                     }
                 );
             } else {
-                perror("getsockopt failed");
+                std::cerr << "sctp-server.cpp:94:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
             }
         } else {
             /* Remote address is in the peer address table. */
             transport::protocols::sctp::assoc_t assoc_id = paddrinfo.spinfo_assoc_id;
             /* Look for the next available stream*/
-            transport::protocols::sctp::sid_t last_stream_no = 0;
+            std::vector<transport::protocols::sctp::sid_t> used_stream_nums;
             acquire();
-            for(auto& ptr: *this){
-                if(std::static_pointer_cast<SctpSession>(ptr)->assoc() == assoc_id){
-                    if( (std::static_pointer_cast<SctpSession>(ptr)->sid() - last_stream_no) <= 1){
-                        last_stream_no = std::static_pointer_cast<SctpSession>(ptr)->sid();
-                    } else {
-                        break;
-                    }
+            for(auto& session_ptr: *this){
+                if(std::static_pointer_cast<SctpSession>(session_ptr)->assoc() == assoc_id){
+                    used_stream_nums.push_back(std::static_pointer_cast<SctpSession>(session_ptr)->sid());
                 }
             }
-            ++last_stream_no;
+            std::sort(used_stream_nums.begin(), used_stream_nums.end());
+            transport::protocols::sctp::sid_t last_stream_num = 0;
+            for(auto sid: used_stream_nums){
+                if(sid == last_stream_num){
+                    ++last_stream_num;
+                } else {
+                    break;
+                }
+            }
             transport::protocols::sctp::stream_t stream = {
                 assoc_id,
-                last_stream_no
+                last_stream_num
             };
             session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
             push_back(session);
@@ -155,8 +187,6 @@ namespace sctp_transport{
         return;
     }
 
-
-
     void SctpServer::read(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)> fn, const boost::system::error_code& ec){
         if(!ec){
             using namespace transport::protocols;
@@ -175,120 +205,133 @@ namespace sctp_transport{
                 cbuf_.size(),
                 0                                     
             };
-            int len = recvmsg(socket_.native_handle(), &msg, 0);
-            if( len == -1 ){
-                std::cerr << "recvmsg failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                switch(errno)
+            int len = 0;
+            do{
+                len = recvmsg(socket_.native_handle(), &msg, MSG_DONTWAIT);
+                if(len == -1 && errno != EINTR){
+                    switch(errno)
+                    {
+                        case EWOULDBLOCK:
+                            socket_.async_wait(
+                                transport::protocols::sctp::socket::wait_type::wait_read,
+                                [&,this, fn](const boost::system::error_code& ec){
+                                    this->read(fn, ec);
+                                }
+                            );
+                            return;
+                        default:
+                            std::cerr << "sctp-server.cpp:215:recvmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            throw "what?";
+                    }
+                }
+            }while(errno == EINTR);
+            if(msg.msg_flags & MSG_NOTIFICATION){
+                union sctp_notification* snp;
+                snp = (sctp_notification*)(buf_.data());
+                switch(snp->sn_header.sn_type)
                 {
-                    case EAGAIN:
-                        socket_.async_wait(
-                            transport::protocols::sctp::socket::wait_type::wait_read,
-                            std::bind(&SctpServer::read, this, fn, std::placeholders::_1)
-                        );
+                    case SCTP_ASSOC_CHANGE:
+                        struct sctp_assoc_change* sac;
+                        sac = &snp->sn_assoc_change;
+                        transport::protocols::sctp::assoc_t association = sac->sac_assoc_id;
+                        switch(sac->sac_state)
+                        {
+                            case SCTP_COMM_UP:
+                            {
+                                /* Search for the association in the pending connects table */
+                                boost::system::error_code error;
+                                acquire();
+                                auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                    sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                });
+                                if(it != pending_connects_.end()){
+                                    /* This is a pending connection */
+                                    const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
+                                    sctp_session->set(association);
+                                    push_back(sctp_session);
+                                    it->cb(error, sctp_session);
+                                    pending_connects_.erase(it);
+                                }
+                                release();
+                                /* Otherwise it's a brand new incoming connection. */
+                                break;
+                            }
+                            case SCTP_COMM_LOST:
+                                break;
+                            case SCTP_RESTART:
+                                break;
+                            case SCTP_SHUTDOWN_COMP:
+                                break;
+                            case SCTP_CANT_STR_ASSOC:
+                            {
+                                /* Search for the association in the pending connects table */
+                                acquire();
+                                auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](const auto& pending_connection){
+                                    sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                });
+                                if(it != pending_connects_.cend()){
+                                    /* This is a pending connection */
+                                    boost::system::error_code error(ECONNREFUSED, boost::system::system_category());
+                                    const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
+                                    it->cb(error, it->session);
+                                    pending_connects_.erase(it);
+                                }
+                                release();
+                                break;
+                            }
+                            default:
+                                break;
+                        }
                         break;
                 }
             } else {
-                if(msg.msg_flags & MSG_NOTIFICATION){
-                    union sctp_notification* snp;
-                    snp = (sctp_notification*)(buf_.data());
-                    switch(snp->sn_header.sn_type)
-                    {
-                        case SCTP_ASSOC_CHANGE:
-                            struct sctp_assoc_change* sac;
-                            sac = &snp->sn_assoc_change;
-                            transport::protocols::sctp::assoc_t association = sac->sac_assoc_id;
-                            switch(sac->sac_state)
-                            {
-                                case SCTP_COMM_UP:
-                                {
-                                    /* Search for the association in the pending connects table */
-                                    acquire();
-                                    auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
-                                        return pending_connection.session->get_assoc() == association;
-                                    });
-                                    if(it != pending_connects_.end()){
-                                        /* This is a pending connection */
-                                        boost::system::error_code error;
-                                        const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
-                                        push_back(sctp_session);
-                                        it->cb(error, sctp_session);
-                                        pending_connects_.erase(it);
-                                    }
-                                    release();
-                                    /* Otherwise it's a brand new incoming connection. */
-                                    break;
-                                }
-                                case SCTP_COMM_LOST:
-                                    break;
-                                case SCTP_RESTART:
-                                    break;
-                                case SCTP_SHUTDOWN_COMP:
-                                    break;
-                                case SCTP_CANT_STR_ASSOC:
-                                {
-                                    /* Search for the association in the pending connects table */
-                                    acquire();
-                                    auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](const auto& pending_connection){
-                                        return pending_connection.session->get_assoc() == association;
-                                    });
-                                    if(it != pending_connects_.cend()){
-                                        /* This is a pending connection */
-                                        boost::system::error_code error(ECONNREFUSED, boost::system::system_category());
-                                        const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
-                                        it->cb(error, it->session);
-                                        pending_connects_.erase(it);
-                                    }
-                                    release();
-                                    break;
-                                }
-                                default:
-                                    break;
-                            }
-                            break;
+                sctp::cmsghdr* cmsg;
+                for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr; cmsg = CMSG_NXTHDR(&msg, cmsg)){
+                    if(cmsg->cmsg_len == 0){
+                        std::cerr << "sctp-server.cpp:243:cmsg_len == 0." << std::endl;
+                        throw "cmsg_len should never be 0.";
                     }
-                } else {
-                    sctp::cmsghdr* cmsg;
-                    for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr; cmsg = CMSG_NXTHDR(&msg, cmsg)){
-                        if(cmsg->cmsg_len == 0){
-                            std::cerr << "sctp-server.cpp:243:cmsg_len == 0." << std::endl;
-                            throw "cmsg_len should never be 0.";
-                        }
-                        if(cmsg->cmsg_level == sctp::v4().protocol() && SCTP_RCVINFO){
-                            std::memcpy(&rcvinfo, CMSG_DATA(cmsg), sizeof(sctp::rcvinfo));
-                            break;
-                        }
+                    if(cmsg->cmsg_level == sctp::v4().protocol() && SCTP_RCVINFO){
+                        std::memcpy(&rcvinfo, CMSG_DATA(cmsg), sizeof(sctp::rcvinfo));
+                        break;
                     }
-                    sctp::stream_t stream_id = {
-                        rcvinfo.rcv_assoc_id,
-                        rcvinfo.rcv_sid
-                    };
-                
-                    acquire();
-                    auto it = std::find_if(cbegin(), cend(), [&](auto& ptr){
-                        return *(std::static_pointer_cast<sctp_transport::SctpSession>(ptr)) == stream_id;
-                    });
-                    release();
-                    std::shared_ptr<sctp_transport::SctpSession> sctp_session;
-                    if(it == cend()){
-                        // Create a new session.
-                        sctp_session = std::make_shared<sctp_transport::SctpSession>(*this, stream_id, socket_);
-                        push_back(sctp_session);
-                        // Accept and return a new context (similar to the berkeley sockets accept call.)
-                    } else {
-                        sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(*it);
-                    }
-                    std::string received_data(buf_.data(), len);
-                    sctp_session->read(ec, received_data);
-
-                    // Call the read function callback.
-                    fn(ec, sctp_session);
                 }
-                socket_.async_wait(
-                    transport::protocols::sctp::socket::wait_type::wait_read,
-                    std::bind(&SctpServer::read, this, fn, std::placeholders::_1)
-                );
+                sctp::stream_t stream_id = {
+                    rcvinfo.rcv_assoc_id,
+                    rcvinfo.rcv_sid
+                };
+            
+                acquire();
+                auto it = std::find_if(cbegin(), cend(), [&](auto& ptr){
+                    return *(std::static_pointer_cast<sctp_transport::SctpSession>(ptr)) == stream_id;
+                });
+                release();
+                std::shared_ptr<sctp_transport::SctpSession> sctp_session;
+                if(it == cend()){
+                    // Create a new session.
+                    sctp_session = std::make_shared<sctp_transport::SctpSession>(*this, stream_id, socket_);
+                    push_back(sctp_session);
+                    // Accept and return a new context (similar to the berkeley sockets accept call.)
+                } else {
+                    sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(*it);
+                }
+                std::string received_data(buf_.data(), len);
+                sctp_session->read(ec, received_data);
+
+                // Call the read function callback.
+                fn(ec, sctp_session);
             }
+            socket_.async_wait(
+                transport::protocols::sctp::socket::wait_type::wait_read,
+                [&,this, fn](const boost::system::error_code& ec){
+                    this->read(fn, ec);
+                }
+            );
+            return;
         } else {
+            std::cerr << "sctp-server.cpp:327:async_wait for read has an error:" << ec.message() << std::endl;
             std::shared_ptr<sctp_transport::SctpSession> empty_session;
             fn(ec, empty_session);
         }
