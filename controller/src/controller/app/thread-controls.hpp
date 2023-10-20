@@ -34,6 +34,8 @@ namespace app{
         boost::context::fiber& f() { return f_; }
         void resume();
         void invalidate_fiber();
+        void acquire(){ ctx_mtx_->lock(); return; }
+        void release(){ ctx_mtx_->unlock(); return; }
         pid_t& pid() { return pid_; }
     private:
         pthread_t tid_;

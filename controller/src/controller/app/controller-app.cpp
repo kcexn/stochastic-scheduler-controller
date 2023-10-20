@@ -141,6 +141,11 @@ namespace app{
 
     void Controller::start(){
         // Initialize resources I might need.
+        errno = 0;
+        int status = nice(2);
+        if(status == -1 && errno != 0){
+            std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
         // Scheduling Loop.
@@ -157,7 +162,7 @@ namespace app{
             }
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             if(thread_local_signal != 0){
-                io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
+                io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             }
             io_mbox_ptr_->mbx_cv.notify_all();
             lk.unlock();
@@ -278,7 +283,7 @@ namespace app{
                             boost::json::error_code ec;
                             boost::json::value jv = boost::json::parse(f_val, ec);
                             if(ec){
-                                std::cerr << "controller-app.cpp:278:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                std::cerr << "controller-app.cpp:286:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                                 throw "This shouldn't happen.";
                             }
                             jo.emplace(f_key, jv);
@@ -294,7 +299,7 @@ namespace app{
                                 http::HttpChunk chunk{http::HttpBigNum{data.size()}, data};
                                 req.chunks.push_back(chunk);
                                 peer_session->set(rr);
-                                peer_session->write([](){return;});
+                                peer_session->write([&, peer_session](){return;});
                             }
                             for(auto& peer_session: (*it)->peer_server_sessions()){
                                 /* Update peers */
@@ -303,7 +308,7 @@ namespace app{
                                 http::HttpChunk chunk{http::HttpBigNum{data.size()}, data};
                                 res.chunks.push_back(chunk);
                                 peer_session->set(rr);
-                                peer_session->write([](){return;});
+                                peer_session->write([&, peer_session](){return;});
                             }
                         }    
 
@@ -319,7 +324,7 @@ namespace app{
                             std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
                             //Start the thread at this index.
                             (*it)->thread_controls()[next_idx].notify(idx);
-                        }                    
+                        }
                         // Search through remaining contexts.
                         it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
                             auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
@@ -370,11 +375,10 @@ namespace app{
                                         }
                                     }
                                 }
-                                std::string data("{}");
                                 for(auto& rel: (*server_ctx)->manifest()){
                                     auto& value = rel->acquire_value();
                                     if(value.empty()){
-                                        value = data;
+                                        value = "{}";
                                     }
                                     rel->release_value();
                                 }
@@ -389,7 +393,7 @@ namespace app{
                             ec
                         );
                         if(ec){
-                            std::cerr << "controller-app.cpp:387:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
+                            std::cerr << "controller-app.cpp:396:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
                             throw "this shouldn't happen.";
                         }
                         auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -448,7 +452,7 @@ namespace app{
                                                         {http::HttpBigNum{data.size()}, data}
                                                     }
                                                 };
-                                                client_session->write([&](){ return; });
+                                                client_session->write([&, client_session](){ return; });
                                             }
                                         });
                                     }
@@ -466,39 +470,49 @@ namespace app{
                                 }
                                 
                                 std::string data = boost::json::serialize(kvp.value());
-                                auto& value = (*rel)->acquire_value();
-                                if(value.empty()){
-                                    value = data;
-                                }
-                                (*rel)->release_value();
+                                if(!data.empty()){
+                                    auto& value = (*rel)->acquire_value();
+                                    if(value.empty()){
+                                        value = data;
+                                    }
+                                    (*rel)->release_value();
 
-                                /* Reschedule if necessary */
-                                std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
-                                auto& thread = (*ctx)->thread_controls()[idx];     
-                                auto execution_idxs = thread.stop_thread();
-                                std::size_t manifest_size = (*ctx)->manifest().size();
-                                for(auto& i: execution_idxs){
-                                    // Get the starting relation.
-                                    std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
-                                    std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
-                                    if(start->key().size() == 0){
-                                        // If the start key is empty, that means that all tasks in the schedule are complete.
-                                        // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
-                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                        break;
-                                    } else {
-                                        // Find the index in the manifest of the starting relation.
-                                        auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
-                                            return rel->key() == start->key();
-                                        });
-                                        if(start_it == (*ctx)->manifest().end()){
-                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                            throw "This shouldn't be possible";
-                                        }
-                                        std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
-                                        (*ctx)->thread_controls()[start_idx].notify(i);
-                                    }                 
+                                    /* Reschedule if necessary */
+                                    std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
+                                    auto& thread = (*ctx)->thread_controls()[idx];     
+                                    auto execution_idxs = thread.stop_thread();
+                                    std::size_t manifest_size = (*ctx)->manifest().size();
+                                    for(auto& i: execution_idxs){
+                                        // Get the starting relation.
+                                        std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
+                                        std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
+                                        if(start->key().size() == 0){
+                                            // If the start key is empty, that means that all tasks in the schedule are complete.
+                                            std::size_t num_valid_threads = 0;
+                                            for(auto& thread_control: (*ctx)->thread_controls()){
+                                                thread_control.stop_thread();
+                                                if(thread_control.is_valid() && num_valid_threads == 0){
+                                                    ++num_valid_threads;
+                                                } else {
+                                                    thread_control.invalidate();
+                                                }
+                                            }
+                                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                            return;
+                                        } else {
+                                            // Find the index in the manifest of the starting relation.
+                                            auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
+                                                return rel->key() == start->key();
+                                            });
+                                            if(start_it == (*ctx)->manifest().end()){
+                                                std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                                throw "This shouldn't be possible";
+                                            }
+                                            std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
+                                            (*ctx)->thread_controls()[start_idx].notify(i);
+                                        }                 
+                                    }
                                 }
                             }
                         }
@@ -607,11 +621,10 @@ namespace app{
                                         }
                                     }
                                 }
-                                std::string data("{}");
                                 for (auto& rel: (*server_ctx)->manifest()){
                                     auto& value = rel->acquire_value();
                                     if(value.empty()){
-                                        value = data;
+                                        value = "{}";
                                     }
                                     rel->release_value();
                                 }
@@ -627,7 +640,7 @@ namespace app{
                             ec
                         );
                         if(ec){
-                            std::cerr << "controller-app.cpp:627:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
+                            std::cerr << "controller-app.cpp:644:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                             throw "Json Parsing failed.";
                         }
                         if(req.route == "/run"){
@@ -697,7 +710,7 @@ namespace app{
                                                 }
                                                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                 io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                                break;                   
+                                                return;                   
                                             }
                                         }
                                         #endif
@@ -720,7 +733,6 @@ namespace app{
                                                         ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_cv_ptr->notify_all();
-
                                                     } catch (const boost::context::detail::forced_unwind& e){
                                                         ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -924,7 +936,7 @@ namespace app{
                                                                     {{data.size()}, data}
                                                                 }
                                                             };
-                                                            client_session->write([](){ return; });
+                                                            client_session->write([&, client_session](){ return; });
                                                         }
                                                     });
                                                 }
@@ -954,6 +966,7 @@ namespace app{
                                     ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                                 } else {
                                     // invalidate the fibers.
+                                    std::cerr << "controller-app.cpp:962:/run route reached before initialization." << std::endl;
                                     http::HttpReqRes rr;
                                     while(ctx_ptr->sessions().size() > 0)
                                     {
@@ -1006,7 +1019,7 @@ namespace app{
                                                 boost::json::error_code ec;
                                                 boost::json::value jv = boost::json::parse(value, ec);
                                                 if(ec){
-                                                    std::cerr << "controller-app.cpp:973:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                    std::cerr << "controller-app.cpp:1023:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                     throw "This shouldn't be possible.";
                                                 }
                                                 ro.emplace(relation->key(), jv);
@@ -1034,7 +1047,7 @@ namespace app{
                                             }
                                         };
                                         session->set(rr);
-                                        session->write([](){ return; });
+                                        session->write([&, session](){ return; });
                                     } else {
                                         /* An error condition, no execution context with this ID exists. */
                                         // This condition can occur under at least two different scenarios.
@@ -1095,39 +1108,49 @@ namespace app{
                                                 throw "This should never happen.";
                                             }
                                             std::string data = boost::json::serialize(kvp.value());
-                                            auto& value = (*relation)->acquire_value();
-                                            if(value.empty()){
-                                                value = data;
-                                            }
-                                            (*relation)->release_value();
+                                            if(!data.empty()){
+                                                auto& value = (*relation)->acquire_value();
+                                                if(value.empty()){
+                                                    value = data;
+                                                }
+                                                (*relation)->release_value();
 
-                                            /* Trigger rescheduling if necessary */
-                                            std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
-                                            auto& thread = (*server_ctx)->thread_controls()[idx];     
-                                            auto execution_idxs = thread.stop_thread();
-                                            std::size_t manifest_size = (*server_ctx)->manifest().size();
-                                            for(auto& i: execution_idxs){
-                                                // Get the starting relation.
-                                                std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
-                                                std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
-                                                if(start->key().size() == 0){
-                                                    // If the start key is empty, that means that all tasks in the schedule are complete.
-                                                    // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
-                                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                                    break;
-                                                } else {
-                                                    // Find the index in the manifest of the starting relation.
-                                                    auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
-                                                        return rel->key() == start->key();
-                                                    });
-                                                    if(start_it == (*server_ctx)->manifest().end()){
-                                                        std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                        throw "This shouldn't be possible";
-                                                    }
-                                                    std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
-                                                    (*server_ctx)->thread_controls()[start_idx].notify(i);
-                                                }                 
+                                                /* Trigger rescheduling if necessary */
+                                                std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
+                                                auto& thread = (*server_ctx)->thread_controls()[idx];     
+                                                auto execution_idxs = thread.stop_thread();
+                                                std::size_t manifest_size = (*server_ctx)->manifest().size();
+                                                for(auto& i: execution_idxs){
+                                                    // Get the starting relation.
+                                                    std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
+                                                    std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
+                                                    if(start->key().size() == 0){
+                                                        // If the start key is empty, that means that all tasks in the schedule are complete.
+                                                        std::size_t num_valid_threads = 0;
+                                                        for(auto& thread_control: (*server_ctx)->thread_controls()){
+                                                            thread_control.stop_thread();
+                                                            if(thread_control.is_valid() && num_valid_threads == 0){
+                                                                ++num_valid_threads;
+                                                            } else {
+                                                                thread_control.invalidate();
+                                                            }
+                                                        }
+                                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                                        return;
+                                                    } else {
+                                                        // Find the index in the manifest of the starting relation.
+                                                        auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
+                                                            return rel->key() == start->key();
+                                                        });
+                                                        if(start_it == (*server_ctx)->manifest().end()){
+                                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                                            throw "This shouldn't be possible";
+                                                        }
+                                                        std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
+                                                        (*server_ctx)->thread_controls()[start_idx].notify(i);
+                                                    }                 
+                                                }
                                             }
                                         }
                                     }

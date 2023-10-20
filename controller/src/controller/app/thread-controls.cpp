@@ -58,11 +58,7 @@ namespace app{
     }
 
     void ThreadControls::resume() {
-        ctx_mtx_->lock();
-        f_ = std::move(f_).resume_with([&](boost::context::fiber&& f2){
-            ctx_mtx_->unlock();
-            return std::move(f2);
-        });
+        f_ = std::move(f_).resume();
         return;
     }
 
