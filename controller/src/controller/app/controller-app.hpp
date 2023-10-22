@@ -33,13 +33,6 @@ namespace app{
         void route_request(std::shared_ptr<http::HttpSession>& session);
         http::HttpResponse create_response(ExecutionContext& ctx, boost::json::value& val);
         void flush_wsk_logs() { 
-            // struct timespec ts;
-            // int ec = clock_gettime(CLOCK_REALTIME, &ts);
-            // if(ec == -1){
-            //     std::cerr << "clock_gettime(CLOCK_REALTIME, &ts): " << std::make_error_code(std::errc(errno)).message() << std::endl;
-            // } else {
-            //     std::cout << "end: " << ((ts.tv_sec*1000) + (ts.tv_nsec/1000000)) << std::endl;
-            // }
             std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; 
             std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; 
             return;

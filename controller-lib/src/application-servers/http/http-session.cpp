@@ -1,11 +1,18 @@
 #include "http-session.hpp"
+#include <iostream>
 
 namespace http{
     void HttpSession::read()
     {
         acquire_lock();
         HttpRequest& req = std::get<HttpRequest>(*this);
-        t_session_->acquire_stream() >> req;
+        auto& stream = t_session_->acquire_stream();
+        try{
+            stream >> req;
+        } catch (...){
+            std::cerr << "http-session.cpp:12:HttpSession.read() failed - current stream value is:" << stream.str() << std::endl;
+            throw "what?";
+        }
         t_session_->release_stream();
         release_lock();
     }
@@ -48,7 +55,13 @@ namespace http{
     {
         acquire_lock();
         HttpResponse& res = std::get<HttpResponse>(*this);
-        t_session_->acquire_stream() >> res;
+        auto& stream = t_session_->acquire_stream();
+        try{
+            stream >> res;
+        } catch(...){
+            std::cerr << "http-session.cpp:61:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
+            throw "what?";
+        }
         t_session_->release_stream();
         release_lock();
         return;

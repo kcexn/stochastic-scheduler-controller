@@ -27,6 +27,7 @@ namespace app{
         std::atomic<std::uint16_t>& signal() { return *signal_; }
         void wait();
         void notify(std::size_t idx);
+        const bool is_started() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_START_EVENT) == CTL_IO_SCHED_START_EVENT);}
         const bool is_stopped() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_END_EVENT) == CTL_IO_SCHED_END_EVENT); }
         const bool is_valid() const { return valid_->load(std::memory_order::memory_order_relaxed); }
         std::vector<std::size_t> invalidate();

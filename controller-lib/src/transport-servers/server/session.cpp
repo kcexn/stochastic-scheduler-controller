@@ -1,10 +1,13 @@
 #include "session.hpp"
 #include "server.hpp"
+#include <iostream>
 
 namespace server
 {
     void Session::erase(){
-        server_.rm(shared_from_this());
+        if(!weak_from_this().expired()){
+            server_.rm(shared_from_this());
+        }
         return;
     }
 }

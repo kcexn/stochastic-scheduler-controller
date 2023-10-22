@@ -9,9 +9,17 @@ namespace UnixServer{
                 stop_signal_.slot(),
                 [&,fn](boost::system::error_code ec, std::size_t length){
                     fn(ec, length);
-                    if(ec != boost::asio::error::misc_errors::eof){
+                    if(!ec){
                         async_read(fn);
+                    } else {
+                        if(ec == boost::asio::error::misc_errors::eof){
+                            return;
+                        } else {
+                            std::cerr << "unix-server.cpp:18:async_read_some error:" << ec.message() << std::endl;
+                            async_read(fn);
+                        }
                     }
+                    return;
                 }
             )
         );
@@ -34,15 +42,30 @@ namespace UnixServer{
                             // handler.
                             fn();
                         }
+                    } else if (ec == boost::asio::error::would_block){
+                        async_write(buf,fn);
+                    } else if (ec == boost::asio::error::broken_pipe){
+                        /* I'm not sure that this is recoverable since it is likely caused by an NGINX gateway timeout.*/
+                        throw boost::asio::error::broken_pipe;
                     } else {
-                        std::cerr << "Unix Domain Socket Async Write error: " << ec.message() << std::endl;
+                        struct timespec ts = {};
+                        int status = clock_gettime(CLOCK_REALTIME, &ts);
+                        if(status == -1){
+                            std::cerr << "unix-server.cpp:41:clock_gettime error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "unix-server.cpp:42:unix socket write error:" << ec.message() << \
+                                ":value=" << std::string(write_data_ptr->begin(), write_data_ptr->end()) << \
+                                ",len=" << write_data_ptr->size() << std::endl;
+                        } else {
+                            std::cerr << "unix-server.cpp:44:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unix socket write error:" << ec.message() \
+                                << ":value=" << std::string(write_data_ptr->begin(), write_data_ptr->end()) \
+                                << ",len=" << write_data_ptr->size() << std::endl;
+                        }
                     }
                 }
             );
         }
 
     void unix_session::close(){
-        cancel();
         erase();
     }
 

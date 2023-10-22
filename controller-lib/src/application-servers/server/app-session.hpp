@@ -1,6 +1,8 @@
 #ifndef APP_SESSION_HPP
 #define APP_SESSION_HPP
 #include "../../transport-servers/server/session.hpp"
+#include <iostream>
+
 namespace app_server{
     /*Forward Declaration*/
     template<class... Types>
@@ -27,9 +29,14 @@ namespace app_server{
         Session(Server<Types...>& server, const std::shared_ptr<server::Session>& t_session_ptr): server_(server), t_session_(t_session_ptr) {}
         void erase(){
             server_.acquire();
-            auto it = std::find(server_.begin(), server_.end(), this->shared_from_this());
-            if(it != server_.end()){
-                server_.erase(it);
+            try{
+                auto it = std::find(server_.begin(), server_.end(), this->shared_from_this());
+                if(it != server_.end()){
+                    server_.erase(it);
+                }
+            } catch(std::bad_weak_ptr& e){
+                std::cerr << "app-session.hpp:36:shared_from_this() failed:" << e.what() << std::endl;
+                throw e;
             }
             server_.release();
             return;

@@ -148,28 +148,31 @@ namespace app{
         }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
+        bool wait_status = false;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
             std::shared_ptr<server::Session> server_session;
             lk.lock();
-            io_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&]{ 
-                return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed)!=0)); 
+            wait_status = io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
+                return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
+            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
+            if(thread_local_signal & CTL_TERMINATE_EVENT){
+                if(ctx_ptrs.empty()){
+                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                    lk.unlock();
+                    break;
+                }
+            } else if(thread_local_signal & ~CTL_TERMINATE_EVENT){
+                io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
+            }
             if(io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)){
                 io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
                 server_session = io_mbox_ptr_->session;
             }
-            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            if(thread_local_signal != 0){
-                io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
-            }
-            io_mbox_ptr_->mbx_cv.notify_all();
             lk.unlock();
-            if( (thread_local_signal&CTL_TERMINATE_EVENT) && ctx_ptrs.empty()){
-                controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                break;
-            }
+            io_mbox_ptr_->mbx_cv.notify_all();
             if(server_session){
                 std::shared_ptr<http::HttpSession> http_session_ptr;
                 auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
@@ -211,6 +214,12 @@ namespace app{
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
                     // Check to see if the context is stopped.
+                    std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
+                    if(!__OW_ACTIVATION_ID.empty()){
+                        struct timespec ts = {};
+                        clock_gettime(CLOCK_REALTIME, &ts);
+                        std::cout << "controller-app.cpp:220:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
+                    }
                     if ((*it)->is_stopped()){
                         boost::json::value val;
                         // create the response.
@@ -252,7 +261,6 @@ namespace app{
                             });
                             (*it)->peer_client_sessions().pop_back();
                         }
-                        
                         ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
                         // Find a context that has a stopped thread.
                         it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
@@ -356,6 +364,7 @@ namespace app{
                     while(next_comma < chunk_size){
                         std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                         if(json_obj_str.empty()){
+                            std::cerr << "controller-app.cpp:367:json_obj_str is empty" << std::endl;
                             continue;
                         } else if (json_obj_str.front() == ']'){
                             /* Function is complete. Terminate the execution context */
@@ -366,10 +375,10 @@ namespace app{
                             if(server_ctx != ctx_ptrs.end()){
                                 std::size_t num_valid_threads = 0;
                                 for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                    auto tmp = thread_control.stop_thread();
+                                    thread_control.stop_thread();
                                     if(thread_control.is_valid()){
                                         if(num_valid_threads > 0){
-                                            tmp = thread_control.invalidate();
+                                            thread_control.invalidate();
                                         } else {
                                             ++num_valid_threads;
                                         }
@@ -384,8 +393,11 @@ namespace app{
                                 }
                                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                 io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                return;
+                            } else {
+                                session->close();
+                                return;
                             }
-                            return;
                         }
                         boost::json::error_code ec;
                         boost::json::value val = boost::json::parse(
@@ -470,49 +482,49 @@ namespace app{
                                 }
                                 
                                 std::string data = boost::json::serialize(kvp.value());
-                                if(!data.empty()){
-                                    auto& value = (*rel)->acquire_value();
-                                    if(value.empty()){
-                                        value = data;
-                                    }
-                                    (*rel)->release_value();
+                                auto& value = (*rel)->acquire_value();
+                                if(value.empty()){
+                                    value = data;
+                                }
+                                (*rel)->release_value();
 
-                                    /* Reschedule if necessary */
-                                    std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
-                                    auto& thread = (*ctx)->thread_controls()[idx];     
-                                    auto execution_idxs = thread.stop_thread();
-                                    std::size_t manifest_size = (*ctx)->manifest().size();
-                                    for(auto& i: execution_idxs){
-                                        // Get the starting relation.
-                                        std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
-                                        std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
-                                        if(start->key().size() == 0){
-                                            // If the start key is empty, that means that all tasks in the schedule are complete.
-                                            std::size_t num_valid_threads = 0;
-                                            for(auto& thread_control: (*ctx)->thread_controls()){
-                                                thread_control.stop_thread();
-                                                if(thread_control.is_valid() && num_valid_threads == 0){
-                                                    ++num_valid_threads;
-                                                } else {
+                                /* Reschedule if necessary */
+                                std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
+                                auto& thread = (*ctx)->thread_controls()[idx];     
+                                auto execution_idxs = thread.stop_thread();
+                                std::size_t manifest_size = (*ctx)->manifest().size();
+                                for(auto& i: execution_idxs){
+                                    // Get the starting relation.
+                                    std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
+                                    std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
+                                    if(start->key().size() == 0){
+                                        // If the start key is empty, that means that all tasks in the schedule are complete.
+                                        std::size_t num_valid_threads = 0;
+                                        for(auto& thread_control: (*ctx)->thread_controls()){
+                                            thread_control.stop_thread();
+                                            if(thread_control.is_valid()){
+                                                if(num_valid_threads > 0){
                                                     thread_control.invalidate();
+                                                } else {
+                                                    ++num_valid_threads;
                                                 }
                                             }
-                                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                            return;
-                                        } else {
-                                            // Find the index in the manifest of the starting relation.
-                                            auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
-                                                return rel->key() == start->key();
-                                            });
-                                            if(start_it == (*ctx)->manifest().end()){
-                                                std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                throw "This shouldn't be possible";
-                                            }
-                                            std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
-                                            (*ctx)->thread_controls()[start_idx].notify(i);
-                                        }                 
-                                    }
+                                        }
+                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                        return;
+                                    } else {
+                                        // Find the index in the manifest of the starting relation.
+                                        auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
+                                            return rel->key() == start->key();
+                                        });
+                                        if(start_it == (*ctx)->manifest().end()){
+                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                            throw "This shouldn't be possible";
+                                        }
+                                        std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
+                                        (*ctx)->thread_controls()[start_idx].notify(i);
+                                    }                 
                                 }
                             }
                         }
@@ -547,11 +559,13 @@ namespace app{
                         value = "{}";
                     }
                     relation->release_value();
-                    thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                    if(num_valid_threads > 0){
-                        auto tmp = thread.invalidate();
-                    } else {
-                        ++num_valid_threads;
+                    thread.stop_thread();
+                    if(thread.is_valid()){
+                        if(num_valid_threads > 0){
+                            thread.invalidate();
+                        } else {
+                            ++num_valid_threads;
+                        }
                     }
                 }
                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -602,6 +616,7 @@ namespace app{
                     while(next_comma < chunk_size){
                         std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                         if(json_obj_str.empty()){
+                            std::cerr << "controller-app.cpp:619:json_obj_str is empty" << std::endl;
                             continue;
                         } else if(json_obj_str.front() == ']'){
                             /* Function is complete. Terminate the execution context */
@@ -612,10 +627,10 @@ namespace app{
                             if(server_ctx != ctx_ptrs.end()){
                                 std::size_t num_valid_threads = 0;
                                 for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                    auto tmp = thread_control.stop_thread();
+                                    thread_control.stop_thread();
                                     if(thread_control.is_valid()){
                                         if(num_valid_threads > 0){
-                                            tmp = thread_control.invalidate();
+                                            thread_control.invalidate();
                                         } else {
                                             ++num_valid_threads;
                                         }
@@ -627,11 +642,14 @@ namespace app{
                                         value = "{}";
                                     }
                                     rel->release_value();
-                                }
+                                } 
                                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                 io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                return;
+                            } else {
+                                session->close();
+                                return;
                             }
-                            return;
                         }
 
                         boost::json::error_code ec;
@@ -646,12 +664,22 @@ namespace app{
                         if(req.route == "/run"){
                             if(req.verb == http::HttpVerb::POST){
                                 controller::resources::run::Request run(val.as_object());
+                                auto env = run.env();
+                                std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
+                                if(!__OW_ACTIVATION_ID.empty()){
+                                    struct timespec ts = {};
+                                    int status = clock_gettime(CLOCK_REALTIME, &ts);
+                                    if(status != -1){
+                                        std::cout << "controller-app.cpp:652:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":OW ACTIVATION ID=" << __OW_ACTIVATION_ID << std::endl;
+                                    }
+                                }
                                 // Create a fiber continuation for processing the request.
                                 std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs, ioc_); 
                                 auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
                                 if(http_it == ctx_ptr->sessions().cend()){
                                     ctx_ptr->sessions().push_back(session);
                                 }
+                                ctx_ptr->env() = env;
                                 if (initialized_){
                                     // Initialize threads only once.
                                     // If ctx_ptr is already in the controller ctx_ptrs then threads don't need to be initialized again.
@@ -734,8 +762,8 @@ namespace app{
                                                         mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_cv_ptr->notify_all();
                                                     } catch (const boost::context::detail::forced_unwind& e){
-                                                        ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);                             
+                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_cv_ptr->notify_all();
                                                     }
                                                 },  io_mbox_ptr_
@@ -761,7 +789,6 @@ namespace app{
                                                     throw "This shouldn't happen.";
                                                 }
 
-                                                auto env = run.env();
                                                 std::string __OW_API_KEY = env["__OW_API_KEY"];
                                                 if(__OW_API_KEY.empty()){
                                                     std::cerr << "__OW_API_KEY envvar is not set!" << std::endl;
@@ -859,11 +886,6 @@ namespace app{
                                                     {
                                                         case 0:
                                                         {
-                                                            errno = 0;
-                                                            int nice_val = nice(15);
-                                                            if(nice_val == -1 && errno != 0){
-                                                                std::cerr << "controller-app.cpp:855:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                            }
                                                             execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
                                                             exit(1);
                                                             break;
@@ -877,8 +899,7 @@ namespace app{
                                                                     ++counter;
                                                                     if(counter >= max_retries){
                                                                         std::cerr << "controller-app.cpp:864:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
-                                                                        //SEND SIGTERM TO THE INIT PROCESS.
-                                                                        kill(1, SIGTERM);
+                                                                        raise(SIGTERM);
                                                                         break;
                                                                     }
                                                                     struct timespec ts = {0,5000000};
@@ -1019,7 +1040,7 @@ namespace app{
                                                 boost::json::error_code ec;
                                                 boost::json::value jv = boost::json::parse(value, ec);
                                                 if(ec){
-                                                    std::cerr << "controller-app.cpp:1023:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                    std::cerr << "controller-app.cpp:1015:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                     throw "This shouldn't be possible.";
                                                 }
                                                 ro.emplace(relation->key(), jv);
@@ -1108,49 +1129,49 @@ namespace app{
                                                 throw "This should never happen.";
                                             }
                                             std::string data = boost::json::serialize(kvp.value());
-                                            if(!data.empty()){
-                                                auto& value = (*relation)->acquire_value();
-                                                if(value.empty()){
-                                                    value = data;
-                                                }
-                                                (*relation)->release_value();
+                                            auto& value = (*relation)->acquire_value();
+                                            if(value.empty()){
+                                                value = data;
+                                            }
+                                            (*relation)->release_value();
 
-                                                /* Trigger rescheduling if necessary */
-                                                std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
-                                                auto& thread = (*server_ctx)->thread_controls()[idx];     
-                                                auto execution_idxs = thread.stop_thread();
-                                                std::size_t manifest_size = (*server_ctx)->manifest().size();
-                                                for(auto& i: execution_idxs){
-                                                    // Get the starting relation.
-                                                    std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
-                                                    std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
-                                                    if(start->key().size() == 0){
-                                                        // If the start key is empty, that means that all tasks in the schedule are complete.
-                                                        std::size_t num_valid_threads = 0;
-                                                        for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                                            thread_control.stop_thread();
-                                                            if(thread_control.is_valid() && num_valid_threads == 0){
-                                                                ++num_valid_threads;
-                                                            } else {
+                                            /* Trigger rescheduling if necessary */
+                                            std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
+                                            auto& thread = (*server_ctx)->thread_controls()[idx];     
+                                            auto execution_idxs = thread.stop_thread();
+                                            std::size_t manifest_size = (*server_ctx)->manifest().size();
+                                            for(auto& i: execution_idxs){
+                                                // Get the starting relation.
+                                                std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
+                                                std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
+                                                if(start->key().empty()){
+                                                    // If the start key is empty, that means that all tasks in the schedule are complete.
+                                                    std::size_t num_valid_threads = 0;                                                    
+                                                    for(auto& thread_control: (*server_ctx)->thread_controls()){
+                                                        thread_control.stop_thread();
+                                                        if(thread_control.is_valid()){
+                                                            if(num_valid_threads > 0){
                                                                 thread_control.invalidate();
+                                                            } else {
+                                                                ++num_valid_threads;
                                                             }
                                                         }
-                                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                                                        return;
-                                                    } else {
-                                                        // Find the index in the manifest of the starting relation.
-                                                        auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
-                                                            return rel->key() == start->key();
-                                                        });
-                                                        if(start_it == (*server_ctx)->manifest().end()){
-                                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                            throw "This shouldn't be possible";
-                                                        }
-                                                        std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
-                                                        (*server_ctx)->thread_controls()[start_idx].notify(i);
-                                                    }                 
-                                                }
+                                                    }
+                                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                                    return;
+                                                } else {
+                                                    // Find the index in the manifest of the starting relation.
+                                                    auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
+                                                        return rel->key() == start->key();
+                                                    });
+                                                    if(start_it == (*server_ctx)->manifest().end()){
+                                                        std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                                        throw "This shouldn't be possible";
+                                                    }
+                                                    std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
+                                                    (*server_ctx)->thread_controls()[start_idx].notify(i);
+                                                }                 
                                             }
                                         }
                                     }

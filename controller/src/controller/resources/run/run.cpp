@@ -73,7 +73,7 @@ namespace run{
         for (auto& relation: ctx_ptr->manifest()){
             boost::context::fiber f{
                 [&, req, ctx_ptr, relation](boost::context::fiber&& g) {
-                    // Get the index of the relation.
+                     // Get the index of the relation.
                     auto it = std::find(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), relation);
                     std::ptrdiff_t idx = it - ctx_ptr->manifest().begin();
 
@@ -187,8 +187,7 @@ namespace run{
                         }
                     }while(errno == EINTR || errno == EAGAIN);
                     // Save the PID in the relevant thread control.
-                    ctx_ptr->thread_controls()[idx].pid() = pid;
-                    // Synchronize with the scheduler. We are now ready for preemption.
+                    ctx_ptr->thread_controls()[idx].pid() = pid;    
                     ctx_ptr->synchronize();
                     if(close(sync[1]) == -1){
                         std::cerr << "Closing the write side of the synchronization pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
@@ -311,11 +310,7 @@ namespace run{
                         if (length != -1){
                             value_size += length;
                         }
-                        if(length == 0){
-                            //EOF condition
-                            break;
-                        }
-                    } while( (value_size % max_length ) == 0 || errno == EINTR || errno == EAGAIN);
+                    } while(value_size == val.size() || errno == EINTR || errno == EAGAIN);
                     if (close(upstream[0]) == -1){
                         std::cerr << "Closing the upstream read side of the pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";

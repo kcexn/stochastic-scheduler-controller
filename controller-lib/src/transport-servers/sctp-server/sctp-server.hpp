@@ -23,7 +23,7 @@ namespace sctp_transport{
         void stop();
 
         void async_connect(server::Remote addr, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn) override;
-        void erase_pending_connect(const std::shared_ptr<server::Session>&); 
+        void erase_pending_connect(std::shared_ptr<server::Session>); 
         ~SctpServer();
     private:
         void read(std::function<void(const boost::system::error_code&, std::shared_ptr<SctpSession>)>, const boost::system::error_code& ec);

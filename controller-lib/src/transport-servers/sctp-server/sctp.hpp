@@ -22,6 +22,7 @@ namespace protocols{
         typedef sctp_assoc_t assoc_t;
         typedef std::uint16_t sid_t;
         typedef struct sctp_paddrinfo paddrinfo;
+        typedef struct sctp_status status;
         typedef struct sctp_getaddrs_old getaddrs_old;
         struct stream_t {
             assoc_t assoc;

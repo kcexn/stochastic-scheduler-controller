@@ -150,12 +150,22 @@ namespace io{
                         session->acquire_stream().write(session->buf().data(), length);
                         session->release_stream();
                         std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                        mbox->mbx_cv.wait(lk, [&]{ return (mbox->msg_flag.load(std::memory_order::memory_order_relaxed)==false); });
-                        mbox->session = std::shared_ptr<UnixServer::unix_session>(session);
-                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                        lk.unlock();
-                        mbox->sched_signal_cv_ptr->notify_all();
+                        if(mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(100), [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); })){
+                            mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                            mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                            mbox->session = session;
+                            lk.unlock();
+                            mbox->sched_signal_cv_ptr->notify_all();
+                            return;
+                        } else {
+                            lk.unlock();
+                            std::cerr << "us_.accept wait_for() timed out." << std::endl;
+                            throw "this shouldn't happen.";
+                        }
+                    } else {
+                        if(ec != boost::asio::error::eof){
+                            std::cerr << "Error in unix async read:" << ec.message() << std::endl;
+                        }
                     }
                 });
             } else {
@@ -166,17 +176,27 @@ namespace io{
         ss_.init([&, mbox](const boost::system::error_code& ec,  std::shared_ptr<sctp_transport::SctpSession> session){
             if(!ec){
                 std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                mbox->mbx_cv.wait(lk, [&]{ return (mbox->msg_flag.load(std::memory_order::memory_order_relaxed)==false); });
-                mbox->session = std::static_pointer_cast<server::Session>(session);
-                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                lk.unlock();
-                mbox->sched_signal_cv_ptr->notify_all();
+                if(mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(100),[&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); })){
+                    mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                    mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                    mbox->session = session;
+                    lk.unlock();
+                    mbox->sched_signal_cv_ptr->notify_all();
+                    return;
+                } else {
+                    lk.unlock();
+                    std::cerr << "ss.init_() wait_for() timed out." << std::endl;
+                    throw "this shouldn't happen.";
+                }
+                
+            } else {
+                std::cerr << "Error in ss_.init()" << ec.message() << std::endl;
             }
         });
         while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run();
         }
+        std::cerr << "controller-io.cpp:199:IO thread exiting" << std::endl;
         pthread_exit(0);
     }
 

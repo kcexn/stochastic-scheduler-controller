@@ -2,7 +2,7 @@ CXX = g++
 CXX_FLAGS = -Wpedantic -pthread
 INCLUDE_PATH = -I../boost/boost_1_82_0/ -I../controller-lib/include/
 LIBRARY_PATH = -L/usr/local/lib/ -L../controller-lib/lib/
-LD_FLAGS = -l boost_system -l boost_json -l boost_context -l:libowcontroller_utils.a
+LD_FLAGS = -l boost_system -l boost_json -l boost_context -l:libowcontroller_utils.a -lpthread
 SRC_DIR = ./src
 BIN_DIR = ./bin
 OBJ_DIR = ./objects
@@ -18,7 +18,7 @@ DEBUG_TARGET = $(addsuffix -dbg, $(addprefix $(BIN_DIR)/, $(TARGET)))
 DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 
 # NORMAL SETTINGS
-REL_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin \
+REL_CXX_FLAGS = -O3 -flto=auto -fuse-linker-plugin \
                     -march=x86-64-v2 -mtune=generic
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))

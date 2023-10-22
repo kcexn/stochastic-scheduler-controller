@@ -1,5 +1,6 @@
 #include "thread-controls.hpp"
 #include <csignal>
+#include <iostream>
 
 namespace controller{
 namespace app{    
@@ -36,16 +37,35 @@ namespace app{
 
 
     std::vector<std::size_t> ThreadControls::stop_thread() {
+        std::vector<std::size_t> tmp;
         if(!is_stopped()){
             if(pid_ > 0){
                 kill(-pid_, SIGKILL);
-                kill(-pid_, SIGCONT);
             }
-            // Stop the thread.
-            signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-            pthread_cancel(tid_);
+            // explicitly call the fiber destructor.
+            f_ = boost::context::fiber();
+            int status = pthread_cancel(tid_);
+            switch(status)
+            {
+                case 0:
+                    // all good.
+                    break;
+                default:
+                {
+                    int errsv = status;
+                    errno = 0;
+                    struct timespec ts = {};
+                    status = clock_gettime(CLOCK_REALTIME, &ts);
+                    if(status == -1){
+                        std::cerr << "thread-controls.cpp:61:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "thread-controls.cpp:62:pthread_cancel failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                    } else {
+                        std::cerr << "thread-controls.cpp:64:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pthread_cancel failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                    }
+                }
+            }
         }
-        std::vector<std::size_t> tmp;
+        signal_->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
         ctx_mtx_->lock();
         if(!execution_context_idxs_.empty()){
             tmp.insert(tmp.end(), execution_context_idxs_.begin(), execution_context_idxs_.end());
@@ -58,7 +78,18 @@ namespace app{
     }
 
     void ThreadControls::resume() {
-        f_ = std::move(f_).resume();
+        if(f_){
+            f_ = std::move(f_).resume();
+        } else {
+            struct timespec ts = {};
+            int status = clock_gettime(CLOCK_REALTIME, &ts);
+            if(status == -1){
+                std::cerr << "thread-controls.cpp:89:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                std::cerr << "thread-controls.cpp:90:thread resume called when the thread context is not valid" << std::endl;
+            } else {
+                std::cerr << "thread-controls.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":thread resume called when the thread context is not valid." << std::endl;
+            }
+        }
         return;
     }
 

@@ -9,8 +9,32 @@ namespace UnixServer{
     class unix_session : public server::Session
     {
     public:
-        unix_session(boost::asio::io_context& ioc, server::Server& server): server::Session(server), socket_(ioc) {}
-        unix_session(boost::asio::local::stream_protocol::socket&& socket, server::Server& server): server::Session(server), socket_(std::move(socket)) {}
+        unix_session(boost::asio::io_context& ioc, server::Server& server): server::Session(server), socket_(ioc) {
+            // boost::system::error_code ec;
+            // socket_.native_non_blocking(true, ec);
+            // if(ec){
+            //     std::cerr << ec.message() << std::endl;
+            //     throw "what?";
+            // }
+            // socket_.non_blocking(true, ec);
+            // if(ec){
+            //     std::cerr << ec.message() << std::endl;
+            //     throw "what?";
+            // }
+        }
+        unix_session(boost::asio::local::stream_protocol::socket&& socket, server::Server& server): server::Session(server), socket_(std::move(socket)) {
+            // boost::system::error_code ec;
+            // socket_.native_non_blocking(true, ec);
+            // if(ec){
+            //     std::cerr << ec.message() << std::endl;
+            //     throw "what?";
+            // }
+            // socket_.non_blocking(true, ec);
+            // if(ec){
+            //     std::cerr << ec.message() << std::endl;
+            //     throw "what?";
+            // }
+        }
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) override;
         void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) override;
         void close() override;
@@ -19,10 +43,18 @@ namespace UnixServer{
 
         ~unix_session() {
             boost::system::error_code ec;
-            socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
-            boost::asio::local::stream_protocol::socket::linger opt(true, 10);
-            socket_.set_option(opt);
+            // boost::asio::local::stream_protocol::socket::linger opt(true, 10);
+            // socket_.set_option(opt);
+            // socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
+            // if(ec){
+            //     std::cerr << "unix-server.hpp:40:socket shutdown failed with error=" << ec.message() << std::endl;
+            // }
+            cancel();
+            // ec = boost::system::error_code();
             socket_.close(ec);
+            if(ec){
+                std::cerr << "unix-server.hpp:45:socket close failed with error=" << ec.message() << std::endl;
+            }
         }
     
     private:
