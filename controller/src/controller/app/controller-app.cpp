@@ -141,15 +141,31 @@ namespace app{
     }
 
     void Controller::start(){
+        sigset_t sigmask = {};
+        int status = sigemptyset(&sigmask);
+        if(status == -1){
+            std::cerr << "controller-app.cpp:147:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+            throw "what?";
+        }
+        status = sigaddset(&sigmask, SIGCHLD);
+        if(status == -1){
+            std::cerr << "controller-app.cpp:152:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+            throw "what?";
+        }
+        status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
+        if(status == -1){
+            std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+            throw "what?";
+        }
         // Initialize resources I might need.
         errno = 0;
-        int status = nice(2);
+        status = nice(2);
         if(status == -1 && errno != 0){
-            std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+            std::cerr << "controller-app.cpp:164:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
-        bool wait_status = false;
+        bool wait_status;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
@@ -161,7 +177,7 @@ namespace app{
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 if(ctx_ptrs.empty()){
-                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                     lk.unlock();
                     break;
                 }
@@ -173,7 +189,7 @@ namespace app{
                 server_session = io_mbox_ptr_->session;
             }
             lk.unlock();
-            io_mbox_ptr_->mbx_cv.notify_all();
+            io_mbox_ptr_->mbx_cv.notify_one();
             if(server_session){
                 std::shared_ptr<http::HttpSession> http_session_ptr;
                 auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
@@ -221,12 +237,12 @@ namespace app{
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
                     // Check to see if the context is stopped.
-                    std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
-                    if(!__OW_ACTIVATION_ID.empty()){
-                        struct timespec ts = {};
-                        clock_gettime(CLOCK_REALTIME, &ts);
-                        std::cout << "controller-app.cpp:220:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
-                    }
+                    // std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
+                    // if(!__OW_ACTIVATION_ID.empty()){
+                    //     struct timespec ts = {};
+                    //     clock_gettime(CLOCK_REALTIME, &ts);
+                    //     std::cout << "controller-app.cpp:220:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
+                    // }
                     if ((*it)->is_stopped()){
                         boost::json::value val;
                         // create the response.
@@ -251,7 +267,8 @@ namespace app{
                             res.chunks.push_back(http::HttpChunk{{1}, "]"}); /* Close the JSON stream array. */
                             res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
                             next_session->set(rr);
-                            std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(next_session->transport());
+                            std::shared_ptr<server::Session> t_session_ = next_session->transport();
+                            std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
                             sctp_session->mark_for_closing();
                             next_session->write([&,next_session](){
                                 next_session->close();
@@ -265,7 +282,8 @@ namespace app{
                             req.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
                             req.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
                             next_session->set(rr);
-                            std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(next_session->transport());
+                            std::shared_ptr<server::Session> t_session_ = next_session->transport();
+                            std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
                             sctp_session->mark_for_closing();
                             next_session->write([&,next_session](){
                                 next_session->close();
@@ -402,7 +420,7 @@ namespace app{
                                 rel->release_value();
                             }
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                             return;
                         } else {
                             session->close();
@@ -523,7 +541,7 @@ namespace app{
                                         }
                                     }
                                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                                     return;
                                 } else {
                                     thread.invalidate();
@@ -581,7 +599,7 @@ namespace app{
                     }
                 }
                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                 return;
             } else {
                 // A peer list of >= 3 AND an error code in the response message indiciates that 
@@ -655,7 +673,7 @@ namespace app{
                                 rel->release_value();
                             } 
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                             return;
                         } else {
                             session->close();
@@ -676,14 +694,14 @@ namespace app{
                         if(req.verb == http::HttpVerb::POST){
                             controller::resources::run::Request run(val.as_object());
                             auto env = run.env();
-                            std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
-                            if(!__OW_ACTIVATION_ID.empty()){
-                                struct timespec ts = {};
-                                int status = clock_gettime(CLOCK_REALTIME, &ts);
-                                if(status != -1){
-                                    std::cout << "controller-app.cpp:652:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":OW ACTIVATION ID=" << __OW_ACTIVATION_ID << std::endl;
-                                }
-                            }
+                            // std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
+                            // if(!__OW_ACTIVATION_ID.empty()){
+                            //     struct timespec ts = {};
+                            //     int status = clock_gettime(CLOCK_REALTIME, &ts);
+                            //     if(status != -1){
+                            //         std::cout << "controller-app.cpp:652:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":OW ACTIVATION ID=" << __OW_ACTIVATION_ID << std::endl;
+                            //     }
+                            // }
                             // Create a fiber continuation for processing the request.
                             std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs, ioc_); 
                             auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
@@ -748,7 +766,7 @@ namespace app{
                                                 }
                                             }
                                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                                             return;                   
                                         }
                                     }
@@ -771,11 +789,11 @@ namespace app{
                                                     ctx_ptr->thread_controls()[i].resume();
                                                     ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                     mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_cv_ptr->notify_all();
+                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                 } catch (const boost::context::detail::forced_unwind& e){
                                                     ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);                             
                                                     mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_cv_ptr->notify_all();
+                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                 }
                                             },  io_mbox_ptr_
                                         );
@@ -822,9 +840,8 @@ namespace app{
                                             // Construct the curl command.
                                             const char* bin_curl = "/usr/bin/curl";
                                             std::vector<const char*> argv;
-                                            argv.reserve(9*concurrency+2);
+                                            argv.reserve(9*concurrency+1);
                                             argv.push_back(bin_curl);
-                                            argv.push_back("--parallel-immediate");
                                             argv.push_back("-Z");
                                             argv.push_back("--no-progress-meter");
 
@@ -892,7 +909,7 @@ namespace app{
                                             std::size_t max_retries = 5;
                                             std::size_t counter = 0;
                                             while(counter < max_retries){
-                                                pid_t pid = fork();
+                                                pid_t pid = vfork();
                                                 switch(pid)
                                                 {
                                                     case 0:
@@ -992,7 +1009,7 @@ namespace app{
                                     // If the start key is past the end of the manifest, that means that
                                     // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                                     return;
                                 }
                                 std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
@@ -1106,7 +1123,8 @@ namespace app{
                                         }
                                     };
                                     session->set(rr);
-                                    std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(session->transport());
+                                    std::shared_ptr<server::Session> t_session_ = session->transport();
+                                    std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
                                     sctp_session->mark_for_closing();
                                     session->write([&,session](){
                                         session->close();
@@ -1126,7 +1144,8 @@ namespace app{
                                     res.chunks.push_back(http::HttpChunk{{1},"]"});
                                     res.chunks.push_back(http::HttpChunk{{0},""});
                                     session->set(rr);
-                                    auto sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(session->transport());
+                                    std::shared_ptr<server::Session> t_session_ = session->transport();
+                                    std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
                                     sctp_session->mark_for_closing();
                                     session->write([&,session](){
                                         session->close();
@@ -1174,7 +1193,7 @@ namespace app{
                                                     }
                                                 }
                                                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                                                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                                                 return;
                                             } else {
                                                 thread.invalidate();
@@ -1295,7 +1314,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1202:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1302:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);
@@ -1397,7 +1416,7 @@ namespace app{
 
     void Controller::stop(){
         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
-        io_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+        io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
 
         std::unique_lock<std::mutex> lk(*(controller_mbox_ptr_->sched_signal_mtx_ptr));
         controller_mbox_ptr_->sched_signal_cv_ptr->wait(lk);

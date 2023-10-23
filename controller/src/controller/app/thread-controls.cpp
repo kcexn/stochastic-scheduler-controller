@@ -17,7 +17,7 @@ namespace app{
         execution_context_idxs_.push_back(idx);
         ctx_mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed); 
-        cv_->notify_all(); 
+        cv_->notify_one(); 
         return; 
     }
 
