@@ -46,6 +46,7 @@ namespace app_server{
         void set(std::tuple<Types...> t) {acquire_lock(); std::tuple<Types...>::operator=(t); release_lock(); return; }
         std::tuple<Types...>& acquire(){ acquire_lock(); return *this;}
         void release(){ release_lock(); return;}
+        std::shared_ptr<server::Session>& transport() { return t_session_; }
 
         virtual void read() = 0;
         virtual void write(const std::function<void()>& fn) = 0;

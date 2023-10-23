@@ -18,7 +18,7 @@ DEBUG_TARGET = $(addsuffix -dbg, $(addprefix $(BIN_DIR)/, $(TARGET)))
 DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 
 # NORMAL SETTINGS
-REL_CXX_FLAGS = -O3 -flto=auto -fuse-linker-plugin \
+REL_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin \
                     -march=x86-64-v2 -mtune=generic
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))

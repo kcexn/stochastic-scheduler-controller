@@ -617,7 +617,7 @@ namespace http
         // std::locale loc = is.getloc();
         std::streamsize bytes_available = is.rdbuf()->in_avail();
         char c;
-        if(req.num_headers == 0 || req.num_chunks == 0 || req.verb == HttpVerb::UNKNOWN){
+        if(req.num_headers == 0 && req.num_chunks == 0 && req.verb == HttpVerb::UNKNOWN){
             // managmeent things we need to do if this is a 
             // brand new 0 initialized request.
 
@@ -628,12 +628,7 @@ namespace http
             req.num_headers = 1;
             req.num_chunks = 1;
             req.headers.emplace_back();
-            HttpChunk new_chunk = {
-                {0},"",{0},"",false,false,false,false,false
-            };
-            req.chunks.push_back(
-                new_chunk
-            );
+            req.chunks.emplace_back();
 
             // For clarity we will explicitly 0 initialize
             // the next indices.
@@ -644,129 +639,152 @@ namespace http
         // It is the programmers responsibility to ensure that the 
         // invariant that headers are fully parsed when next_header == num_headers
         // and that chunks are fully parsed when next_chunk == num_chunks.
-        while(bytes_available > 0 && (req.num_headers != req.next_header || req.num_chunks != req.next_chunk)){
+        while(bytes_available > 0 && (req.next_header < req.num_headers || req.next_chunk < req.num_chunks || !req.http_request_line_complete)){
             if(!req.http_request_line_complete){
+                c = is.rdbuf()->sbumpc();
+                --bytes_available;
                 // First parse the request line, which has a format of:
                 // VERB ROUTE HTTP/VERSION\r\n
-                while(bytes_available > 0 && !req.http_request_line_complete){
-                    c = is.rdbuf()->sbumpc();
-                    --bytes_available;
-                    if(!req.verb_started){
-                        // Ignore all leading white space
-                        // until we find a non-white space
-                        // character that matches the first case-sensitive character of one of the HTTP verbs.
-                        // G, P, T, C, D
-                        // Hopefully, the white space check, in addition to the specific character check
-                        // will limit the probability that a capital letter in a spurious data stream
-                        // creates a memory leak in the application.
-                        if(!std::isspace(c) && (c == 'G' || c == 'P' || c == 'T' || c == 'D' || c == 'C')){
-                            req.verb_started = true;
-                            req.verb_buf.push_back(c);
-                        } else {
-                            return is;
-                        }
-                    } else if (!req.verb_finished){
-                        // append all non-white space
-                        // characters until we find the first white space character.
-                        if(!std::isspace(c)){
-                            req.verb_buf.push_back(c);
-                        } else {
-                            if(req.verb_buf == "GET"){
-                                req.verb = HttpVerb::GET;
-                            } else if (req.verb_buf == "POST"){
-                                req.verb = HttpVerb::POST;
-                            } else if (req.verb_buf == "PATCH"){
-                                req.verb = HttpVerb::PATCH;
-                            } else if (req.verb_buf == "PUT"){
-                                req.verb = HttpVerb::PUT;
-                            } else if (req.verb_buf == "TRACE"){
-                                req.verb = HttpVerb::TRACE;
-                            } else if (req.verb_buf == "DELETE"){
-                                req.verb = HttpVerb::DELETE;
-                            } else if (req.verb_buf == "CONNECT"){
-                                req.verb = HttpVerb::CONNECT;
-                            }
-                            req.verb_finished = true;
-                        }
-                    } else if (!req.route_started){
-                        // Seek through white space until we find 
-                        // the first non-white space character.
-                        if(!std::isspace(c)){
-                            req.route_started = true;
-                            req.route.push_back(c);
-                        }
-                    } else if (!req.route_finished){
-                        if(!std::isspace(c)){
-                            req.route.push_back(c);
-                        } else {
-                            req.route_finished = true;
-                        }
-                    } else if (req.find_version_state < HttpRequest::max_find_state){
-                        // Seek through white space until we find
-                        // the string 'HTTP/'
-                        switch(req.find_version_state)
+                if(!req.verb_started){
+                    // Ignore all leading white space
+                    // until we find a non-white space
+                    // character that matches the first case-sensitive character of one of the HTTP verbs.
+                    // G, P, T, C, D
+                    // Hopefully, the white space check, in addition to the specific character check
+                    // will limit the probability that a capital letter in a spurious data stream
+                    // creates a memory leak in the application.
+                    if(!std::isspace(c)){
+                        switch(c)
                         {
-                            case 0:
-                                if(c == 'H'){
-                                    req.find_version_state = 1;
-                                }
+                            case 'G':
+                                req.verb_started = true;
+                                req.verb_buf.push_back(c);
                                 break;
-                            case 1:
-                                if(c == 'T'){
-                                    req.find_version_state = 2;
-                                } else {
-                                    req.find_version_state = 0;
-                                }
+                            case 'P':
+                                req.verb_started = true;
+                                req.verb_buf.push_back(c);
                                 break;
-                            case 2:
-                                if(c == 'T'){
-                                    req.find_version_state = 3;
-                                } else {
-                                    req.find_version_state = 0;
-                                }
+                            case 'T':
+                                req.verb_started = true;
+                                req.verb_buf.push_back(c);
                                 break;
-                            case 3:
-                                if(c == 'P'){
-                                    req.find_version_state = 4;
-                                } else {
-                                    req.find_version_state = 0;
-                                }
+                            case 'D':
+                                req.verb_started = true;
+                                req.verb_buf.push_back(c);
                                 break;
-                            case 4:
-                                if(c == '/'){
-                                    req.find_version_state = 5;
-                                } else {
-                                    req.find_version_state = 0;
-                                }
+                            case 'C':
+                                req.verb_started = true;
+                                req.verb_buf.push_back(c);
                                 break;
-                        }
-                    } else if (!req.version_finished){
-                        // We have found the string 'HTTP/'. Now everything until the subsequent white
-                        // space character is part of the version string.
-                        if(!std::isspace(c)){
-                            req.version_buf.push_back(c);
-                        } else {
-                            if(req.version_buf == "1.1"){
-                                req.version = HttpVersion::V1_1;
-                            } else if (req.version_buf == "1.0"){
-                                req.version = HttpVersion::V1;
-                            } else if (req.version_buf == "2"){
-                                req.version = HttpVersion::V2;
-                            } else if (req.version_buf == "3"){
-                                req.version = HttpVersion::V3;
-                            } else if (req.version_buf == "0.9"){
-                                req.version = HttpVersion::V0_9;
-                            }
-                            req.version_finished = true;
-                        }
-                    } else {
-                        // Seek to the end of the line.
-                        if(c == '\n'){
-                            req.http_request_line_complete = true;
+                            default:
+                                return is;
                         }
                     }
+                } else if (!req.verb_finished){
+                    // append all non-white space
+                    // characters until we find the first white space character.
+                    if(!std::isspace(c)){
+                        req.verb_buf.push_back(c);
+                    } else {
+                        if(req.verb_buf == "GET"){
+                            req.verb = HttpVerb::GET;
+                        } else if (req.verb_buf == "POST"){
+                            req.verb = HttpVerb::POST;
+                        } else if (req.verb_buf == "PATCH"){
+                            req.verb = HttpVerb::PATCH;
+                        } else if (req.verb_buf == "PUT"){
+                            req.verb = HttpVerb::PUT;
+                        } else if (req.verb_buf == "TRACE"){
+                            req.verb = HttpVerb::TRACE;
+                        } else if (req.verb_buf == "DELETE"){
+                            req.verb = HttpVerb::DELETE;
+                        } else if (req.verb_buf == "CONNECT"){
+                            req.verb = HttpVerb::CONNECT;
+                        } else {
+                            req.verb = HttpVerb::UNKNOWN;
+                        }
+                        req.verb_finished = true;
+                    }
+                } else if (!req.route_started){
+                    // Seek through white space until we find 
+                    // the first non-white space character.
+                    if(!std::isspace(c)){
+                        req.route_started = true;
+                        req.route.push_back(c);
+                    }
+                } else if (!req.route_finished){
+                    if(!std::isspace(c)){
+                        req.route.push_back(c);
+                    } else {
+                        req.route_finished = true;
+                    }
+                } else if (req.find_version_state < HttpRequest::max_find_state){
+                    // Seek through white space until we find
+                    // the string 'HTTP/'
+                    switch(req.find_version_state)
+                    {
+                        case 0:
+                            if(c == 'H'){
+                                req.find_version_state = 1;
+                            }
+                            break;
+                        case 1:
+                            if(c == 'T'){
+                                req.find_version_state = 2;
+                            } else {
+                                req.find_version_state = 0;
+                            }
+                            break;
+                        case 2:
+                            if(c == 'T'){
+                                req.find_version_state = 3;
+                            } else {
+                                req.find_version_state = 0;
+                            }
+                            break;
+                        case 3:
+                            if(c == 'P'){
+                                req.find_version_state = 4;
+                            } else {
+                                req.find_version_state = 0;
+                            }
+                            break;
+                        case 4:
+                            if(c == '/'){
+                                req.find_version_state = 5;
+                            } else {
+                                req.find_version_state = 0;
+                            }
+                            break;
+                    }
+                } else if (!req.version_finished){
+                    // We have found the string 'HTTP/'. Now everything until the subsequent white
+                    // space character is part of the version string.
+                    if(!std::isspace(c)){
+                        req.version_buf.push_back(c);
+                    } else {
+                        if(req.version_buf == "1.1"){
+                            req.version = HttpVersion::V1_1;
+                        } else if (req.version_buf == "1.0"){
+                            req.version = HttpVersion::V1;
+                        } else if (req.version_buf == "2"){
+                            req.version = HttpVersion::V2;
+                        } else if (req.version_buf == "3"){
+                            req.version = HttpVersion::V3;
+                        } else if (req.version_buf == "0.9"){
+                            req.version = HttpVersion::V0_9;
+                        } else {
+                            req.version = HttpVersion::UNKNOWN;
+                        }
+                        req.version_finished = true;
+                    }
+                } else {
+                    // Seek to the end of the line.
+                    if(c == '\n'){
+                        req.http_request_line_complete = true;
+                    }
                 }
-            } else if (req.num_headers != req.next_header){
+            } else if (req.next_header < req.num_headers){
                 HttpHeader& next_header = req.headers[req.next_header];
                 // Parse the next header.
                 is >> next_header;
@@ -785,7 +803,7 @@ namespace http
                     }
                     ++(req.next_header);
                 }
-            } else if (req.num_chunks != req.next_chunk){
+            } else if (req.next_chunk < req.num_chunks){
                 // We need to toggle for the case where a Content-Length header is present.
                 HttpChunk& next_chunk = req.chunks[req.next_chunk];
                 if(req.not_chunked_transfer){
@@ -810,10 +828,7 @@ namespace http
                     if(next_chunk.chunk_complete){
                         if(next_chunk.chunk_size != HttpBigNum{0}){
                             ++(req.num_chunks);
-                            HttpChunk new_chunk = {
-                                {0},"",{0},"",false,false,false,false,false
-                            };
-                            req.chunks.push_back(new_chunk);
+                            req.chunks.emplace_back();
                         }
                         ++(req.next_chunk);
                     }
@@ -848,6 +863,9 @@ namespace http
                 case HttpVerb::CONNECT:
                     os << "CONNECT ";
                     break;
+                default:
+                    os << req.verb_buf;
+                    break;
             }
             os << req.route << " HTTP/";
             switch(req.version)
@@ -867,21 +885,22 @@ namespace http
                 case HttpVersion::V0_9:
                     os << "0.9\r\n";
                     break;
+                default:
+                    os << "1.0\r\n";
+                    break;
             }
         }
         std::size_t num_headers = req.headers.size();
-        if (req.next_header != num_headers){
-            for(std::size_t i = req.next_header; i < num_headers; ++i){
-                const http::HttpHeader& header = req.headers[i];
-                if(header.field_name == HttpHeaderField::END_OF_HEADERS){
-                    os << "\r\n";
-                } else {
-                    os << header;
-                }
+        for(std::size_t i = req.next_header; i < num_headers; ++i){
+            const http::HttpHeader& header = req.headers[i];
+            if(header.field_name == HttpHeaderField::END_OF_HEADERS){
+                os << "\r\n";
+            } else {
+                os << header;
             }
         }
         std::size_t num_chunks = req.chunks.size();
-        if(req.verb != HttpVerb::GET && req.verb != HttpVerb::DELETE && req.verb != HttpVerb::TRACE && req.next_chunk != num_chunks){
+        if(req.verb != HttpVerb::GET && req.verb != HttpVerb::DELETE && req.verb != HttpVerb::TRACE && req.next_chunk < num_chunks){
             auto it = std::find_if(req.headers.begin(), req.headers.end(), [](auto& header){
                 return header.field_name == HttpHeaderField::CONTENT_LENGTH;
             });
@@ -916,6 +935,9 @@ namespace http
                 case HttpVersion::V0_9:
                     os << "HTTP/0.9 ";
                     break;
+                default:
+                    os << "HTTP/1.0";
+                    break;
             }
             switch(res.status)
             {
@@ -940,17 +962,18 @@ namespace http
                 case HttpStatus::ACCEPTED:
                     os << "202 Accepted\r\n";
                     break;
+                default:
+                    os << "500 Internal Server Error\r\n";
+                    break;
             }
         }
         std::size_t num_headers = res.headers.size();
-        if(res.next_header != num_headers){
-            for(std::size_t i = res.next_header; i < num_headers; ++i){
-                const http::HttpHeader& header = res.headers[i];
-                if(header.field_name == HttpHeaderField::END_OF_HEADERS){
-                    os << "\r\n";
-                } else {
-                    os << header;
-                }
+        for(std::size_t i = res.next_header; i < num_headers; ++i){
+            const http::HttpHeader& header = res.headers[i];
+            if(header.field_name == HttpHeaderField::END_OF_HEADERS){
+                os << "\r\n";
+            } else {
+                os << header;
             }
         }
 
@@ -974,7 +997,7 @@ namespace http
     std::istream& operator>>(std::istream& is, HttpResponse& res){
         std::streamsize bytes_available = is.rdbuf()->in_avail();
         char c;
-        if(res.num_headers == 0 || res.num_chunks == 0 || res.find_version_state == 0){
+        if(res.num_headers == 0 && res.num_chunks == 0 && res.find_version_state == 0){
             // managmeent things we need to do if this is a 
             // brand new 0 initialized response.
 
@@ -985,10 +1008,7 @@ namespace http
             res.num_headers = 1;
             res.num_chunks = 1;
             res.headers.emplace_back();
-            HttpChunk new_chunk = {
-                {0},"",{0},"",false,false,false,false,false
-            };
-            res.chunks.push_back(new_chunk);
+            res.chunks.emplace_back();
 
             // For clarity we will explicitly 0 initialize
             // the next indices.
@@ -999,109 +1019,111 @@ namespace http
         // It is the programmers responsibility to ensure that the 
         // invariant that headers are fully parsed when next_header == num_headers
         // and that chunks are fully parsed when next_chunk == num_chunks.
-        while(bytes_available > 0 && (res.num_headers != res.next_header || res.num_chunks != res.next_chunk)){
+        while(bytes_available > 0 && (res.next_header < res.num_headers || res.next_chunk < res.num_chunks || !res.status_line_finished)){
             if(!res.status_line_finished){
                 // First parse the status line, which has a format of:
                 // HTTP/VERSION STATUS_CODE STATUS_MESSAGE\r\n
-                while(bytes_available > 0 && !res.status_line_finished){
-                    c = is.rdbuf()->sbumpc();
-                    --bytes_available;
-                    if(res.find_version_state < res.max_find_state){
-                        // Search for the HTTP VERSION.
-                        switch(res.find_version_state)
-                        {
-                            case 0:
-                                if(c == 'H'){
-                                    res.find_version_state = 1;
-                                }
-                                break;
-                            case 1:
-                                if(c == 'T'){
-                                    res.find_version_state = 2;
-                                } else {
-                                    res.find_version_state = 0;
-                                }
-                                break;
-                            case 2:
-                                if(c == 'T'){
-                                    res.find_version_state = 3;
-                                } else {
-                                    res.find_version_state = 0;
-                                }
-                                break;
-                            case 3:
-                                if(c == 'P'){
-                                    res.find_version_state = 4;
-                                } else {
-                                    res.find_version_state = 0;
-                                }
-                                break;
-                            case 4:
-                                if(c == '/'){
-                                    res.find_version_state = 5;
-                                } else {
-                                    res.find_version_state = 0;
-                                }
-                                break;
-                        }
-                    } else if (!res.version_finished){
-                        if(!std::isspace(c)){
-                            // Append all of the subsequent non-whitespace characters into the version buffer.
-                            res.version_buf.push_back(c);
-                        } else {
-                            // At the first whitespace character set the http version.
-                            if(res.version_buf == "0.9"){
-                                res.version = HttpVersion::V0_9;
-                            } else if (res.version_buf == "1.0"){
-                                res.version = HttpVersion::V1;
-                            } else if (res.version_buf == "1.1"){
-                                res.version = HttpVersion::V1_1;
-                            } else if (res.version_buf == "2"){
-                                res.version = HttpVersion::V2;
-                            } else if (res.version_buf == "3"){
-                                res.version = HttpVersion::V3;
+                c = is.rdbuf()->sbumpc();
+                --bytes_available;
+                if(res.find_version_state < res.max_find_state){
+                    // Search for the HTTP VERSION.
+                    switch(res.find_version_state)
+                    {
+                        case 0:
+                            if(c == 'H'){
+                                res.find_version_state = 1;
                             }
-                            res.version_finished = true;
-                        }
-                    } else if (!res.status_started){
-                        if(!std::isspace(c)){
-                            // Seek to the first non-whitespace character.
-                            res.status_buf.push_back(c);
-                            res.status_started = true;
-                        }
-                    } else if (!res.status_finished){
-                        if(!std::isspace(c)){
-                            // Append all of the subsequent non-whitespace characters
-                            // until the first whitespace character.
-                            res.status_buf.push_back(c);
-                        } else {
-                            if(res.status_buf == "200"){
-                                res.status = HttpStatus::OK;
-                            } else if (res.status_buf == "204"){
-                                res.status = HttpStatus::NO_CONTENT;
-                            } else if (res.status_buf == "404"){
-                                res.status = HttpStatus::NOT_FOUND;
-                            } else if (res.status_buf == "409"){
-                                res.status = HttpStatus::CONFLICT;
-                            } else if (res.status_buf == "405"){
-                                res.status = HttpStatus::METHOD_NOT_ALLOWED;
-                            } else if (res.status_buf == "500"){
-                                res.status = HttpStatus::INTERNAL_SERVER_ERROR;
-                            } else if (res.status_buf == "201"){
-                                res.status = HttpStatus::CREATED;
-                            } else if (res.status_buf == "202"){
-                                res.status = HttpStatus::ACCEPTED;
+                            break;
+                        case 1:
+                            if(c == 'T'){
+                                res.find_version_state = 2;
+                            } else {
+                                res.find_version_state = 0;
                             }
-                            res.status_finished = true;
+                            break;
+                        case 2:
+                            if(c == 'T'){
+                                res.find_version_state = 3;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                        case 3:
+                            if(c == 'P'){
+                                res.find_version_state = 4;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                        case 4:
+                            if(c == '/'){
+                                res.find_version_state = 5;
+                            } else {
+                                res.find_version_state = 0;
+                            }
+                            break;
+                    }
+                } else if (!res.version_finished){
+                    if(!std::isspace(c)){
+                        // Append all of the subsequent non-whitespace characters into the version buffer.
+                        res.version_buf.push_back(c);
+                    } else {
+                        // At the first whitespace character set the http version.
+                        if(res.version_buf == "0.9"){
+                            res.version = HttpVersion::V0_9;
+                        } else if (res.version_buf == "1.0"){
+                            res.version = HttpVersion::V1;
+                        } else if (res.version_buf == "1.1"){
+                            res.version = HttpVersion::V1_1;
+                        } else if (res.version_buf == "2"){
+                            res.version = HttpVersion::V2;
+                        } else if (res.version_buf == "3"){
+                            res.version = HttpVersion::V3;
+                        } else {
+                            res.version = HttpVersion::UNKNOWN;
                         }
-                    } else if (!res.status_line_finished){
-                        if(c == '\n'){
-                            // Seek to the newline character.
-                            res.status_line_finished = true;
+                        res.version_finished = true;
+                    }
+                } else if (!res.status_started){
+                    if(!std::isspace(c)){
+                        // Seek to the first non-whitespace character.
+                        res.status_buf.push_back(c);
+                        res.status_started = true;
+                    }
+                } else if (!res.status_finished){
+                    if(!std::isspace(c)){
+                        // Append all of the subsequent non-whitespace characters
+                        // until the first whitespace character.
+                        res.status_buf.push_back(c);
+                    } else {
+                        if(res.status_buf == "200"){
+                            res.status = HttpStatus::OK;
+                        } else if (res.status_buf == "204"){
+                            res.status = HttpStatus::NO_CONTENT;
+                        } else if (res.status_buf == "404"){
+                            res.status = HttpStatus::NOT_FOUND;
+                        } else if (res.status_buf == "409"){
+                            res.status = HttpStatus::CONFLICT;
+                        } else if (res.status_buf == "405"){
+                            res.status = HttpStatus::METHOD_NOT_ALLOWED;
+                        } else if (res.status_buf == "500"){
+                            res.status = HttpStatus::INTERNAL_SERVER_ERROR;
+                        } else if (res.status_buf == "201"){
+                            res.status = HttpStatus::CREATED;
+                        } else if (res.status_buf == "202"){
+                            res.status = HttpStatus::ACCEPTED;
+                        } else {
+                            res.status = HttpStatus::INTERNAL_SERVER_ERROR;
                         }
+                        res.status_finished = true;
+                    }
+                } else if (!res.status_line_finished){
+                    if(c == '\n'){
+                        // Seek to the newline character.
+                        res.status_line_finished = true;
                     }
                 }
-            } else if (res.num_headers != res.next_header){
+            } else if (res.next_header < res.num_headers){
                 HttpHeader& next_header = res.headers[res.next_header];
                 // Parse the next header.
                 is >> next_header;
@@ -1120,13 +1142,13 @@ namespace http
                     }
                     ++(res.next_header);
                 }
-            } else if (res.num_chunks != res.next_chunk){
+            } else if (res.next_chunk < res.num_chunks){
                 // We need to toggle for the case where a Content-Length header is present.
                 HttpChunk& next_chunk = res.chunks[res.next_chunk];
                 if(res.not_chunked_transfer){
                     // If it is not a chunked transfer, then we assign Content-Length to
                     // the chunk size. And set the chunk_size_found, and chunk_body_start flags.
-                    if(!next_chunk.chunk_size_found && !next_chunk.chunk_body_start){
+                    if(!next_chunk.chunk_size_started || !next_chunk.chunk_size_found || !next_chunk.chunk_body_start){
                         auto it = std::find_if(res.headers.begin(), res.headers.end(), [](auto& header){
                             return header.field_name == HttpHeaderField::CONTENT_LENGTH;
                         });
@@ -1145,10 +1167,7 @@ namespace http
                     if(next_chunk.chunk_complete){
                         if(next_chunk.chunk_size != HttpBigNum{0}){
                             ++(res.num_chunks);
-                            HttpChunk new_chunk = {
-                                {0},"",{0},"",false,false,false,false,false
-                            };
-                            res.chunks.push_back(new_chunk);
+                            res.chunks.emplace_back();
                         }
                         ++(res.next_chunk);
                     }

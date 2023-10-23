@@ -43,7 +43,7 @@ namespace app{
                 kill(-pid_, SIGKILL);
             }
             // explicitly call the fiber destructor.
-            f_ = boost::context::fiber();
+            // f_ = boost::context::fiber();
             int status = pthread_cancel(tid_);
             switch(status)
             {

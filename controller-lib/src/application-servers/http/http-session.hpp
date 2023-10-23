@@ -3,6 +3,7 @@
 #include "http-requests.hpp"
 #include "../server/app-session.hpp"
 #include "http-server.hpp"
+#include "../../transport-servers/sctp-server/sctp-session.hpp"
 
 namespace http{
     typedef std::tuple<HttpRequest, HttpResponse> HttpReqRes;
@@ -17,10 +18,12 @@ namespace http{
 
         void read() override;
         void write(const std::function<void()>& fn) override;
+        void write(bool mark, const std::function<void()>& fn);
         void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
+        
         void close() override;
 
-        ~HttpSession() {   
+        ~HttpSession() {
             if(t_session_){
                 t_session_->erase();
             }
@@ -36,6 +39,7 @@ namespace http{
 
         void read() override;
         void write(const std::function<void()>& fn) override;
+        void write(bool mark, const std::function<void()>& fn);
         void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
         void close() override;
 

@@ -19,9 +19,9 @@ wait
 wait
 
 # Uncomment the below with an appropriately configured webdav server for capturing error logs or core dumps.
-if [[ -f /usr/local/bin/core ]]; then
-	curl -T /usr/local/bin/core "http://10.168.0.11:8100/upload/$HOSTNAME-core"
-fi
+for DUMP in /usr/local/bin/*.coredump; do
+	curl -T $DUMP "http://10.168.0.11:8100/upload/$HOSTNAME-coredump"
+done
 curl -T /var/log/controller.stdout.log "http://10.168.0.11:8100/upload/$HOSTNAME-stdout.log"
 curl -T /var/log/nginx-access.log "http://10.168.0.11:8100/upload/$HOSTNAME-nginx-access.log"
 curl -T /var/log/controller.stderr.log "http://10.168.0.11:8100/upload/$HOSTNAME-stderr.log"

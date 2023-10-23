@@ -50,14 +50,14 @@ namespace sctp_transport{
             switch(status.sstat_state)
             {
                 case SCTP_CLOSED:
-                    std::cerr << "sctp-session.cpp:48:SCTP_CLOSED STATE" << std::endl;
+                    // std::cerr << "sctp-session.cpp:48:SCTP_CLOSED STATE" << std::endl;
                     return;
                 case SCTP_EMPTY:
-                    std::cerr << "sctp-session.cpp:51:SCTP_EMPTY STATE" << std::endl;
+                    // std::cerr << "sctp-session.cpp:51:SCTP_EMPTY STATE" << std::endl;
                     return;
                 case SCTP_COOKIE_WAIT:
                 {
-                    std::cerr << "sctp-session.cpp:54:SCTP_COOKIE_WAIT" << std::endl;
+                    // std::cerr << "sctp-session.cpp:54:SCTP_COOKIE_WAIT" << std::endl;
                     try{
                         std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
                         socket_.async_wait(
@@ -74,7 +74,7 @@ namespace sctp_transport{
                 }
                 case SCTP_COOKIE_ECHOED:
                 {
-                    std::cerr << "sctp-session.cpp:64:SCTP_COOKIE_ECHOED" << std::endl;
+                    // std::cerr << "sctp-session.cpp:64:SCTP_COOKIE_ECHOED" << std::endl;
                     try{
                         std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
                         socket_.async_wait(
@@ -93,18 +93,18 @@ namespace sctp_transport{
                 case SCTP_ESTABLISHED:
                     break;
                 case SCTP_SHUTDOWN_PENDING:
-                    std::cerr << "sctp-session.cpp:77:SCTP_SHUTDOWN_PENDING" << std::endl;
+                    // std::cerr << "sctp-session.cpp:77:SCTP_SHUTDOWN_PENDING" << std::endl;
                     return;
                 case SCTP_SHUTDOWN_SENT:
-                    std::cerr << "sctp-session.cpp:80:SCTP_SHUTDOWN_SENT" << std::endl;
+                    // std::cerr << "sctp-session.cpp:80:SCTP_SHUTDOWN_SENT" << std::endl;
                     return;
                 case SCTP_SHUTDOWN_RECEIVED:
                 {   
-                    std::cerr << "sctp-session.cpp:83:SCTP_SHUTDOWN_RECEIVED" << std::endl;
+                    // std::cerr << "sctp-session.cpp:83:SCTP_SHUTDOWN_RECEIVED" << std::endl;
                     return;
                 }
                 case SCTP_SHUTDOWN_ACK_SENT:
-                    std::cerr << "sctp-session.cpp:86:SCTP_SHUTDOWN_ACK_SENT" << std::endl;
+                    // std::cerr << "sctp-session.cpp:86:SCTP_SHUTDOWN_ACK_SENT" << std::endl;
                     return;
                 default:
                     std::cerr << "sctp-session.cpp:58:unrecognized status.sstat_state value:" << status.sstat_state << std::endl;
@@ -235,9 +235,9 @@ namespace sctp_transport{
     void SctpSession::read(const boost::system::error_code& ec, const std::string& received_data){
         acquire_stream() << received_data;
         release_stream();
-        if (read_fn_){
-            read_fn_(ec, received_data.size());
-        }
+        // if (read_fn_){
+        //     read_fn_(ec, received_data.size());
+        // }
         return;
     }
 

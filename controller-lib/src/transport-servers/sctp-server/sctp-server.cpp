@@ -113,7 +113,7 @@ namespace sctp_transport{
                 /* remote address is not in the peer address table. */
                 transport::protocols::sctp::stream_t stream = {
                     SCTP_FUTURE_ASSOC,
-                    0
+                    1
                 };
                 session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
                 PendingConnect connection = {session, fn};
@@ -194,6 +194,7 @@ namespace sctp_transport{
     }
 
     void SctpServer::read(std::function<void(const boost::system::error_code&, std::shared_ptr<sctp_transport::SctpSession>)> fn, const boost::system::error_code& ec){
+        // std::cerr << "sctp-server.cpp:197:SCTP READ EVENT" << std::endl;
         if(!ec){
             using namespace transport::protocols;
             sctp::iov iobuf= {
@@ -252,7 +253,7 @@ namespace sctp_transport{
                         {
                             case SCTP_COMM_UP:
                             {
-                                std::cerr << "sctp-server.cpp:274:SCTP_COMM_UP EVENT" << std::endl;
+                                // std::cerr << "sctp-server.cpp:274:SCTP_COMM_UP EVENT" << std::endl;
                                 /* Search for the association in the pending connects table */
                                 boost::system::error_code error;
                                 acquire();
@@ -285,9 +286,9 @@ namespace sctp_transport{
                                 break;
                             case SCTP_SHUTDOWN_COMP:
                             {
-                                struct timespec ts = {};
-                                clock_gettime(CLOCK_REALTIME, &ts);
-                                std::cerr << "sctp-server.cpp:286:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":SCTP_SHUTDOWN_COMP EVENT" << std::endl;
+                                // struct timespec ts = {};
+                                // clock_gettime(CLOCK_REALTIME, &ts);
+                                // std::cerr << "sctp-server.cpp:286:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":SCTP_SHUTDOWN_COMP EVENT" << std::endl;
                                 boost::system::error_code error;
                                 acquire();
                                 auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
@@ -348,7 +349,6 @@ namespace sctp_transport{
                     std::cerr << "sctp-server.cpp:307:rcv_assoc_id is not valid!" << std::endl;
                     throw "what?";
                 }
-            
                 acquire();
                 auto it = std::find_if(cbegin(), cend(), [&](auto& ptr){
                     return *(std::static_pointer_cast<sctp_transport::SctpSession>(ptr)) == stream_id;
@@ -362,10 +362,19 @@ namespace sctp_transport{
                     push_back(sctp_session);
                     release();
                     // Accept and return a new context (similar to the berkeley sockets accept call.)
+                } else if(!(*it)) {
+                    // We must handle the race condition that the SCTP server will attempt to reuse
+                    // a connection before it has been fully closed (i.e. while there is still a pending write).
+                    // Create a new session.
+                    sctp_session = std::make_shared<sctp_transport::SctpSession>(*this, stream_id, socket_);
+                    acquire();
+                    push_back(sctp_session);
+                    release();
                 } else {
                     sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(*it);
                 }
                 std::string received_data(buf_.data(), len);
+                // std::cerr << "sctp-server.cpp:370:received_data=" << received_data << std::endl;
                 sctp_session->read(ec, received_data);
 
                 // Call the read function callback.

@@ -10,7 +10,8 @@ namespace http{
         V1_1,
         V2,
         V3,
-        V0_9
+        V0_9,
+        UNKNOWN
     };
 
     enum class HttpVerb
