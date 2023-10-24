@@ -216,11 +216,14 @@ namespace app{
                         // For our application all session pointers are http session pointers.
                         // Due to a race condition, there is a chance that http_session_it is a client pointer not a server pointer.
                         http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
-                        // When receiving a client request http chunk, check the servers http response and only accept the
-                        // client message if the server response is not yet complete. If the server response message is complete (either all of the data has been sent,
-                        // or the last chunk in the response is of size 0, then this is a spuriously arriving message caused by improper stream reuse.
+                        // We are not supporting HTTP/1.1 pipelining. So if a client request http chunk is received AFTER the 
+                        // server response has been completed, but BEFORE the server response has been received by the client, then
+                        // we simply drop the client request http chunk.
                         http::HttpResponse server_res = std::get<http::HttpResponse>(http_session_ptr->get());
-                        if(server_res.chunks.size() > 0 && server_res.chunks.back().chunk_size != http::HttpBigNum{0}){
+                        auto it = std::find_if(server_res.headers.begin(), server_res.headers.end(), [&](auto& header){
+                            return (header.field_name == http::HttpHeaderField::CONTENT_LENGTH);
+                        });
+                        if((it != server_res.headers.end()) || (server_res.chunks.size() > 0 && server_res.chunks.back().chunk_size != http::HttpBigNum{0})){
                             http_session_ptr->read();
                             route_request(http_session_ptr);
                         }
@@ -286,7 +289,7 @@ namespace app{
                             req.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
                             next_session->set(rr);
                             next_session->write([&,next_session](){
-                                next_session->close();
+                                return;
                             });
                             (*it)->peer_client_sessions().pop_back();
                         }
@@ -385,14 +388,9 @@ namespace app{
         http::HttpReqRes req_res = session->get();
         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
         http::HttpRequest& req = std::get<http::HttpRequest>(req_res);
-        if(req.chunks.size() > 0 && req.chunks.back().chunk_size == http::HttpBigNum{0}){
-            // This is an application specific test rather than being HTTP compliant.
-            // Since ALL of our client requests will be done over SCTP streams. If the client request
-            // has been terminated and a server response is received, then that means the execution context
-            // is already complete, and we have received a spurious server response (race condition).
-            // We should simply do nothing with the received response in this case.
-            return;
-        }
+        auto it = std::find_if(req.headers.begin(), req.headers.end(), [&](auto& header){
+            return (header.field_name == http::HttpHeaderField::CONTENT_LENGTH);
+        });
         if(res.status == http::HttpStatus::CREATED){
             for(; res.pos < res.next_chunk; ++res.pos){
                 std::size_t next_comma = 0;
@@ -435,11 +433,18 @@ namespace app{
                             }
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                            return;
+                            // We do not support HTTP/1.1 pipelining so the client session can only be closed after the ENTIRE server response
+                            // has been consumed.
+                            break;
                         } else {
-                            session->close();
-                            return;
+                            // We do not support HTTP/1.1 pipelining, so the HTTP client session can only be closed after the ENTIRE 
+                            // server response has been consumed.
+                            break;;
                         }
+                    } else if((it != req.headers.end()) || (req.chunks.size() > 0 && req.chunks.back().chunk_size == http::HttpBigNum{0})){
+                        // We do not support HTTP/1.1 pipelining so we will only close the HTTP client stream after the ENTIRE server response has
+                        // been consumed.
+                        break;
                     }
                     boost::json::error_code ec;
                     boost::json::value val = boost::json::parse(
@@ -652,8 +657,7 @@ namespace app{
                 const std::size_t chunk_size = chunk.chunk_data.size();
 
                 if(chunk_size == 0){
-                    /* A 0 length chunk represents the end of an HTTP Stream */
-                    session->close();
+                    /* A 0 length chunk represents the end of an HTTP request */
                     return;
                 }
 
@@ -691,7 +695,6 @@ namespace app{
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                             return;
                         } else {
-                            session->close();
                             return;
                         }
                     }
