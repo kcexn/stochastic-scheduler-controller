@@ -871,8 +871,9 @@ namespace app{
                                             // Construct the curl command.
                                             const char* bin_curl = "/usr/bin/curl";
                                             std::vector<const char*> argv;
-                                            argv.reserve(9*concurrency+1);
+                                            argv.reserve(9*concurrency+2);
                                             argv.push_back(bin_curl);
+                                            argv.push_back("--parallel-immediate");
                                             argv.push_back("-Z");
                                             argv.push_back("--no-progress-meter");
 
@@ -940,11 +941,27 @@ namespace app{
                                             std::size_t max_retries = 5;
                                             std::size_t counter = 0;
                                             while(counter < max_retries){
-                                                pid_t pid = vfork();
+                                                pid_t pid = fork();
                                                 switch(pid)
                                                 {
                                                     case 0:
                                                     {
+                                                        sigset_t sigmask = {};
+                                                        int status = sigemptyset(&sigmask);
+                                                        if(status == -1){
+                                                            std::cerr << "controller-app.cpp:952:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            throw "what?";
+                                                        }
+                                                        status = sigaddset(&sigmask, SIGCHLD);
+                                                        if(status == -1){
+                                                            std::cerr << "controller-app.cpp:957:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            throw "what?";
+                                                        }
+                                                        status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
+                                                        if(status == -1){
+                                                            std::cerr << "controller-app.cpp:962:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            throw "what?";
+                                                        }
                                                         execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
                                                         exit(1);
                                                         break;

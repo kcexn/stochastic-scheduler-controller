@@ -119,8 +119,24 @@ namespace run{
                         case 0:
                         {
                             //Child Process.
+                            sigset_t sigmask = {};
+                            int status = sigemptyset(&sigmask);
+                            if(status == -1){
+                                std::cerr << "controller-app.cpp:952:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "what?";
+                            }
+                            status = sigaddset(&sigmask, SIGCHLD);
+                            if(status == -1){
+                                std::cerr << "controller-app.cpp:957:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "what?";
+                            }
+                            status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
+                            if(status == -1){
+                                std::cerr << "controller-app.cpp:962:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "what?";
+                            }
                             errno = 0;
-                            int status = nice(2);
+                            status = nice(2);
                             if(status == -1 && errno != 0){
                                 std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             }
