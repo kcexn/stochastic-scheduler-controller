@@ -177,17 +177,6 @@ namespace run{
                             throw "This shouldn't happen.";
                         }
                     }
-                    sigset_t sigset_mask = {};
-                    int status = sigemptyset(&sigset_mask);
-                    if(status == -1){
-                        std::cerr << "run.cpp:183:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
-                    status = sigaddset(&sigset_mask, SIGCHLD);
-                    if(status == -1){
-                        std::cerr << "run.cpp:188:sigaddset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     struct pollfd pfds[3];
                     pfds[0] = {
                         sync[0],
@@ -202,12 +191,8 @@ namespace run{
                         0
                     };
                     // Block until the child process sets the pgid.
+                    int status;
                     int len;
-                    status = sigprocmask(SIG_BLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:209:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     do{
                         status = poll(&pfds[0], 1, -1);
                         if(status == -1){
@@ -236,12 +221,7 @@ namespace run{
                             std::cerr << "run.cpp:223:unrecognized events on poll" << std::endl;
                             throw "what?";
                         }
-                    }while(errno == EINTR);
-                    status = sigprocmask(SIG_UNBLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:216:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
+                    }while(errno == EINTR);                    
                     // Save the PID in the relevant thread control.
                     ctx_ptr->thread_controls()[idx].pid() = pid;    
                     ctx_ptr->synchronize();
@@ -266,54 +246,44 @@ namespace run{
                     pfds[0].events = 0;
                     pfds[1].events = POLLIN;
                     pfds[2].events = 0;
-                    status = sigprocmask(SIG_BLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:271:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     do{
                         int status = poll(&pfds[1], 1, -1);
                         if(status == -1){
-                            std::cerr << "run.cpp:254:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             switch(errno)
                             {
                                 case EINTR:
                                     break;
                                 default:
+                                    std::cerr << "run.cpp:257:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if (pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
                             char ready[1] = {};
                             len = read(upstream[0], ready, 1);
                             if(len == -1){
-                                std::cerr << "run.cpp:266:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 switch(errno)
                                 {
                                     case EINTR:
                                         break;
                                     default:
+                                        std::cerr << "run.cpp:269:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:299:pfds has no recognized events." << std::endl;
+                            std::cerr << "run.cpp:274:pfds has no recognized events." << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR);
-                    status = sigprocmask(SIG_UNBLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:216:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     if(kill(-pid, SIGSTOP) == -1){
                         int errsv = errno;
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "run.cpp:226:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "run.cpp:227:pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:283:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:284:pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         } else {
-                            std::cerr << "run.cpp:229:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:286:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         }
                         switch(errsv)
                         {
@@ -331,10 +301,10 @@ namespace run{
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "run.cpp:247:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "run.cpp:248:unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:304:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:305:unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         } else {
-                            std::cerr << "run.cpp:250:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:307:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         }
                         switch(errsv)
                         {
@@ -365,24 +335,19 @@ namespace run{
                     pfds[1].events = 0;
                     pfds[2].events = POLLOUT;
                     std::size_t bytes_written = 0;
-                    status = sigprocmask(SIG_BLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:370:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     do{
                         int status = poll(&pfds[2], 1, -1);
                         if(status == -1){
-                            std::cerr << "run.cpp:343:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             switch(errno)
                             {
                                 case EINTR:
                                     break;
                                 default:
+                                    std::cerr << "run.cpp:346:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if(pfds[2].revents & POLLERR) {
-                            std::cerr << "run.cpp:352:the child process has closed the read end of the downstream pipe." << std::endl;
+                            std::cerr << "run.cpp:350:the child process has closed the read end of the downstream pipe." << std::endl;
                             throw "what?";
                         } else if(pfds[2].revents & POLLOUT){
                             len = write(downstream[1], params.data(), params.size());
@@ -392,6 +357,7 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
+                                        std::cerr << "run.cpp:360:write failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             } else {
@@ -399,11 +365,6 @@ namespace run{
                             }
                         }
                     }while(errno == EINTR || bytes_written < params.size());
-                    status = sigprocmask(SIG_UNBLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:404:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     if (close(downstream[1]) == -1){
                         std::cerr << "Closing the downstream write side of the pipe from the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
@@ -414,20 +375,15 @@ namespace run{
                     pfds[0].events = 0;
                     pfds[1].events = POLLIN;
                     pfds[2].events = 0;
-                    status = sigprocmask(SIG_BLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:419:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     do{
                         status = poll(&pfds[1], 1, -1);
                         if(status == -1){
-                            std::cerr << "run.cpp:382:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             switch(errno)
                             {
                                 case EINTR:
                                     break;
                                 default:
+                                    std::cerr << "run.cpp:386:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if(pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
@@ -436,25 +392,20 @@ namespace run{
                             if (len != -1){
                                 value_size += len;
                             } else {
-                                std::cerr << "run.cpp:396:upstream read failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 switch(errno)
                                 {
                                     case EINTR:
                                         break;
                                     default:
+                                        std::cerr << "run.cpp:400:upstream read failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:406:unrecognized events on poll." << std::endl;
+                            std::cerr << "run.cpp:405:unrecognized events on poll." << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR || value_size == val.size());
-                    status = sigprocmask(SIG_UNBLOCK, &sigset_mask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:455:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     if (close(upstream[0]) == -1){
                         std::cerr << "Closing the upstream read side of the pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";

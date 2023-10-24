@@ -198,11 +198,8 @@ namespace app{
                 if(http_client != hcs_.end()){
                     /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
                     std::shared_ptr<http::HttpClientSession> http_client_ptr = std::static_pointer_cast<http::HttpClientSession>(*http_client);
-                    http::HttpRequest client_req = std::get<http::HttpRequest>(http_client_ptr->get());
-                    if(client_req.chunks.size() > 0 && client_req.chunks.back().chunk_size != http::HttpBigNum{0}){
-                        http_client_ptr->read();
-                        route_response(http_client_ptr);
-                    }
+                    http_client_ptr->read();
+                    route_response(http_client_ptr);
                 } else {
                     /* Otherwise by default any read request must be a server session. */
                     auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
@@ -217,7 +214,11 @@ namespace app{
                         }
                     } else {
                         // For our application all session pointers are http session pointers.
+                        // Due to a race condition, there is a chance that http_session_it is a client pointer not a server pointer.
                         http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
+                        // When receiving a client request http chunk, check the servers http response and only accept the
+                        // client message if the server response is not yet complete. If the server response message is complete (either all of the data has been sent,
+                        // or the last chunk in the response is of size 0, then this is a spuriously arriving message caused by improper stream reuse.
                         http::HttpResponse server_res = std::get<http::HttpResponse>(http_session_ptr->get());
                         if(server_res.chunks.size() > 0 && server_res.chunks.back().chunk_size != http::HttpBigNum{0}){
                             http_session_ptr->read();
@@ -236,6 +237,11 @@ namespace app{
                 });
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
+                    status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
+                    if(status == -1){
+                        std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "what?";
+                    }
                     // Check to see if the context is stopped.
                     // std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
                     // if(!__OW_ACTIVATION_ID.empty()){
@@ -267,9 +273,6 @@ namespace app{
                             res.chunks.push_back(http::HttpChunk{{1}, "]"}); /* Close the JSON stream array. */
                             res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
                             next_session->set(rr);
-                            std::shared_ptr<server::Session> t_session_ = next_session->transport();
-                            std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
-                            sctp_session->mark_for_closing();
                             next_session->write([&,next_session](){
                                 next_session->close();
                             });
@@ -282,9 +285,6 @@ namespace app{
                             req.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
                             req.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
                             next_session->set(rr);
-                            std::shared_ptr<server::Session> t_session_ = next_session->transport();
-                            std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
-                            sctp_session->mark_for_closing();
                             next_session->write([&,next_session](){
                                 next_session->close();
                             });
@@ -298,6 +298,11 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end())? false : true;
                         });
+                        status = sigprocmask(SIG_UNBLOCK, &sigmask, nullptr);
+                        if(status == -1){
+                            std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            throw "what?";
+                        }
                     } else {
                         // Evaluate which thread to execute next and notify it.
                         auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
@@ -379,6 +384,15 @@ namespace app{
     void Controller::route_response(std::shared_ptr<http::HttpClientSession>& session){
         http::HttpReqRes req_res = session->get();
         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
+        http::HttpRequest& req = std::get<http::HttpRequest>(req_res);
+        if(req.chunks.size() > 0 && req.chunks.back().chunk_size == http::HttpBigNum{0}){
+            // This is an application specific test rather than being HTTP compliant.
+            // Since ALL of our client requests will be done over SCTP streams. If the client request
+            // has been terminated and a server response is received, then that means the execution context
+            // is already complete, and we have received a spurious server response (race condition).
+            // We should simply do nothing with the received response in this case.
+            return;
+        }
         if(res.status == http::HttpStatus::CREATED){
             for(; res.pos < res.next_chunk; ++res.pos){
                 std::size_t next_comma = 0;
@@ -442,6 +456,7 @@ namespace app{
                     });
                     if(ctx == ctx_ptrs.end()){
                         session->close();
+                        return;
                     } else {
                         if(res.pos == 0){
                             boost::json::array& ja = val.as_object().at("peers").as_array();
@@ -778,6 +793,22 @@ namespace app{
                                                 try{
                                                     pthread_t tid = pthread_self();
                                                     ctx_ptr->thread_controls()[i].tid() = tid;
+                                                    sigset_t sigmask = {};
+                                                    int status = sigemptyset(&sigmask);
+                                                    if(status == -1){
+                                                        std::cerr << "controller-app.cpp:805:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                        throw "what?";
+                                                    }
+                                                    status = sigaddset(&sigmask, SIGCHLD);
+                                                    if(status == -1){
+                                                        std::cerr << "controller-app.cpp:810:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                        throw "what?";
+                                                    }
+                                                    status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
+                                                    if(status == -1){
+                                                        std::cerr << "controller-app.cpp:815:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                        throw "what?";
+                                                    }
                                                     // The first resume sets up the action runtime environment for execution.
                                                     // The action runtime doesn't have to be set up in a distinct 
                                                     // thread of execution, but since we need to take the time to set up 
@@ -1123,9 +1154,9 @@ namespace app{
                                         }
                                     };
                                     session->set(rr);
-                                    std::shared_ptr<server::Session> t_session_ = session->transport();
-                                    std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
-                                    sctp_session->mark_for_closing();
+                                    // std::shared_ptr<server::Session> t_session_ = session->transport();
+                                    // std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
+                                    // sctp_session->mark_for_closing();
                                     session->write([&,session](){
                                         session->close();
                                     });
@@ -1144,9 +1175,9 @@ namespace app{
                                     res.chunks.push_back(http::HttpChunk{{1},"]"});
                                     res.chunks.push_back(http::HttpChunk{{0},""});
                                     session->set(rr);
-                                    std::shared_ptr<server::Session> t_session_ = session->transport();
-                                    std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
-                                    sctp_session->mark_for_closing();
+                                    // std::shared_ptr<server::Session> t_session_ = session->transport();
+                                    // std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
+                                    // sctp_session->mark_for_closing();
                                     session->write([&,session](){
                                         session->close();
                                     });

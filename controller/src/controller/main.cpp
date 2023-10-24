@@ -77,6 +77,23 @@ int main(int argc, char* argv[])
     new_action.sa_flags=0;
     sigaction(SIGTERM, &new_action, NULL);
     sigaction(SIGCHLD, &new_action, NULL);
+
+    sigset_t sigmask = {};
+    int status = sigemptyset(&sigmask);
+    if(status == -1){
+        std::cerr << "controller-app.cpp:147:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
+    status = sigaddset(&sigmask, SIGCHLD);
+    if(status == -1){
+        std::cerr << "controller-app.cpp:152:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
+    status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
+    if(status == -1){
+        std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
     
     boost::asio::io_context ioc;
     std::shared_ptr<controller::io::MessageBox> mbx = std::make_shared<controller::io::MessageBox>();
