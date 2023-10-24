@@ -41,7 +41,7 @@ namespace app{
         std::vector<std::size_t> tmp;
         if(!is_stopped()){
             if(pid_ > 0){
-                int status = setpriority(PRIO_PGRP, pid_, 18);
+                int status = setpriority(PRIO_PGRP, pid_, 19);
                 if(status == -1){
                     std::cerr << "thread-controls.cpp:46:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     switch(errno)
@@ -50,8 +50,24 @@ namespace app{
                             throw "what?";
                     }
                 }
-                kill(-pid_, SIGTERM);
-                kill(-pid_, SIGCONT);
+                status = kill(-pid_, SIGTERM);
+                if(status == -1){
+                    std::cerr << "thread-controls.cpp:55:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    switch(errno)
+                    {
+                        default:
+                            throw "what?";
+                    }
+                }
+                status = kill(-pid_, SIGCONT);
+                if(status == -1){
+                    std::cerr << "thread_controls.cpp:64:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    switch(errno)
+                    {
+                        default:
+                            throw "what?";
+                    }
+                }
             }
             // explicitly call the fiber destructor.
             // f_ = boost::context::fiber();
