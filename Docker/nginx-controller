@@ -35,6 +35,12 @@ RUN mkdir -p /var/log/nginx/ &&\
 COPY nginx/nginx.conf /etc/nginx/
 COPY nginx/njs/ /etc/nginx/njs/
 
+# Install some test data.
+COPY tests/ /root/tests/
+
+# Install init script
+COPY Docker/init.sh /usr/local/bin/
+
 # Install the Controller
 RUN mkdir -p /usr/local/lib/ && \
     mkdir -p /usr/local/bin/ && \
@@ -42,12 +48,6 @@ RUN mkdir -p /usr/local/lib/ && \
 COPY lib/ /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib
 COPY controller/bin/controller /usr/local/bin/
-
-# Install init script
-COPY Docker/init.sh /usr/local/bin/
-
-# Install some test data.
-COPY tests/ /root/tests/
 
 EXPOSE 5100/sctp
 EXPOSE 8080/tcp

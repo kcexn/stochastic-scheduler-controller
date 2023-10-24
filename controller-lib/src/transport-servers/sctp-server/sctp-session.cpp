@@ -44,8 +44,14 @@ namespace sctp_transport{
             socklen_t optsize = sizeof(status);
             int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_STATUS, &status, &optsize);
             if(ec == -1){
-                std::cerr << "sctp-session.cpp:42:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                throw "what?";
+                std::cerr << "sctp-session.cpp:47:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                switch(errno)
+                {
+                    case EINVAL:
+                        return;
+                    default:
+                        throw "what?";
+                }
             }
             switch(status.sstat_state)
             {
@@ -134,7 +140,7 @@ namespace sctp_transport{
             std::memcpy(CMSG_DATA(cmsg), &sndinfo, sizeof(sndinfo));
             int len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL | MSG_DONTWAIT);
             if(len == -1){
-                std::cerr << "sctp-session.cpp:120:sendmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                std::cerr << "sctp-session.cpp:137:sendmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                 switch(errno)
                 {
                     case EWOULDBLOCK:

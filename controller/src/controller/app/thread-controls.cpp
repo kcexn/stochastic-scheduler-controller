@@ -1,6 +1,7 @@
 #include "thread-controls.hpp"
 #include <csignal>
 #include <iostream>
+#include <sys/resource.h>
 
 namespace controller{
 namespace app{    
@@ -40,7 +41,17 @@ namespace app{
         std::vector<std::size_t> tmp;
         if(!is_stopped()){
             if(pid_ > 0){
-                kill(-pid_, SIGKILL);
+                int status = setpriority(PRIO_PGRP, pid_, 18);
+                if(status == -1){
+                    std::cerr << "thread-controls.cpp:46:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    switch(errno)
+                    {
+                        default:
+                            throw "what?";
+                    }
+                }
+                kill(-pid_, SIGTERM);
+                kill(-pid_, SIGCONT);
             }
             // explicitly call the fiber destructor.
             // f_ = boost::context::fiber();
