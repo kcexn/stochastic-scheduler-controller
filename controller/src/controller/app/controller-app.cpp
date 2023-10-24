@@ -181,7 +181,8 @@ namespace app{
                     lk.unlock();
                     break;
                 }
-            } else if(thread_local_signal & ~CTL_TERMINATE_EVENT){
+            } 
+            if(thread_local_signal & ~CTL_TERMINATE_EVENT){
                 io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             }
             if(io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)){
