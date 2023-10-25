@@ -43,29 +43,33 @@ namespace app{
             if(pid_ > 0){
                 int status = setpriority(PRIO_PGRP, pid_, 19);
                 if(status == -1){
-                    std::cerr << "thread-controls.cpp:46:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     switch(errno)
                     {
+                        case ESRCH:
+                            break;
                         default:
+                            std::cerr << "thread-controls.cpp:51:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "what?";
                     }
                 }
-                status = kill(-pid_, SIGTERM);
-                if(status == -1){
-                    std::cerr << "thread-controls.cpp:55:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                    switch(errno)
-                    {
-                        default:
-                            throw "what?";
+                if(status != -1){
+                    status = kill(-pid_, SIGTERM);
+                    if(status == -1){
+                        std::cerr << "thread-controls.cpp:58:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        switch(errno)
+                        {
+                            default:
+                                throw "what?";
+                        }
                     }
-                }
-                status = kill(-pid_, SIGCONT);
-                if(status == -1){
-                    std::cerr << "thread_controls.cpp:64:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                    switch(errno)
-                    {
-                        default:
-                            throw "what?";
+                    status = kill(-pid_, SIGCONT);
+                    if(status == -1){
+                        std::cerr << "thread_controls.cpp:67:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        switch(errno)
+                        {
+                            default:
+                                throw "what?";
+                        }
                     }
                 }
             }
@@ -84,10 +88,10 @@ namespace app{
                     struct timespec ts = {};
                     status = clock_gettime(CLOCK_REALTIME, &ts);
                     if(status == -1){
-                        std::cerr << "thread-controls.cpp:61:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        std::cerr << "thread-controls.cpp:62:pthread_cancel failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                        std::cerr << "thread-controls.cpp:91:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "thread-controls.cpp:92:pthread_cancel failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                     } else {
-                        std::cerr << "thread-controls.cpp:64:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pthread_cancel failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                        std::cerr << "thread-controls.cpp:94:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pthread_cancel failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                     }
                 }
             }
