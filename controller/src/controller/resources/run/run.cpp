@@ -140,22 +140,6 @@ namespace run{
                         case 0:
                         {
                             //Child Process.
-                            // sigset_t sigmask = {};
-                            // int status = sigemptyset(&sigmask);
-                            // if(status == -1){
-                            //     std::cerr << "run.cpp:146:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            //     throw "what?";
-                            // }
-                            // status = sigaddset(&sigmask, SIGCHLD);
-                            // if(status == -1){
-                            //     std::cerr << "run.cpp:151:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            //     throw "what?";
-                            // }
-                            // status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-                            // if(status == -1){
-                            //     std::cerr << "run.cpp:156:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            //     throw "what?";
-                            // }
                             errno = 0;
                             status = nice(2);
                             if(status == -1 && errno != 0){
