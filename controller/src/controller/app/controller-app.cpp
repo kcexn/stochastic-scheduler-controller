@@ -1366,7 +1366,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1302:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1369:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);
