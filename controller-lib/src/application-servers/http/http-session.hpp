@@ -18,7 +18,6 @@ namespace http{
 
         void read() override;
         void write(const std::function<void()>& fn) override;
-        void write(bool mark, const std::function<void()>& fn);
         void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
         
         void close() override;
@@ -39,7 +38,6 @@ namespace http{
 
         void read() override;
         void write(const std::function<void()>& fn) override;
-        void write(bool mark, const std::function<void()>& fn);
         void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
         void close() override;
 

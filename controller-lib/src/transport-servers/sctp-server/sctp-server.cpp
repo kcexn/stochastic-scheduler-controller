@@ -362,14 +362,6 @@ namespace sctp_transport{
                     push_back(sctp_session);
                     release();
                     // Accept and return a new context (similar to the berkeley sockets accept call.)
-                } else if(!(*it)) {
-                    // We must handle the race condition that the SCTP server will attempt to reuse
-                    // a connection before it has been fully closed (i.e. while there is still a pending write).
-                    // Create a new session.
-                    sctp_session = std::make_shared<sctp_transport::SctpSession>(*this, stream_id, socket_);
-                    acquire();
-                    push_back(sctp_session);
-                    release();
                 } else {
                     sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(*it);
                 }

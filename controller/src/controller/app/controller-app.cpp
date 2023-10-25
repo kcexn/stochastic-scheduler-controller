@@ -405,7 +405,7 @@ namespace app{
                 while(next_comma < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:367:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:408:json_obj_str is empty" << std::endl;
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -1175,9 +1175,6 @@ namespace app{
                                         }
                                     };
                                     session->set(rr);
-                                    // std::shared_ptr<server::Session> t_session_ = session->transport();
-                                    // std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
-                                    // sctp_session->mark_for_closing();
                                     session->write([&,session](){
                                         session->close();
                                     });
@@ -1196,9 +1193,6 @@ namespace app{
                                     res.chunks.push_back(http::HttpChunk{{1},"]"});
                                     res.chunks.push_back(http::HttpChunk{{0},""});
                                     session->set(rr);
-                                    // std::shared_ptr<server::Session> t_session_ = session->transport();
-                                    // std::shared_ptr<sctp_transport::SctpSession> sctp_session = std::static_pointer_cast<sctp_transport::SctpSession>(t_session_);
-                                    // sctp_session->mark_for_closing();
                                     session->write([&,session](){
                                         session->close();
                                     });
