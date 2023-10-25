@@ -2,6 +2,7 @@
 #define SESSION_HPP
 #include <boost/asio.hpp>
 #include <functional>
+#define SERVER_SESSION_MAX_BUFLEN 65535
 
 // Transport layer is dependent on boost/asio.
 namespace server
@@ -19,9 +20,9 @@ namespace server
     class Session: public std::enable_shared_from_this<Session>
     {
     public:
-        const static std::size_t max_buflen = 65536;
+        // const static std::size_t max_buflen = 65536;
         Session(Server& server): server_(server), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app){}
-        inline std::array<char, max_buflen>& buf() { return buf_; }
+        inline std::array<char, SERVER_SESSION_MAX_BUFLEN>& buf() { return buf_; }
         inline std::stringstream& acquire_stream(){ mtx_.lock(); return stream_; }
         inline void release_stream(){ mtx_.unlock(); }
         inline void cancel() { 
@@ -44,7 +45,7 @@ namespace server
 
     private:
         server::Server& server_;
-        std::array<char, max_buflen> buf_;
+        std::array<char, SERVER_SESSION_MAX_BUFLEN> buf_;
         std::stringstream stream_;
         std::mutex mtx_;
     };

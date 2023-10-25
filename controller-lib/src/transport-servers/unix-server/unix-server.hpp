@@ -10,12 +10,12 @@ namespace UnixServer{
     {
     public:
         unix_session(boost::asio::io_context& ioc, server::Server& server): server::Session(server), socket_(ioc) {
-            // boost::system::error_code ec;
-            // socket_.native_non_blocking(true, ec);
-            // if(ec){
-            //     std::cerr << ec.message() << std::endl;
-            //     throw "what?";
-            // }
+            boost::system::error_code ec;
+            socket_.native_non_blocking(true, ec);
+            if(ec){
+                std::cerr << ec.message() << std::endl;
+                throw "what?";
+            }
             // socket_.non_blocking(true, ec);
             // if(ec){
             //     std::cerr << ec.message() << std::endl;
@@ -23,12 +23,12 @@ namespace UnixServer{
             // }
         }
         unix_session(boost::asio::local::stream_protocol::socket&& socket, server::Server& server): server::Session(server), socket_(std::move(socket)) {
-            // boost::system::error_code ec;
-            // socket_.native_non_blocking(true, ec);
-            // if(ec){
-            //     std::cerr << ec.message() << std::endl;
-            //     throw "what?";
-            // }
+            boost::system::error_code ec;
+            socket_.native_non_blocking(true, ec);
+            if(ec){
+                std::cerr << ec.message() << std::endl;
+                throw "what?";
+            }
             // socket_.non_blocking(true, ec);
             // if(ec){
             //     std::cerr << ec.message() << std::endl;
@@ -43,7 +43,7 @@ namespace UnixServer{
 
         ~unix_session() {
             boost::system::error_code ec;
-            boost::asio::local::stream_protocol::socket::linger opt(true, 10);
+            boost::asio::local::stream_protocol::socket::linger opt(true, 60);
             socket_.set_option(opt);
             // socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
             // if(ec){
@@ -53,7 +53,7 @@ namespace UnixServer{
             // ec = boost::system::error_code();
             socket_.close(ec);
             if(ec){
-                std::cerr << "unix-server.hpp:45:socket close failed with error=" << ec.message() << std::endl;
+                std::cerr << "unix-server.hpp:56:socket close failed with error=" << ec.message() << std::endl;
             }
         }
     

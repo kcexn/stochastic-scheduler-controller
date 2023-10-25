@@ -4,7 +4,7 @@
 namespace UnixServer{
     void unix_session::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
         socket_.async_read_some(
-            boost::asio::buffer(buf().data(), unix_session::max_buflen),
+            boost::asio::buffer(buf().data(), SERVER_SESSION_MAX_BUFLEN),
             boost::asio::bind_cancellation_slot(
                 stop_signal_.slot(),
                 [&,fn](boost::system::error_code ec, std::size_t length){

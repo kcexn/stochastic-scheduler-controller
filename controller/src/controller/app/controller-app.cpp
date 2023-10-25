@@ -329,7 +329,7 @@ namespace app{
                             boost::json::error_code ec;
                             boost::json::value jv = boost::json::parse(f_val, ec);
                             if(ec){
-                                std::cerr << "controller-app.cpp:286:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                std::cerr << "controller-app.cpp:332:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                                 throw "This shouldn't happen.";
                             }
                             jo.emplace(f_key, jv);
@@ -706,7 +706,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:644:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:709:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                         throw "Json Parsing failed.";
                     }
                     if(req.route == "/run"){
@@ -1121,7 +1121,7 @@ namespace app{
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);
                                             if(ec){
-                                                std::cerr << "controller-app.cpp:1015:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                std::cerr << "controller-app.cpp:1124:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                 throw "This shouldn't be possible.";
                                             }
                                             ro.emplace(relation->key(), jv);
@@ -1360,7 +1360,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1369:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1363:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);

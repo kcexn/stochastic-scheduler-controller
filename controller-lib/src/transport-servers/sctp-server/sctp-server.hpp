@@ -29,8 +29,8 @@ namespace sctp_transport{
         void read(std::function<void(const boost::system::error_code&, std::shared_ptr<SctpSession>)>, const boost::system::error_code& ec);
         std::vector<PendingConnect> pending_connects_;
 
-        std::array<char, server::Session::max_buflen> buf_;
-        std::array<char, server::Session::max_buflen> cbuf_;
+        std::array<char, SERVER_SESSION_MAX_BUFLEN> buf_;
+        std::array<char, SERVER_SESSION_MAX_BUFLEN> cbuf_;
         transport::protocols::sctp::socket socket_;
     };
 }
