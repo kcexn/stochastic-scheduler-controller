@@ -140,7 +140,7 @@ namespace sctp_transport{
             std::memcpy(CMSG_DATA(cmsg), &sndinfo, sizeof(sndinfo));
             int len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL | MSG_DONTWAIT);
             if(len == -1){
-                std::cerr << "sctp-session.cpp:137:sendmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                std::cerr << "sctp-session.cpp:143:sendmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                 switch(errno)
                 {
                     case EWOULDBLOCK:
@@ -176,25 +176,25 @@ namespace sctp_transport{
                     }
                     case EINVAL:
                     {
-                        int errsv = errno;
-                        struct timespec ts = {};
-                        int status = clock_gettime(CLOCK_REALTIME, &ts);
-                        if(status == -1){
-                            std::cerr << "sctp-session.cpp:87:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "sctp-session.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) \
-                                    << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() \
-                                    << ":write_data=" << std::string(write_data->begin(), write_data->end()) \
-                                    << ",write_data_size=" << write_data->size() \
-                                    << ",assoc_id=" << id_.assoc << ",stream_id=" << id_.sid \
-                                    << std::endl;
-                            return;
-                        }
-                        std::cerr << "sctp-session.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) \
-                            << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() \
-                            << ":write_data=" << std::string(write_data->begin(), write_data->end()) \
-                            << ",write_data_size=" << write_data->size() \
-                            << ",assoc_id=" << id_.assoc << ",stream_id=" << id_.sid \
-                            << std::endl;
+                        // int errsv = errno;
+                        // struct timespec ts = {};
+                        // int status = clock_gettime(CLOCK_REALTIME, &ts);
+                        // if(status == -1){
+                        //     std::cerr << "sctp-session.cpp:87:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        //     std::cerr << "sctp-session.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) \
+                        //             << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() \
+                        //             << ":write_data=" << std::string(write_data->begin(), write_data->end()) \
+                        //             << ",write_data_size=" << write_data->size() \
+                        //             << ",assoc_id=" << id_.assoc << ",stream_id=" << id_.sid \
+                        //             << std::endl;
+                        //     return;
+                        // }
+                        // std::cerr << "sctp-session.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) \
+                        //     << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() \
+                        //     << ":write_data=" << std::string(write_data->begin(), write_data->end()) \
+                        //     << ",write_data_size=" << write_data->size() \
+                        //     << ",assoc_id=" << id_.assoc << ",stream_id=" << id_.sid \
+                        //     << std::endl;
                         return;
                     }
                     default:
