@@ -118,7 +118,7 @@ namespace run{
                         switch(errno)
                         {
                             default:
-                                std::cerr << "run.cpp:104:eventfd() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:121:eventfd() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "what?";
                         }
                     }
@@ -143,7 +143,7 @@ namespace run{
                             errno = 0;
                             status = nice(2);
                             if(status == -1 && errno != 0){
-                                std::cerr << "run.cpp:162:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:146:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             }
                             setpgid(0,0);
                             std::uint64_t notice = 1;
@@ -161,7 +161,7 @@ namespace run{
                                         case EINTR:
                                             break;
                                         default:
-                                            std::cerr << "run.cpp:1804:poll() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                            std::cerr << "run.cpp:164:poll() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                             throw "what?";
                                     }
                                 } else if(pfds[0].revents & POLLOUT){
@@ -174,17 +174,17 @@ namespace run{
                                             case EWOULDBLOCK:
                                                 break;
                                             default:
-                                                std::cerr << "run.cpp:193:write() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                std::cerr << "run.cpp:177:write() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                                 throw "what?";
                                         }
                                     }
                                 } else {
-                                    std::cerr << "run.cpp:198:poll() has an unrecognized flag." << std::endl;
+                                    std::cerr << "run.cpp:182:poll() has an unrecognized flag." << std::endl;
                                     throw "what?";
                                 }
                             } while(errno == EINTR || errno == EWOULDBLOCK);
                             if(close(sync_fd) == -1){
-                                std::cerr << "run.cpp:203:closing sync_fd in the child failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:187:closing sync_fd in the child failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "what?";
                             }
                             if( close(downstream[1]) == -1 ){
@@ -238,7 +238,7 @@ namespace run{
                     do{
                         status = poll(&pfds[0], 1, -1);
                         if(status == -1){
-                            std::cerr << "run.cpp:257:poll() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:241:poll() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             switch(errno)
                             {
                                 case EINTR:
@@ -250,7 +250,7 @@ namespace run{
                             std::uint64_t notice = 0;
                             len = read(sync_fd, &notice, sizeof(notice));
                             if(len == -1){
-                                std::cerr << "run.cpp:269:read() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:253:read() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 switch(errno)
                                 {
                                     case EINTR:
@@ -262,7 +262,7 @@ namespace run{
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:281:unrecognized events on poll" << std::endl;
+                            std::cerr << "run.cpp:265:unrecognized events on poll" << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR || errno == EWOULDBLOCK);                    
@@ -270,7 +270,7 @@ namespace run{
                     ctx_ptr->thread_controls()[idx].pid() = pid;    
                     ctx_ptr->synchronize();
                     if(close(sync_fd) == -1){
-                        std::cerr << "run.cpp:289:Closing the write side of sync_fd in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "run.cpp:273:Closing the write side of sync_fd in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
                     //Parent Process.
@@ -294,7 +294,7 @@ namespace run{
                                 case EINTR:
                                     break;
                                 default:
-                                    std::cerr << "run.cpp:313:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    std::cerr << "run.cpp:297:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if (pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
@@ -306,12 +306,12 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
-                                        std::cerr << "run.cpp:325:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "run.cpp:309:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:330:pfds has no recognized events." << std::endl;
+                            std::cerr << "run.cpp:314:pfds has no recognized events." << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR);
@@ -320,10 +320,10 @@ namespace run{
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "run.cpp:339:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "run.cpp:340:pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:323:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:324:pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         } else {
-                            std::cerr << "run.cpp:342:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:326:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         }
                         switch(errsv)
                         {
@@ -337,7 +337,7 @@ namespace run{
                     g = std::move(g).resume();
                     status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
                     if(status == -1){
-                        std::cerr << "controller-app.cpp:356:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "controller-app.cpp:340:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                     }
 
@@ -346,10 +346,10 @@ namespace run{
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "run.cpp:365:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "run.cpp:366:unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:349:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:350:unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         } else {
-                            std::cerr << "run.cpp:368:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:352:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         }
                         switch(errsv)
                         {
@@ -388,11 +388,11 @@ namespace run{
                                 case EINTR:
                                     break;
                                 default:
-                                    std::cerr << "run.cpp:407:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    std::cerr << "run.cpp:391:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if(pfds[2].revents & POLLERR) {
-                            std::cerr << "run.cpp:411:the child process has closed the read end of the downstream pipe." << std::endl;
+                            std::cerr << "run.cpp:395:the child process has closed the read end of the downstream pipe." << std::endl;
                             throw "what?";
                         } else if(pfds[2].revents & POLLOUT){
                             len = write(downstream[1], params.data(), params.size());
@@ -402,7 +402,7 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
-                                        std::cerr << "run.cpp:421:write failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "run.cpp:405:write failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             } else {
@@ -428,7 +428,7 @@ namespace run{
                                 case EINTR:
                                     break;
                                 default:
-                                    std::cerr << "run.cpp:447:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    std::cerr << "run.cpp:431:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if(pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
@@ -442,12 +442,12 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
-                                        std::cerr << "run.cpp:461:upstream read failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "run.cpp:445:upstream read failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:466:unrecognized events on poll." << std::endl;
+                            std::cerr << "run.cpp:450:unrecognized events on poll." << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR || value_size == val.size());

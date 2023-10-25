@@ -19,8 +19,8 @@ DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 
 # NORMAL SETTINGS
 REL_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fmodulo-sched -fmodulo-sched-allow-regmoves \
-					-fdevirtualize-at-ltrans \
-					-fipa-pta -ffast-math \
+					-fdevirtualize-at-ltrans -fsched-pressure -fsched-spec-load \
+					-fno-semantic-interposition -fipa-pta -ffast-math \
                     -march=x86-64-v2 -mtune=generic
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
