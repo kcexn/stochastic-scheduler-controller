@@ -43,8 +43,8 @@ namespace UnixServer{
 
         ~unix_session() {
             boost::system::error_code ec;
-            // boost::asio::local::stream_protocol::socket::linger opt(true, 10);
-            // socket_.set_option(opt);
+            boost::asio::local::stream_protocol::socket::linger opt(true, 10);
+            socket_.set_option(opt);
             // socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
             // if(ec){
             //     std::cerr << "unix-server.hpp:40:socket shutdown failed with error=" << ec.message() << std::endl;

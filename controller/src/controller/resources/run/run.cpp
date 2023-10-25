@@ -4,6 +4,8 @@
 #include <csignal>
 #include <boost/asio.hpp>
 #include <poll.h>
+#include <sys/eventfd.h>
+#include <cstdint>
 
 namespace controller{
 namespace resources{
@@ -95,11 +97,14 @@ namespace run{
                         std::cerr << "Upstream pipe failed to open: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "this shouldn't happen!";
                     }
-                    // Declare a synchronization pipe.
-                    int sync[2] = {};
-                    if(pipe(sync) == -1){
-                        std::cerr << "Synchronization pipe failed to open: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "this shouldn't happen!";
+                    int sync_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+                    if(sync_fd == -1){
+                        switch(errno)
+                        {
+                            default:
+                                std::cerr << "run.cpp:104:eventfd() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "what?";
+                        }
                     }
                     const char* __OW_ACTION_BIN = getenv("__OW_ACTION_BIN");
                     if ( __OW_ACTION_BIN == nullptr ){
@@ -122,43 +127,65 @@ namespace run{
                             sigset_t sigmask = {};
                             int status = sigemptyset(&sigmask);
                             if(status == -1){
-                                std::cerr << "controller-app.cpp:952:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:130:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "what?";
                             }
                             status = sigaddset(&sigmask, SIGCHLD);
                             if(status == -1){
-                                std::cerr << "controller-app.cpp:957:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:135:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "what?";
                             }
                             status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
                             if(status == -1){
-                                std::cerr << "controller-app.cpp:962:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:140:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "what?";
                             }
                             errno = 0;
                             status = nice(2);
                             if(status == -1 && errno != 0){
-                                std::cerr << "controller-io.cpp:141:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:146:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             }
                             setpgid(0,0);
-                            char notice[1] = {'\0'};
-                            if(close(sync[0]) == -1){
-                                std::cerr << "Closing the sync read side in the child process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                throw "This shouldn't happen.";
-                            }
-                            int count = 0;
-                            while(true){
-                                count = write(sync[1], notice, 1);
-                                if(count == -1 && errno != EINTR){
-                                    std::cerr << "Writing to the synchronization pipe failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                    throw "This shouldn't happen.";
-                                } else if ( count >= 0 ){
-                                    break;
+                            std::uint64_t notice = 1;
+                            int len = 0;
+                            struct pollfd pfds[1];
+                            pfds[0] = {
+                                sync_fd,
+                                POLLOUT
+                            };
+                            do{
+                                len = poll(&pfds[0], 1, -1);
+                                if(len == -1){
+                                    switch(errno)
+                                    {
+                                        case EINTR:
+                                            break;
+                                        default:
+                                            std::cerr << "run.cpp:164:poll() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                            throw "what?";
+                                    }
+                                } else if(pfds[0].revents & POLLOUT){
+                                    len = write(sync_fd, &notice, sizeof(notice));
+                                    if(len == -1){
+                                        switch(errno)
+                                        {
+                                            case EINTR:
+                                                break;
+                                            case EWOULDBLOCK:
+                                                break;
+                                            default:
+                                                std::cerr << "run.cpp:177:write() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                throw "what?";
+                                        }
+                                    }
+                                } else {
+                                    std::cerr << "run.cpp:182:poll() has an unrecognized flag." << std::endl;
+                                    throw "what?";
                                 }
-                            }
-                            if( close(sync[1]) == -1 ){
-                                std::cerr << "Closing the write side of the synchronization pipe in the child failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                throw "This shouldn't happen.";
+                            } while(errno == EINTR || errno == EWOULDBLOCK);
+                            if(close(sync_fd) == -1){
+                                std::cerr << "run.cpp:187:closing sync_fd in the child failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "what?";
                             }
                             if( close(downstream[1]) == -1 ){
                                 std::cerr << "Closing the downstream write in the child process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
@@ -193,9 +220,9 @@ namespace run{
                             throw "This shouldn't happen.";
                         }
                     }
-                    struct pollfd pfds[3];
+                    struct pollfd pfds[3] = {};
                     pfds[0] = {
-                        sync[0],
+                        sync_fd,
                         POLLIN 
                     };
                     pfds[1] = {
@@ -212,7 +239,7 @@ namespace run{
                     do{
                         status = poll(&pfds[0], 1, -1);
                         if(status == -1){
-                            std::cerr << "run.cpp:199:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:242:poll() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             switch(errno)
                             {
                                 case EINTR:
@@ -221,32 +248,30 @@ namespace run{
                                     throw "what?";
                             }
                         } else if(pfds[0].revents & POLLIN){
-                            char notice[1] = {};
-                            len = read(sync[0], notice, 1);
+                            std::uint64_t notice = 0;
+                            len = read(sync_fd, &notice, sizeof(notice));
                             if(len == -1){
-                                std::cerr << "run.cpp:225:synchronization failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "run.cpp:254:read() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 switch(errno)
                                 {
                                     case EINTR:
+                                        break;
+                                    case EWOULDBLOCK:
                                         break;
                                     default:
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:223:unrecognized events on poll" << std::endl;
+                            std::cerr << "run.cpp:266:unrecognized events on poll" << std::endl;
                             throw "what?";
                         }
-                    }while(errno == EINTR);                    
+                    }while(errno == EINTR || errno == EWOULDBLOCK);                    
                     // Save the PID in the relevant thread control.
                     ctx_ptr->thread_controls()[idx].pid() = pid;    
                     ctx_ptr->synchronize();
-                    if(close(sync[1]) == -1){
-                        std::cerr << "Closing the write side of the synchronization pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "This shouldn't happen.";
-                    }
-                    if(close(sync[0]) == -1){
-                        std::cerr << "Closing the read side of the synchronization pipe in the parent failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    if(close(sync_fd) == -1){
+                        std::cerr << "run.cpp:274:Closing the write side of sync_fd in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
                     //Parent Process.
@@ -270,7 +295,7 @@ namespace run{
                                 case EINTR:
                                     break;
                                 default:
-                                    std::cerr << "run.cpp:257:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    std::cerr << "run.cpp:298:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if (pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
@@ -282,12 +307,12 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
-                                        std::cerr << "run.cpp:269:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "run.cpp:310:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:274:pfds has no recognized events." << std::endl;
+                            std::cerr << "run.cpp:315:pfds has no recognized events." << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR);
@@ -296,10 +321,10 @@ namespace run{
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "run.cpp:283:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "run.cpp:284:pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:324:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:325:pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         } else {
-                            std::cerr << "run.cpp:286:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:327:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":pausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         }
                         switch(errsv)
                         {
@@ -317,10 +342,10 @@ namespace run{
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "run.cpp:304:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "run.cpp:305:unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:345:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "run.cpp:346:unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         } else {
-                            std::cerr << "run.cpp:307:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "run.cpp:348:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unpausing the action launcher failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         }
                         switch(errsv)
                         {
@@ -359,11 +384,11 @@ namespace run{
                                 case EINTR:
                                     break;
                                 default:
-                                    std::cerr << "run.cpp:346:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    std::cerr << "run.cpp:387:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if(pfds[2].revents & POLLERR) {
-                            std::cerr << "run.cpp:350:the child process has closed the read end of the downstream pipe." << std::endl;
+                            std::cerr << "run.cpp:391:the child process has closed the read end of the downstream pipe." << std::endl;
                             throw "what?";
                         } else if(pfds[2].revents & POLLOUT){
                             len = write(downstream[1], params.data(), params.size());
@@ -373,7 +398,7 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
-                                        std::cerr << "run.cpp:360:write failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "run.cpp:401:write failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             } else {
@@ -399,7 +424,7 @@ namespace run{
                                 case EINTR:
                                     break;
                                 default:
-                                    std::cerr << "run.cpp:386:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                    std::cerr << "run.cpp:427:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                     throw "what?";
                             }
                         } else if(pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
@@ -413,12 +438,12 @@ namespace run{
                                     case EINTR:
                                         break;
                                     default:
-                                        std::cerr << "run.cpp:400:upstream read failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "run.cpp:441:upstream read failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
                         } else {
-                            std::cerr << "run.cpp:405:unrecognized events on poll." << std::endl;
+                            std::cerr << "run.cpp:446:unrecognized events on poll." << std::endl;
                             throw "what?";
                         }
                     }while(errno == EINTR || value_size == val.size());
