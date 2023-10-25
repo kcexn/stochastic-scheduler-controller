@@ -797,22 +797,6 @@ namespace app{
                                                 try{
                                                     pthread_t tid = pthread_self();
                                                     ctx_ptr->thread_controls()[i].tid() = tid;
-                                                    sigset_t sigmask = {};
-                                                    int status = sigemptyset(&sigmask);
-                                                    if(status == -1){
-                                                        std::cerr << "controller-app.cpp:805:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                        throw "what?";
-                                                    }
-                                                    status = sigaddset(&sigmask, SIGCHLD);
-                                                    if(status == -1){
-                                                        std::cerr << "controller-app.cpp:810:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                        throw "what?";
-                                                    }
-                                                    status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-                                                    if(status == -1){
-                                                        std::cerr << "controller-app.cpp:815:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                        throw "what?";
-                                                    }
                                                     // The first resume sets up the action runtime environment for execution.
                                                     // The action runtime doesn't have to be set up in a distinct 
                                                     // thread of execution, but since we need to take the time to set up 
