@@ -261,7 +261,7 @@ namespace sctp_transport{
                 0                                     
             };
             int len = 0;
-            len = recvmsg(socket_.native_handle(), &msg, MSG_DONTWAIT);
+            len = recvmsg(socket_.native_handle(), &msg, 0);
             if(len == -1){
                 switch(errno)
                 {
