@@ -241,6 +241,7 @@ namespace app{
                 });
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
+                    auto& ctxp = *it;
                     status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
                     if(status == -1){
                         std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
@@ -253,25 +254,25 @@ namespace app{
                     //     clock_gettime(CLOCK_REALTIME, &ts);
                     //     std::cout << "controller-app.cpp:220:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
                     // }
-                    if ((*it)->is_stopped()){
+                    if (ctxp->is_stopped()){
                         boost::json::value val;
                         // create the response.
                         http::HttpReqRes rr;
-                        std::get<http::HttpResponse>(rr) = create_response(**it, val);
-                        while((*it)->sessions().size() > 0 ){
-                            std::shared_ptr<http::HttpSession> next_session = (*it)->sessions().back();
+                        std::get<http::HttpResponse>(rr) = create_response(*ctxp, val);
+                        while(ctxp->sessions().size() > 0 ){
+                            std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
                             next_session->set(rr);
                             next_session->write(
                                 [&, next_session](){
                                     next_session->close();
                                 }
                             );
-                            (*it)->sessions().pop_back();
+                            ctxp->sessions().pop_back();
                             flush_wsk_logs();
                         }
                         // Finish and close all of the HTTP sessions.
-                        while((*it)->peer_server_sessions().size() > 0){
-                            std::shared_ptr<http::HttpSession> next_session = (*it)->peer_server_sessions().back();
+                        while(ctxp->peer_server_sessions().size() > 0){
+                            std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpResponse& res = std::get<http::HttpResponse>(rr);
                             res.chunks.push_back(http::HttpChunk{{1}, "]"}); /* Close the JSON stream array. */
@@ -280,10 +281,10 @@ namespace app{
                             next_session->write([&,next_session](){
                                 next_session->close();
                             });
-                            (*it)->peer_server_sessions().pop_back();
+                            ctxp->peer_server_sessions().pop_back();
                         }
-                        while((*it)->peer_client_sessions().size() > 0){
-                            std::shared_ptr<http::HttpClientSession> next_session = (*it)->peer_client_sessions().back();
+                        while(ctxp->peer_client_sessions().size() > 0){
+                            std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
                             req.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
@@ -292,7 +293,7 @@ namespace app{
                             next_session->write([&,next_session](){
                                 return;
                             });
-                            (*it)->peer_client_sessions().pop_back();
+                            ctxp->peer_client_sessions().pop_back();
                         }
                         ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
                         // Find a context that has a stopped thread.
@@ -300,11 +301,10 @@ namespace app{
                             auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
                                 return thread.is_stopped() && thread.is_valid();
                             });
-                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                            return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
-                        status = sigprocmask(SIG_UNBLOCK, &sigmask, nullptr);
-                        if(status == -1){
-                            std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
+                            std::cerr << "controller-app.cpp:307:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "what?";
                         }
                     } else {
@@ -396,13 +396,13 @@ namespace app{
             for(; res.pos < res.next_chunk; ++res.pos){
                 std::size_t next_comma = 0;
                 const http::HttpChunk& chunk = res.chunks[res.pos];
-                const std::size_t chunk_size = chunk.chunk_data.size();
-                if(chunk_size == 0){
+                const http::HttpBigNum& chunk_size = chunk.chunk_size;
+                if(chunk_size == http::HttpBigNum{0}){
                     // A 0 length chunk indiciates the end of a session.
                     session->close();
                     return;
                 }
-                while(next_comma < chunk_size){
+                while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
                         std::cerr << "controller-app.cpp:408:json_obj_str is empty" << std::endl;
@@ -440,7 +440,7 @@ namespace app{
                         } else {
                             // We do not support HTTP/1.1 pipelining, so the HTTP client session can only be closed after the ENTIRE 
                             // server response has been consumed.
-                            break;;
+                            break;
                         }
                     } else if((it != req.headers.end()) || (req.chunks.size() > 0 && req.chunks.back().chunk_size == http::HttpBigNum{0})){
                         // We do not support HTTP/1.1 pipelining so we will only close the HTTP client stream after the ENTIRE server response has
@@ -561,9 +561,16 @@ namespace app{
                                             }
                                         }
                                     }
+                                    for(auto& rel: (*ctx)->manifest()){
+                                        auto& value = rel->acquire_value();
+                                        if(value.empty()){
+                                            value = "{}";
+                                        }
+                                        rel->release_value();
+                                    }
                                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                     io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                    return;
+                                    break;
                                 } else {
                                     thread.invalidate();
                                     // Find the index in the manifest of the starting relation.
@@ -621,7 +628,6 @@ namespace app{
                 }
                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                 io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                return;
             } else {
                 // A peer list of >= 3 AND an error code in the response message indiciates that 
                 // one of the peers that ARE NOT the primary context has a failure (or perhaps a race condition).
@@ -655,14 +661,15 @@ namespace app{
             for(; req.pos < req.next_chunk; ++req.pos){
                 std::size_t next_comma = 0;
                 const http::HttpChunk& chunk = req.chunks[req.pos];
-                const std::size_t chunk_size = chunk.chunk_data.size();
+                const http::HttpBigNum& chunk_size = chunk.chunk_size;
 
-                if(chunk_size == 0){
-                    /* A 0 length chunk represents the end of an HTTP request */
+                if(chunk_size == http::HttpBigNum{0}){
+                    // A 0 length chunk means that the entire HTTP Request has been consumed.
+                    // We have to maintain the session until the entire HTTP response has been completely processed.
                     return;
                 }
 
-                while(next_comma < chunk_size){
+                while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
                         std::cerr << "controller-app.cpp:619:json_obj_str is empty" << std::endl;
@@ -694,9 +701,9 @@ namespace app{
                             } 
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                            return;
+                            break;
                         } else {
-                            return;
+                            break;
                         }
                     }
 
@@ -706,7 +713,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:709:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:716:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                         throw "Json Parsing failed.";
                     }
                     if(req.route == "/run"){
@@ -718,7 +725,7 @@ namespace app{
                             //     struct timespec ts = {};
                             //     int status = clock_gettime(CLOCK_REALTIME, &ts);
                             //     if(status != -1){
-                            //         std::cout << "controller-app.cpp:652:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":OW ACTIVATION ID=" << __OW_ACTIVATION_ID << std::endl;
+                            //         std::cout << "controller-app.cpp:728:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
                             //     }
                             // }
                             // Create a fiber continuation for processing the request.
@@ -779,7 +786,7 @@ namespace app{
                                                 relation->release_value();
                                                 thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                 if(num_valid_threads > 0){
-                                                    auto tmp = thread.invalidate();
+                                                    thread.invalidate();
                                                 } else {
                                                     ++num_valid_threads;
                                                 }
@@ -1222,9 +1229,16 @@ namespace app{
                                                         }
                                                     }
                                                 }
+                                                for(auto& rel: (*server_ctx)->manifest()){
+                                                    auto& value = rel->acquire_value();
+                                                    if(value.empty()){
+                                                        value = "{}";
+                                                    }
+                                                    rel->release_value();
+                                                }
                                                 io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                 io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                                return;
+                                                break;
                                             } else {
                                                 thread.invalidate();
                                                 // Find the index in the manifest of the starting relation.
