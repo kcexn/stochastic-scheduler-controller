@@ -205,11 +205,7 @@ namespace sctp_transport{
                 }
             }
             release();
-            std::sort(used_stream_nums.begin(), used_stream_nums.end());
-            // I'm not sure why there would ever be duplicates yet, but lets see if this fixes the problem.
-            auto last = std::unique(used_stream_nums.begin(), used_stream_nums.end());
-            used_stream_nums.erase(last, used_stream_nums.end());
-            
+            std::sort(used_stream_nums.begin(), used_stream_nums.end());           
             transport::protocols::sctp::sid_t last_stream_num = 0;
             for(auto sid: used_stream_nums){
                 if(sid == last_stream_num){
@@ -331,7 +327,7 @@ namespace sctp_transport{
                                 break;
                             }
                             case SCTP_COMM_LOST:
-                                std::cerr << "sctp-server.cpp:330:SCTP_COMM_LOST EVENT" << std::endl;
+                                // std::cerr << "sctp-server.cpp:330:SCTP_COMM_LOST EVENT" << std::endl;
                                 break;
                             case SCTP_RESTART:
                                 std::cerr << "sctp-server.cpp:333:SCTP_RESTART EVENT" << std::endl;

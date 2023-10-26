@@ -50,12 +50,16 @@ namespace io{
         std::shared_ptr<MessageBox> mbox_ptr_;
         pthread_t io_;
         boost::asio::io_context& ioc_;
+
+        // SCTP Socket Server
+        sctp_transport::SctpServer ss_;
         
         // Unix Socket Server
         UnixServer::unix_server us_;
 
-        // SCTP Socket Server
-        sctp_transport::SctpServer ss_;
+        std::atomic<bool> stopped_;
+        std::mutex stop_;
+        std::condition_variable stop_cv_;
     };
 }// namespace io
 }// namespace controller

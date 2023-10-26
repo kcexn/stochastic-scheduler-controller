@@ -12,8 +12,9 @@ namespace io{
     IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
       : mbox_ptr_(mbox),
         ioc_(ioc),
+        ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), SCTP_PORT)),
         us_(ioc, boost::asio::local::stream_protocol::endpoint(local_endpoint)),
-        ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), SCTP_PORT))
+        stopped_{false}
     { 
         /* Identify the local sctp server address. */
         // Start by hardcoding the local loop back network prefix.
@@ -72,8 +73,9 @@ namespace io{
     IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport)
       : mbox_ptr_(mbox),
         ioc_(ioc),
+        ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), sport)),
         us_(ioc, boost::asio::local::stream_protocol::endpoint(local_endpoint)),
-        ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), sport))
+        stopped_{false}
     { 
         /* Identify the local sctp server address. */
         const char* network_prefix;
@@ -201,8 +203,10 @@ namespace io{
         while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run();
         }
-        // std::cerr << "controller-io.cpp:199:IO thread exiting" << std::endl;
-        pthread_exit(0);
+        std::cout << "controller-io.cpp:204:IO thread exiting" << std::endl;
+        stopped_.store(true, std::memory_order::memory_order_relaxed);
+        stop_cv_.notify_all();
+        return;
     }
 
     void IO::stop(){
@@ -210,9 +214,9 @@ namespace io{
         us_.clear();
         ss_.clear();
 
-        // Wait a reasonable amount of time for the IO thread to stop.
-        struct timespec ts = {0,50000000};
-        nanosleep(&ts, nullptr);
+        std::unique_lock<std::mutex> lk(stop_);
+        stop_cv_.wait(lk, [&](){ return (stopped_.load(std::memory_order::memory_order_relaxed)); });
+        lk.unlock();
     }
 
     void IO::async_connect(server::Remote rmt, std::function<void(const boost::system::error_code&, const std::shared_ptr<server::Session>&)> fn)

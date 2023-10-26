@@ -16,8 +16,10 @@ done
 # Start the web server.
 /usr/sbin/nginx
 wait
+printf ":%s:wait - exit status=$?" $(date +%s%3N) >> /var/log/controller.stdout.log
 wait
 
+printf ":%s:CONTAINER EXITING\n" $(date +%s%3N) >> /var/log/controller.stdout.log
 # Uncomment the below with an appropriately configured webdav server for capturing error logs or core dumps.
 for DUMP in /usr/local/bin/*core*; do
 	curl -T $DUMP "http://10.168.0.11:8100/upload/$HOSTNAME-coredump"

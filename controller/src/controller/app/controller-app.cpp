@@ -177,7 +177,7 @@ namespace app{
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 if(ctx_ptrs.empty()){
-                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                     lk.unlock();
                     break;
                 }
@@ -382,7 +382,7 @@ namespace app{
                 }
             }
         }
-        pthread_exit(0);
+        return;
     }
 
     void Controller::route_response(std::shared_ptr<http::HttpClientSession>& session){
@@ -720,14 +720,14 @@ namespace app{
                         if(req.verb == http::HttpVerb::POST){
                             controller::resources::run::Request run(val.as_object());
                             auto env = run.env();
-                            // std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
-                            // if(!__OW_ACTIVATION_ID.empty()){
-                            //     struct timespec ts = {};
-                            //     int status = clock_gettime(CLOCK_REALTIME, &ts);
-                            //     if(status != -1){
-                            //         std::cout << "controller-app.cpp:728:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
-                            //     }
-                            // }
+                            std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
+                            if(!__OW_ACTIVATION_ID.empty()){
+                                struct timespec ts = {};
+                                int status = clock_gettime(CLOCK_REALTIME, &ts);
+                                if(status != -1){
+                                    std::cout << "controller-app.cpp:728:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
+                                }
+                            }
                             // Create a fiber continuation for processing the request.
                             std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs, ioc_); 
                             auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
@@ -1459,6 +1459,13 @@ namespace app{
     }
 
     void Controller::stop(){
+        struct timespec ts;
+        if(clock_gettime(CLOCK_REALTIME, &ts) == -1){
+            std::cerr << "controller-app.cpp:1464:clock_gettime() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+            std::cout << "controller-app.cpp:1464:Controller::stop() called." << std::endl;
+        } else {
+            std::cout << "controller-app.cpp:1467:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":Controller::stop() called." << std::endl;
+        }
         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
 
