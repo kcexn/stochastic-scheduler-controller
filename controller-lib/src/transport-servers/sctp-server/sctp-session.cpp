@@ -250,10 +250,6 @@ namespace sctp_transport{
         erase();
     }
 
-    SctpSession::~SctpSession(){
-        return;
-    }
-
     bool SctpSession::operator==(const SctpSession& other){
         return id_.assoc == other.id_.assoc && id_.sid == other.id_.sid;
     }

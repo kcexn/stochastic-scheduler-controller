@@ -1082,9 +1082,9 @@ namespace app{
 
                                     //[{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","peers":["127.0.0.1:5200"]}} 
                                     /* Merge peers in the peer list with the context peer list. */
-                                    boost::json::array& remote_peers = val.as_object().at("execution_context").as_object().at("peers").as_array();
+                                    const boost::json::array& remote_peers = val.as_object().at("execution_context").as_object().at("peers").as_array();
                                     std::vector<std::string> remote_peer_list;
-                                    for(auto& rpeer: remote_peers){
+                                    for(const auto& rpeer: remote_peers){
                                         remote_peer_list.emplace_back(rpeer.as_string());
                                     }
                                     (*it)->merge_peer_addresses(remote_peer_list);
@@ -1092,7 +1092,7 @@ namespace app{
                                     boost::json::object retjo;
                                     /* Construct a boost json array from the updated peer list */
                                     boost::json::array peers;
-                                    for(auto& peer: (*it)->peer_addresses()){
+                                    for(const auto& peer: (*it)->peer_addresses()){
                                         peers.emplace_back(rtostr(peer));
                                     }
                                     retjo.emplace("peers", peers);
@@ -1100,7 +1100,7 @@ namespace app{
                                     /* Construct the results object value */
                                     boost::json::object ro;
                                     for(auto& relation: (*it)->manifest()){
-                                        auto& value = relation->acquire_value();
+                                        const auto& value = relation->acquire_value();
                                         if(!value.empty()){
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);

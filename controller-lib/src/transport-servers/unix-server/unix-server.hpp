@@ -16,11 +16,6 @@ namespace UnixServer{
                 std::cerr << ec.message() << std::endl;
                 throw "what?";
             }
-            // socket_.non_blocking(true, ec);
-            // if(ec){
-            //     std::cerr << ec.message() << std::endl;
-            //     throw "what?";
-            // }
         }
         unix_session(boost::asio::local::stream_protocol::socket&& socket, server::Server& server): server::Session(server), socket_(std::move(socket)) {
             boost::system::error_code ec;
@@ -29,11 +24,6 @@ namespace UnixServer{
                 std::cerr << ec.message() << std::endl;
                 throw "what?";
             }
-            // socket_.non_blocking(true, ec);
-            // if(ec){
-            //     std::cerr << ec.message() << std::endl;
-            //     throw "what?";
-            // }
         }
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) override;
         void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) override;
@@ -43,19 +33,18 @@ namespace UnixServer{
 
         ~unix_session() {
             boost::system::error_code ec;
-            cancel();
             boost::asio::socket_base::linger opt(true, 30);
             socket_.set_option(opt, ec);
             if(ec){
-                std::cerr << "unix-server.hpp:50:setting socket linger failed with:" << ec.message() << std::endl;
+                std::cerr << "unix-server.hpp:39:setting socket linger failed with:" << ec.message() << std::endl;
             }
             socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_both, ec);
             if(ec){
-                std::cerr << "unix-server.hpp:54:shutting down socket failed with:" << ec.message() << std::endl;
+                std::cerr << "unix-server.hpp:43:shutting down socket failed with:" << ec.message() << std::endl;
             }
             socket_.close(ec);
             if(ec){
-                std::cerr << "unix-server.hpp:58:closing socket failed with:" << ec.message() << std::endl;
+                std::cerr << "unix-server.hpp:47:closing socket failed with:" << ec.message() << std::endl;
             }
         }
     

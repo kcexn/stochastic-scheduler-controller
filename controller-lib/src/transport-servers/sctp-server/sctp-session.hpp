@@ -16,7 +16,6 @@ namespace sctp_transport{
         void async_read(std::function<void(boost::system::error_code ec, std::size_t length)>) override;
         void async_write(const boost::asio::const_buffer&, const std::function<void()>&) override;
         void close() override;
-        ~SctpSession();
 
         void set(const transport::protocols::sctp::assoc_t& assoc_id ) { acquire(); id_.assoc = assoc_id; release(); return; }
         transport::protocols::sctp::assoc_t get_assoc() { acquire(); transport::protocols::sctp::assoc_t tmp = id_.assoc; release(); return tmp; }
