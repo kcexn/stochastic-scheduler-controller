@@ -28,6 +28,13 @@ namespace io{
 
         // Payload.
         std::shared_ptr<server::Session> session;
+
+        // Explicit default constructor.
+        explicit MessageBox():
+            sched_signal_mtx_ptr(std::make_shared<std::mutex>()),
+            sched_signal_ptr(std::make_shared<std::atomic<std::uint16_t> >()),
+            sched_signal_cv_ptr(std::make_shared<std::condition_variable>())
+        {}
     };
 
     // This class encapsulates all of the io operations we need for the 
@@ -35,8 +42,8 @@ namespace io{
     class IO
     {
     public:
-        IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
-        IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport);
+        IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
+        IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport);
         void start();
         void stop();
 

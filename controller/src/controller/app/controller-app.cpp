@@ -600,39 +600,40 @@ namespace app{
             if(server_ctx == ctx_ptrs.end()){
                 // The doesn't belong to a context so just close it.
                 session->close();
-            }
-            auto& ctx_ptr = *server_ctx;
-            std::vector<server::Remote> peers = ctx_ptr->get_peers();
-            if(peers.size() < 3){
-                // A peer list size of 1 indicates that the only peer is myself.
-                // A peer list size of 2 indicates that the only peers I have are myself, and a primary context.
-                // If the only peers I have in my list are myself and a primary context AND an error code is returned by a peer (MUST be the primary context).
-                // Then the execution context is finished and I should terminate the context.
-                std::size_t num_valid_threads = 0;
-                for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
-                    auto& thread = ctx_ptr->thread_controls()[i];
-                    auto& relation = ctx_ptr->manifest()[i];
-                    auto& value = relation->acquire_value();
-                    if(value.empty()){
-                        value = "{}";
-                    }
-                    relation->release_value();
-                    thread.stop_thread();
-                    if(thread.is_valid()){
-                        if(num_valid_threads > 0){
-                            thread.invalidate();
-                        } else {
-                            ++num_valid_threads;
+            } else {
+                auto& ctx_ptr = *server_ctx;
+                std::vector<server::Remote> peers = ctx_ptr->get_peers();
+                if(peers.size() < 3){
+                    // A peer list size of 1 indicates that the only peer is myself.
+                    // A peer list size of 2 indicates that the only peers I have are myself, and a primary context.
+                    // If the only peers I have in my list are myself and a primary context AND an error code is returned by a peer (MUST be the primary context).
+                    // Then the execution context is finished and I should terminate the context.
+                    std::size_t num_valid_threads = 0;
+                    for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
+                        auto& thread = ctx_ptr->thread_controls()[i];
+                        auto& relation = ctx_ptr->manifest()[i];
+                        auto& value = relation->acquire_value();
+                        if(value.empty()){
+                            value = "{}";
+                        }
+                        relation->release_value();
+                        thread.stop_thread();
+                        if(thread.is_valid()){
+                            if(num_valid_threads > 0){
+                                thread.invalidate();
+                            } else {
+                                ++num_valid_threads;
+                            }
                         }
                     }
+                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                } else {
+                    // A peer list of >= 3 AND an error code in the response message indiciates that 
+                    // one of the peers that ARE NOT the primary context has a failure (or perhaps a race condition).
+                    // The correct behaviour here is to close the session and not retry.
+                    session->close();
                 }
-                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-            } else {
-                // A peer list of >= 3 AND an error code in the response message indiciates that 
-                // one of the peers that ARE NOT the primary context has a failure (or perhaps a race condition).
-                // The correct behaviour here is to close the session and not retry.
-                session->close();
             }
         }
         return;

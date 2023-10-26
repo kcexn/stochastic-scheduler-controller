@@ -9,7 +9,7 @@
 
 namespace controller{
 namespace io{
-    IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
+    IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
       : mbox_ptr_(mbox),
         ioc_(ioc),
         ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), SCTP_PORT)),
@@ -70,7 +70,7 @@ namespace io{
         io.detach();
     }
 
-    IO::IO(std::shared_ptr<MessageBox>& mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport)
+    IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport)
       : mbox_ptr_(mbox),
         ioc_(ioc),
         ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), sport)),
