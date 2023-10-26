@@ -31,9 +31,14 @@ REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # SHARED LIBRARY SETTINGS
 SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
-				-fmodulo-sched -fmodulo-sched-allow-regmoves \
-				-fsched-pressure -fipa-pta -freschedule-modulo-scheduled-loops \
-				-march=x86-64-v2 -mtune=generic
+				-fmodulo-sched \
+				-fmodulo-sched-allow-regmoves \
+				-fsched-pressure \
+				-ffast-math \
+				-fno-semantic-interposition \
+				-freschedule-modulo-scheduled-loops \
+				-fipa-pta \
+				-march=x86-64-v2
 # SHARED_CXX_FLAGS = -g -Og -fpic
 STATIC_AR_FLAGS = rcs
 SHARED_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
