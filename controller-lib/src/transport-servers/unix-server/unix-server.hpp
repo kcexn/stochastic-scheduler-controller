@@ -43,17 +43,19 @@ namespace UnixServer{
 
         ~unix_session() {
             boost::system::error_code ec;
-            boost::asio::local::stream_protocol::socket::linger opt(true, 60);
-            socket_.set_option(opt);
-            // socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_type::shutdown_both, ec);
-            // if(ec){
-            //     std::cerr << "unix-server.hpp:40:socket shutdown failed with error=" << ec.message() << std::endl;
-            // }
             cancel();
-            // ec = boost::system::error_code();
+            boost::asio::socket_base::linger opt(true, 30);
+            socket_.set_option(opt, ec);
+            if(ec){
+                std::cerr << "unix-server.hpp:50:setting socket linger failed with:" << ec.message() << std::endl;
+            }
+            socket_.shutdown(boost::asio::local::stream_protocol::socket::shutdown_both, ec);
+            if(ec){
+                std::cerr << "unix-server.hpp:54:shutting down socket failed with:" << ec.message() << std::endl;
+            }
             socket_.close(ec);
             if(ec){
-                std::cerr << "unix-server.hpp:56:socket close failed with error=" << ec.message() << std::endl;
+                std::cerr << "unix-server.hpp:58:closing socket failed with:" << ec.message() << std::endl;
             }
         }
     

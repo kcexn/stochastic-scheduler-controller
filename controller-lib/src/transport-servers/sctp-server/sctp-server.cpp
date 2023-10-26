@@ -25,17 +25,16 @@ namespace sctp_transport{
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:25:sctp_server failed to open:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:28:sctp_server failed to open:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
         int recvrcvinfo = 1;
-        int status = setsockopt(sockfd, IPPROTO_SCTP, SCTP_RECVRCVINFO, &recvrcvinfo, sizeof(recvrcvinfo));
-        if(status == -1){
+        if(setsockopt(sockfd, IPPROTO_SCTP, SCTP_RECVRCVINFO, &recvrcvinfo, sizeof(recvrcvinfo)) == -1){
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:36:SCTP_RECVRCVINFO socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:37:SCTP_RECVRCVINFO socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
@@ -44,22 +43,11 @@ namespace sctp_transport{
             SCTP_ASSOC_CHANGE,
             1
         };
-        status = setsockopt(sockfd, IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe));
-        if(status == -1){
+        if(setsockopt(sockfd, IPPROTO_SCTP, SCTP_EVENT, &subscribe, sizeof(subscribe)) == -1){
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:51:SCTP_EVENT socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                    throw "what?";
-            }
-        }
-        int autoclose = 60;
-        status = setsockopt(sockfd, IPPROTO_SCTP, SCTP_AUTOCLOSE, &autoclose, sizeof(autoclose));
-        if(status == -1){
-            switch(errno)
-            {
-                default:
-                    std::cerr << "sctp-server.cpp:62:SCTP_AUTOCLOSE socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:50:SCTP_EVENT socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
@@ -70,9 +58,8 @@ namespace sctp_transport{
         std::size_t attempts = 0;
         int errsv = 0;
         do {
-            status = bind(sockfd, (const struct sockaddr*)(&local_address), sizeof(local_address));
-            errsv = errno;
-            if(status == -1){
+            if(bind(sockfd, (const struct sockaddr*)(&local_address), sizeof(local_address)) == -1){
+                errsv = errno;
                 switch(errno)
                 {
                     case EADDRINUSE:
@@ -90,7 +77,7 @@ namespace sctp_transport{
                                         ts = tr;
                                         break;
                                     default:
-                                        std::cerr << "sctp-server.cpp:93:nanosleep() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "sctp-server.cpp:80:nanosleep() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         throw "what?";
                                 }
                             }
@@ -98,21 +85,20 @@ namespace sctp_transport{
                         break;
                     }
                     default:
-                        std::cerr << "sctp-server.cpp:101:bind failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "sctp-server.cpp:88:bind failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                 }
             }
         }while(errsv == EADDRINUSE && attempts < SCTP_SERVER_MAX_BIND_RETRIES);
         if(attempts >= SCTP_SERVER_MAX_BIND_RETRIES){
-            std::cerr << "sctp-server.cpp:107:bind() failed." << std::endl;
+            std::cerr << "sctp-server.cpp:94:bind() failed." << std::endl;
             throw std::system_error(EADDRINUSE, std::system_category());
         }
-        status = listen(sockfd, 256);
-        if(status == -1){
+        if(listen(sockfd, 4096) == -1){
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:115:listen failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:101:listen failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
@@ -175,7 +161,7 @@ namespace sctp_transport{
                                             switch(errno)
                                             {
                                                 default:
-                                                    std::cerr << "sctp-server.cpp:178:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                    std::cerr << "sctp-server.cpp:164:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                                     throw "what?";
                                             }
                                         }
@@ -188,7 +174,7 @@ namespace sctp_transport{
                                         return;
                                     }
                                     default:
-                                        std::cerr << "sctp-server.cpp:191:connect() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                        std::cerr << "sctp-server.cpp:177:connect() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                         error = boost::system::error_code(errno, boost::system::system_category());
                                         fn(error, session);
                                         erase_pending_connect(session);
@@ -197,7 +183,7 @@ namespace sctp_transport{
                                 }
                             }
                         } else {
-                            std::cerr << "sctp-server.cpp:200:async_wait write failed:" << ec.message() << std::endl;
+                            std::cerr << "sctp-server.cpp:186:async_wait write failed:" << ec.message() << std::endl;
                             fn(ec, session);
                             erase_pending_connect(session);
                         }
@@ -205,7 +191,7 @@ namespace sctp_transport{
                     }
                 );
             } else {
-                std::cerr << "sctp-server.cpp:208:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                std::cerr << "sctp-server.cpp:194:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
             }
         } else {
             /* Remote address is in the peer address table. */
@@ -288,7 +274,7 @@ namespace sctp_transport{
                         );
                         return;
                     case EINTR:
-                        std::cerr << "sctp-server.cpp:291:recvmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "sctp-server.cpp:277:recvmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         socket_.async_wait(
                             transport::protocols::sctp::socket::wait_type::wait_read,
                             [&, fn](const boost::system::error_code& ec){
@@ -297,7 +283,7 @@ namespace sctp_transport{
                         );
                         return;
                     default:
-                        std::cerr << "sctp-server.cpp:300:recvmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "sctp-server.cpp:286:recvmsg failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                 }
             }
@@ -333,7 +319,7 @@ namespace sctp_transport{
                                         pending_connects_.erase(it);
                                     }
                                 } catch (std::bad_weak_ptr& e){
-                                    std::cerr << "sctp-server.cpp:336:std::bad_weak_ptr thrown:" << e.what() << std::endl;
+                                    std::cerr << "sctp-server.cpp:322:std::bad_weak_ptr thrown:" << e.what() << std::endl;
                                     throw e;
                                 }
                                 release();
@@ -341,10 +327,10 @@ namespace sctp_transport{
                                 break;
                             }
                             case SCTP_COMM_LOST:
-                                std::cerr << "sctp-server.cpp:344:SCTP_COMM_LOST EVENT" << std::endl;
+                                std::cerr << "sctp-server.cpp:330:SCTP_COMM_LOST EVENT" << std::endl;
                                 break;
                             case SCTP_RESTART:
-                                std::cerr << "sctp-server.cpp:347:SCTP_RESTART EVENT" << std::endl;
+                                std::cerr << "sctp-server.cpp:333:SCTP_RESTART EVENT" << std::endl;
                                 break;
                             case SCTP_SHUTDOWN_COMP:
                             {
@@ -366,7 +352,7 @@ namespace sctp_transport{
                             }
                             case SCTP_CANT_STR_ASSOC:
                             {
-                                std::cerr << "sctp-server.cpp:369:SCTP_CANT_STR_ASSOC EVENT" << std::endl;
+                                std::cerr << "sctp-server.cpp:355:SCTP_CANT_STR_ASSOC EVENT" << std::endl;
                                 /* Search for the association in the pending connects table */
                                 acquire();
                                 auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](const auto& pending_connection){
@@ -387,14 +373,14 @@ namespace sctp_transport{
                         break;
                     }
                     default:
-                        std::cerr << "sctp-server.cpp:390:SCTP UNRECOGNIZED EVENT:" << snp->sn_header.sn_type << std::endl;
+                        std::cerr << "sctp-server.cpp:376:SCTP UNRECOGNIZED EVENT:" << snp->sn_header.sn_type << std::endl;
                         break;
                 }
             } else if (len > 0) {
                 sctp::cmsghdr* cmsg;
                 for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != nullptr; cmsg = CMSG_NXTHDR(&msg, cmsg)){
                     if(cmsg->cmsg_len == 0){
-                        std::cerr << "sctp-server.cpp:397:cmsg_len == 0." << std::endl;
+                        std::cerr << "sctp-server.cpp:383:cmsg_len == 0." << std::endl;
                         throw "cmsg_len should never be 0.";
                     }
                     if(cmsg->cmsg_level == sctp::v4().protocol() && SCTP_RCVINFO){
@@ -408,7 +394,7 @@ namespace sctp_transport{
                 };
 
                 if(rcvinfo.rcv_assoc_id == SCTP_FUTURE_ASSOC || rcvinfo.rcv_assoc_id == SCTP_ALL_ASSOC || rcvinfo.rcv_assoc_id == SCTP_CURRENT_ASSOC) {
-                    std::cerr << "sctp-server.cpp:411:rcv_assoc_id is not valid!" << std::endl;
+                    std::cerr << "sctp-server.cpp:397:rcv_assoc_id is not valid!" << std::endl;
                     throw "what?";
                 }
                 acquire();
@@ -434,7 +420,7 @@ namespace sctp_transport{
                 // Call the read function callback.
                 fn(ec, sctp_session);
             } else {
-                std::cerr << "sctp-server.cpp:437:0 length read from the sctp socket." << std::endl;
+                std::cerr << "sctp-server.cpp:423:0 length read from the sctp socket." << std::endl;
             }
             socket_.async_wait(
                 transport::protocols::sctp::socket::wait_type::wait_read,
@@ -444,7 +430,7 @@ namespace sctp_transport{
             );
             return;
         } else {
-            std::cerr << "sctp-server.cpp:447:async_wait for read has an error:" << ec.message() << std::endl;
+            std::cerr << "sctp-server.cpp:433:async_wait for read has an error:" << ec.message() << std::endl;
             std::shared_ptr<sctp_transport::SctpSession> empty_session;
             fn(ec, empty_session);
             socket_.async_wait(

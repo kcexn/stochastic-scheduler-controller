@@ -19,7 +19,7 @@ wait
 wait
 
 # Uncomment the below with an appropriately configured webdav server for capturing error logs or core dumps.
-for DUMP in /usr/local/bin/*.coredump; do
+for DUMP in /usr/local/bin/*core*; do
 	curl -T $DUMP "http://10.168.0.11:8100/upload/$HOSTNAME-coredump"
 done
 curl -T /var/log/controller.stdout.log "http://10.168.0.11:8100/upload/$HOSTNAME-stdout.log"

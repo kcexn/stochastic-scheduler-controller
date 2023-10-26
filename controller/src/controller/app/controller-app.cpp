@@ -1052,7 +1052,7 @@ namespace app{
                                 ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                             } else {
                                 // invalidate the fibers.
-                                std::cerr << "controller-app.cpp:962:/run route reached before initialization." << std::endl;
+                                std::cerr << "controller-app.cpp:1055:/run route reached before initialization." << std::endl;
                                 http::HttpReqRes rr;
                                 while(ctx_ptr->sessions().size() > 0)
                                 {
@@ -1105,7 +1105,7 @@ namespace app{
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);
                                             if(ec){
-                                                std::cerr << "controller-app.cpp:1124:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                std::cerr << "controller-app.cpp:1108:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                 throw "This shouldn't be possible.";
                                             }
                                             ro.emplace(relation->key(), jv);
@@ -1344,7 +1344,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1363:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1347:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);
