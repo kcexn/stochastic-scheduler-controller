@@ -15,10 +15,8 @@ while [[ ! -S /run/controller/controller.sock ]]; do
 done
 # Start the web server.
 /usr/sbin/nginx
-wait
-printf ":%s:wait - exit status=$?" $(date +%s%3N) >> /var/log/controller.stdout.log
-wait
-
+wait %1
+printf ":%s:wait - exit status=$?\n" $(date +%s%3N) >> /var/log/controller.stdout.log
 printf ":%s:CONTAINER EXITING\n" $(date +%s%3N) >> /var/log/controller.stdout.log
 # Uncomment the below with an appropriately configured webdav server for capturing error logs or core dumps.
 for DUMP in /usr/local/bin/*core*; do

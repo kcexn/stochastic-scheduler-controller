@@ -109,5 +109,6 @@ int main(int argc, char* argv[])
     std::unique_lock<std::mutex> lk(*SIGNAL_MTX_PTR);
     SIGNAL_CV_PTR->wait(lk, [&]{ return (SIGNAL_PTR->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT); });
     lk.unlock();
+    std::cout << "main.cpp:112:application exited normally." << std::endl;
     return 0;
 }
