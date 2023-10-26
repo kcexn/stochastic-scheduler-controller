@@ -215,12 +215,12 @@ namespace app{
                         }
                     } else {
                         // For our application all session pointers are http session pointers.
-                        // Due to a race condition, there is a chance that http_session_it is a client pointer not a server pointer.
                         http_session_ptr = std::static_pointer_cast<http::HttpSession>(*http_session_it);
                         // We are not supporting HTTP/1.1 pipelining. So if a client request http chunk is received AFTER the 
                         // server response has been completed, but BEFORE the server response has been received by the client, then
                         // we simply drop the client request http chunk.
-                        http::HttpResponse server_res = std::get<http::HttpResponse>(http_session_ptr->get());
+                        http::HttpReqRes rr = http_session_ptr->get();
+                        http::HttpResponse& server_res = std::get<http::HttpResponse>(rr);
                         auto it = std::find_if(server_res.headers.begin(), server_res.headers.end(), [&](auto& header){
                             return (header.field_name == http::HttpHeaderField::CONTENT_LENGTH);
                         });
@@ -721,14 +721,14 @@ namespace app{
                         if(req.verb == http::HttpVerb::POST){
                             controller::resources::run::Request run(val.as_object());
                             auto env = run.env();
-                            std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
-                            if(!__OW_ACTIVATION_ID.empty()){
-                                struct timespec ts = {};
-                                int status = clock_gettime(CLOCK_REALTIME, &ts);
-                                if(status != -1){
-                                    std::cout << "controller-app.cpp:728:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
-                                }
-                            }
+                            // std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
+                            // if(!__OW_ACTIVATION_ID.empty()){
+                            //     struct timespec ts = {};
+                            //     int status = clock_gettime(CLOCK_REALTIME, &ts);
+                            //     if(status != -1){
+                            //         std::cout << "controller-app.cpp:728:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
+                            //     }
+                            // }
                             // Create a fiber continuation for processing the request.
                             std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs, ioc_); 
                             auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
@@ -1460,13 +1460,13 @@ namespace app{
     }
 
     void Controller::stop(){
-        struct timespec ts;
-        if(clock_gettime(CLOCK_REALTIME, &ts) == -1){
-            std::cerr << "controller-app.cpp:1464:clock_gettime() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-            std::cout << "controller-app.cpp:1464:Controller::stop() called." << std::endl;
-        } else {
-            std::cout << "controller-app.cpp:1467:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":Controller::stop() called." << std::endl;
-        }
+        // struct timespec ts;
+        // if(clock_gettime(CLOCK_REALTIME, &ts) == -1){
+        //     std::cerr << "controller-app.cpp:1464:clock_gettime() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        //     std::cout << "controller-app.cpp:1464:Controller::stop() called." << std::endl;
+        // } else {
+        //     std::cout << "controller-app.cpp:1467:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":Controller::stop() called." << std::endl;
+        // }
         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
 

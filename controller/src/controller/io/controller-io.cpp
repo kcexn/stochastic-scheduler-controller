@@ -203,7 +203,7 @@ namespace io{
         while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run();
         }
-        std::cout << "controller-io.cpp:204:IO thread exiting" << std::endl;
+        // std::cout << "controller-io.cpp:204:IO thread exiting" << std::endl;
         stopped_.store(true, std::memory_order::memory_order_relaxed);
         stop_cv_.notify_all();
         return;
