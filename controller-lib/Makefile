@@ -30,12 +30,12 @@ REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # SHARED LIBRARY SETTINGS
-# SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic -fmodulo-sched -fmodulo-sched-allow-regmoves \
-# 							-fdevirtualize-at-ltrans -fsched-pressure -fsched-spec-load \
-# 							-fno-semantic-interposition -fipa-pta -ffast-math \
-# 							-freschedule-modulo-scheduled-loops \
-#                         	-march=x86-64-v2 -mtune=generic
-SHARED_CXX_FLAGS = -g -Og -fpic
+SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic -fmodulo-sched -fmodulo-sched-allow-regmoves \
+							-fdevirtualize-at-ltrans -fsched-pressure -fsched-spec-load \
+							-fno-semantic-interposition -fipa-pta -ffast-math \
+							-freschedule-modulo-scheduled-loops \
+                        	-march=x86-64-v2 -mtune=generic
+# SHARED_CXX_FLAGS = -g -Og -fpic
 STATIC_AR_FLAGS = rcs
 SHARED_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 SHARED_TARGET = $(addsuffix .so, $(addprefix $(LIB_DIR)/lib, $(TARGET)))
