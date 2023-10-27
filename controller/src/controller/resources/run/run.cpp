@@ -57,7 +57,7 @@ namespace run{
         }
     }
 
-    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs, boost::asio::io_context& ioc){
+    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs){
         std::shared_ptr<controller::app::ExecutionContext> ctx_ptr;
         if(req.execution_context_id() != UUID::Uuid()){
             auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
@@ -148,10 +148,11 @@ namespace run{
                             setpgid(0,0);
                             std::uint64_t notice = 1;
                             int len = 0;
-                            struct pollfd pfds[1];
+                            struct pollfd pfds[1] = {};
                             pfds[0] = {
                                 sync_fd,
-                                POLLOUT
+                                POLLOUT,
+                                0
                             };
                             do{
                                 len = poll(&pfds[0], 1, -1);
@@ -223,14 +224,17 @@ namespace run{
                     struct pollfd pfds[3] = {};
                     pfds[0] = {
                         sync_fd,
-                        POLLIN 
+                        POLLIN,
+                        0
                     };
                     pfds[1] = {
                         upstream[0],
+                        0,
                         0
                     };
                     pfds[2] = {
                         downstream[1],
+                        0,
                         0
                     };
                     // Block until the child process sets the pgid.

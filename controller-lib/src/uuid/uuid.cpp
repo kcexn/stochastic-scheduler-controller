@@ -15,7 +15,7 @@ namespace UUID{
     /*UUID.Node POD*/
     std::ostream& operator<<(std::ostream& os, const Node& node) {     
         std::size_t offset=2;  
-        for(int i=0; i < (Node::length/offset); ++i){
+        for(std::size_t i=0; i < (Node::length/offset); ++i){
             std::uint16_t tmp;
             std::memcpy(&tmp, &(node.bytes[i*offset]), offset);
             os << std::setfill('0') << std::setw(4) << std::hex << tmp;
@@ -26,8 +26,8 @@ namespace UUID{
     std::istream& operator>>(std::istream& is, Node& node){
         char hex_str[4] = {};
         std::size_t offset=2;
-        for(int i=0; i < (Node::length/offset); ++i){
-            std::uint16_t tmp;
+        for(std::size_t i=0; i < (Node::length/offset); ++i){
+            std::uint16_t tmp = 0;
             is.read(hex_str, 4);
             std::from_chars_result res = std::from_chars(hex_str, hex_str+4, tmp, 16);
             if(res.ec != std::errc{}){
@@ -39,12 +39,12 @@ namespace UUID{
     }
 
     /*UUID*/
-    Uuid::Uuid(const Uuid& other) noexcept
+    Uuid::Uuid(const Uuid& other)
     {
         std::memcpy(bytes, other.bytes, Uuid::size);
     }
 
-    Uuid::Uuid(Uuid::Version4 v) noexcept
+    Uuid::Uuid(Uuid::Version4)
       : bytes{}
     {
         // This is a bit dodgy since it means that 
@@ -68,11 +68,11 @@ namespace UUID{
         time_hi_and_version |= UUID_VERSION_4;
         // Mask out the random noise.
         time_hi_and_version &= 0x4FFF;
-        std:memcpy(&bytes[6], &time_hi_and_version, 2);
+        std::memcpy(&bytes[6], &time_hi_and_version, 2);
         return;
     }
 
-    Uuid::Uuid(Uuid::Version4 v, const std::string& uuid)
+    Uuid::Uuid(Uuid::Version4, const std::string& uuid)
       : bytes{}
     {
         Uuid tmp(Uuid::v4);
@@ -81,32 +81,32 @@ namespace UUID{
         std::memcpy(bytes, tmp.bytes, Uuid::size);
     }
 
-    const std::uint32_t Uuid::time_low() const noexcept {
+    std::uint32_t Uuid::time_low() const {
         std::uint32_t tmp = 0;
         std::memcpy(&tmp, &bytes[0], 4);
         return tmp;
     }
-    const std::uint16_t Uuid::time_mid() const noexcept {
+    std::uint16_t Uuid::time_mid() const {
         std::uint16_t tmp = 0;
         std::memcpy(&tmp, &bytes[4], 2);
         return tmp;
     }
-    const std::uint16_t Uuid::time_hi_and_version() const noexcept {
+    std::uint16_t Uuid::time_hi_and_version() const {
         std::uint16_t tmp =0;
         std::memcpy(&tmp, &bytes[6], 2);
         return tmp;
     }
-    const unsigned char Uuid::clock_seq_hi_and_reserved() const noexcept {
+    unsigned char Uuid::clock_seq_hi_and_reserved() const {
         unsigned char tmp = 0;
         std::memcpy(&tmp, &bytes[8], 1);
         return tmp;
     }
-    const unsigned char Uuid::clock_seq_low() const noexcept {
+    unsigned char Uuid::clock_seq_low() const {
         unsigned char tmp = 0;
         std::memcpy(&tmp, &bytes[9], 1);
         return tmp;
     }
-    const Node Uuid::node() const noexcept {
+    Node Uuid::node() const {
         Node tmp = {};
         std::memcpy(tmp.bytes, &bytes[10], Node::length);
         return tmp;
@@ -183,7 +183,7 @@ namespace UUID{
 
 
     bool operator==(const Uuid& lhs, const Uuid& rhs){
-        for(int i=0; i < Uuid::size; ++i){
+        for(std::size_t i=0; i < Uuid::size; ++i){
             if(lhs.bytes[i] != rhs.bytes[i]){
                 return false;
             }

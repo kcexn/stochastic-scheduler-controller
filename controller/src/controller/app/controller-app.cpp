@@ -7,7 +7,7 @@
 #include <charconv>
 #include <transport-servers/sctp-server/sctp-session.hpp>
 
-#define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json"},{http::HttpHeaderField::CONNECTION, "close"},{http::HttpHeaderField::END_OF_HEADERS, ""}
+#define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
 namespace controller{
 namespace app{
@@ -165,13 +165,13 @@ namespace app{
         }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         int thread_local_signal;
-        bool wait_status;
+        bool not_timed_out{false};
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
             std::shared_ptr<server::Session> server_session;
             lk.lock();
-            wait_status = io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
+            not_timed_out = io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
@@ -181,7 +181,10 @@ namespace app{
                     lk.unlock();
                     break;
                 }
-            } 
+            } else if (!not_timed_out){
+                lk.unlock();
+                continue;
+            }
             if(thread_local_signal & ~CTL_TERMINATE_EVENT){
                 io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             }
@@ -244,7 +247,7 @@ namespace app{
                     auto& ctxp = *it;
                     status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
                     if(status == -1){
-                        std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "controller-app.cpp:246:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                     }
                     // Check to see if the context is stopped.
@@ -258,7 +261,7 @@ namespace app{
                         boost::json::value val;
                         // create the response.
                         http::HttpReqRes rr;
-                        std::get<http::HttpResponse>(rr) = create_response(*ctxp, val);
+                        std::get<http::HttpResponse>(rr) = create_response(*ctxp);
                         while(ctxp->sessions().size() > 0 ){
                             std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
                             next_session->set(rr);
@@ -275,8 +278,13 @@ namespace app{
                             std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            res.chunks.push_back(http::HttpChunk{{1}, "]"}); /* Close the JSON stream array. */
-                            res.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
+                            http::HttpChunk new_chunk = {};
+                            new_chunk.chunk_size = {1};
+                            new_chunk.chunk_data = "]";
+                            res.chunks.push_back(new_chunk); /* Close the JSON stream array. */
+                            new_chunk.chunk_size = {0};
+                            new_chunk.chunk_data.clear();
+                            res.chunks.push_back(new_chunk); /* Close the HTTP stream. */
                             next_session->set(rr);
                             next_session->write([&,next_session](){
                                 next_session->close();
@@ -287,8 +295,13 @@ namespace app{
                             std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                            req.chunks.push_back(http::HttpChunk{{1},"]"}); /* Close the JSON stream array. */
-                            req.chunks.push_back(http::HttpChunk{{0},""}); /* Close the HTTP stream. */
+                            http::HttpChunk new_chunk = {};
+                            new_chunk.chunk_size = {1};
+                            new_chunk.chunk_data = "]";
+                            req.chunks.push_back(new_chunk); /* Close the JSON stream array. */
+                            new_chunk.chunk_size = {0};
+                            new_chunk.chunk_data.clear();
+                            req.chunks.push_back(new_chunk); /* Close the HTTP stream. */
                             next_session->set(rr);
                             next_session->write([&,next_session](){
                                 return;
@@ -304,7 +317,7 @@ namespace app{
                             return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
                         if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
-                            std::cerr << "controller-app.cpp:307:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "controller-app.cpp:306:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "what?";
                         }
                     } else {
@@ -329,7 +342,7 @@ namespace app{
                             boost::json::error_code ec;
                             boost::json::value jv = boost::json::parse(f_val, ec);
                             if(ec){
-                                std::cerr << "controller-app.cpp:332:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                std::cerr << "controller-app.cpp:331:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                                 throw "This shouldn't happen.";
                             }
                             jo.emplace(f_key, jv);
@@ -342,7 +355,9 @@ namespace app{
                                 /* Update peers */
                                 http::HttpReqRes rr = peer_session->get();
                                 http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                                http::HttpChunk chunk{http::HttpBigNum{data.size()}, data};
+                                http::HttpChunk chunk = {};
+                                chunk.chunk_size = {data.size()};
+                                chunk.chunk_data = data;
                                 req.chunks.push_back(chunk);
                                 peer_session->set(rr);
                                 peer_session->write([&, peer_session](){return;});
@@ -351,7 +366,9 @@ namespace app{
                                 /* Update peers */
                                 http::HttpReqRes rr = peer_session->get();
                                 http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                http::HttpChunk chunk{http::HttpBigNum{data.size()}, data};
+                                http::HttpChunk chunk = {};
+                                chunk.chunk_size = {data.size()};
+                                chunk.chunk_data = data;
                                 res.chunks.push_back(chunk);
                                 peer_session->set(rr);
                                 peer_session->write([&, peer_session](){return;});
@@ -405,7 +422,7 @@ namespace app{
                 while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:408:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:407:json_obj_str is empty" << std::endl;
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -453,7 +470,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:456:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:455:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
                         throw "this shouldn't happen.";
                     }
                     auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -503,18 +520,20 @@ namespace app{
                                             std::string data("[");
                                             std::string json_str(boost::json::serialize(jo_ctx));
                                             data.append(json_str);
-
-                                            std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
-                                                http::HttpVerb::PUT,
-                                                "/run",
-                                                http::HttpVersion::V1_1,
-                                                {
-                                                    CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                                },
-                                                {
-                                                    {http::HttpBigNum{data.size()}, data}
-                                                }
+                                            http::HttpRequest nreq = {};
+                                            nreq.verb = http::HttpVerb::PUT;
+                                            nreq.route = "/run";
+                                            nreq.version = http::HttpVersion::V1_1;
+                                            nreq.headers = {
+                                                CONTROLLER_APP_COMMON_HTTP_HEADERS
                                             };
+                                            http::HttpChunk nchunk = {};
+                                            nchunk.chunk_size = {data.size()};
+                                            nchunk.chunk_data = data;
+                                            nreq.chunks = {
+                                                nchunk
+                                            };
+                                            std::get<http::HttpRequest>(*client_session) = nreq;
                                             client_session->write([&, client_session](){ return; });
                                         }
                                     });
@@ -673,7 +692,7 @@ namespace app{
                 while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:619:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:675:json_obj_str is empty" << std::endl;
                         continue;
                     } else if(json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -730,7 +749,7 @@ namespace app{
                             //     }
                             // }
                             // Create a fiber continuation for processing the request.
-                            std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs, ioc_); 
+                            std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::run::handle(run, ctx_ptrs); 
                             auto http_it = std::find(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), session);
                             if(http_it == ctx_ptr->sessions().cend()){
                                 ctx_ptr->sessions().push_back(session);
@@ -768,10 +787,9 @@ namespace app{
                                             std::cerr << "Converting: " << pport << " to uint16_t failed: " << std::make_error_code(fcres.ec).message() << std::endl;
                                             throw "This shouldn't happen!";
                                         }
-                                        struct sockaddr_in rip = {
-                                            AF_INET,
-                                            htons(portnum)
-                                        };
+                                        struct sockaddr_in rip = {};
+                                        rip.sin_family = AF_INET;
+                                        rip.sin_port = htons(portnum);
                                         std::string pip_str(pip);
                                         int ec = inet_aton(pip_str.c_str(), &rip.sin_addr);
                                         if(ec == 0){
@@ -945,17 +963,17 @@ namespace app{
                                                         sigset_t sigmask = {};
                                                         int status = sigemptyset(&sigmask);
                                                         if(status == -1){
-                                                            std::cerr << "controller-app.cpp:952:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            std::cerr << "controller-app.cpp:947:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                                             throw "what?";
                                                         }
                                                         status = sigaddset(&sigmask, SIGCHLD);
                                                         if(status == -1){
-                                                            std::cerr << "controller-app.cpp:957:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            std::cerr << "controller-app.cpp:952:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                                             throw "what?";
                                                         }
                                                         status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
                                                         if(status == -1){
-                                                            std::cerr << "controller-app.cpp:962:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                            std::cerr << "controller-app.cpp:957:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                                             throw "what?";
                                                         }
                                                         execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
@@ -970,13 +988,13 @@ namespace app{
                                                             {
                                                                 ++counter;
                                                                 if(counter >= max_retries){
-                                                                    std::cerr << "controller-app.cpp:864:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
+                                                                    std::cerr << "controller-app.cpp:972:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
                                                                     raise(SIGTERM);
                                                                     break;
                                                                 }
                                                                 struct timespec ts = {0,5000000};
                                                                 nanosleep(&ts, nullptr);
-                                                                std::cerr << "controller-app.cpp:871:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":RETRYING" << std::endl;
+                                                                std::cerr << "controller-app.cpp:978:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":RETRYING" << std::endl;
                                                                 break;
                                                             }
                                                             default:
@@ -1019,17 +1037,20 @@ namespace app{
                                                         std::string data("[");
                                                         std::string json_str(boost::json::serialize(jo_ctx));
                                                         data.append(json_str);
-                                                        std::get<http::HttpRequest>(*client_session) = http::HttpRequest{
-                                                            http::HttpVerb::PUT,
-                                                            "/run",
-                                                            http::HttpVersion::V1_1,
-                                                            {
-                                                                CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                                            },
-                                                            {
-                                                                {{data.size()}, data}
-                                                            }
+                                                        http::HttpRequest nreq = {};
+                                                        nreq.verb = http::HttpVerb::PUT;
+                                                        nreq.route = "/run";
+                                                        nreq.version = http::HttpVersion::V1_1;
+                                                        nreq.headers = {
+                                                            CONTROLLER_APP_COMMON_HTTP_HEADERS
                                                         };
+                                                        http::HttpChunk nc = {};
+                                                        nc.chunk_size = {data.size()};
+                                                        nc.chunk_data = data;
+                                                        nreq.chunks = {
+                                                            nc
+                                                        };
+                                                        std::get<http::HttpRequest>(*client_session) = nreq;
                                                         client_session->write([&, client_session](){ return; });
                                                     }
                                                 });
@@ -1049,7 +1070,7 @@ namespace app{
                                     return rel->key() == start->key();
                                 });
                                 if (start_it == ctx_ptr->manifest().end()){
-                                    std::cerr << "controller-app.cpp:948:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
+                                    std::cerr << "controller-app.cpp:1051:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
                                     // If the start key is past the end of the manifest, that means that
                                     // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -1060,12 +1081,12 @@ namespace app{
                                 ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                             } else {
                                 // invalidate the fibers.
-                                std::cerr << "controller-app.cpp:1055:/run route reached before initialization." << std::endl;
+                                std::cerr << "controller-app.cpp:1062:/run route reached before initialization." << std::endl;
                                 http::HttpReqRes rr;
                                 while(ctx_ptr->sessions().size() > 0)
                                 {
                                     std::shared_ptr<http::HttpSession>& next_session = ctx_ptr->sessions().back();
-                                    std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr, val);
+                                    std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr);
                                     next_session->write(
                                         rr,
                                         [&, next_session](){
@@ -1113,7 +1134,7 @@ namespace app{
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);
                                             if(ec){
-                                                std::cerr << "controller-app.cpp:1108:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                std::cerr << "controller-app.cpp:1115:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                 throw "This shouldn't be possible.";
                                             }
                                             ro.emplace(relation->key(), jv);
@@ -1129,17 +1150,19 @@ namespace app{
                                     std::string json_str(boost::json::serialize(retjo));
                                     data.append(json_str);
                                     http::HttpReqRes rr = session->get();
-                                    http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                    res = {
-                                        http::HttpVersion::V1_1,
-                                        http::HttpStatus::CREATED,
-                                        {
-                                            CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                        },
-                                        {
-                                            {{data.size()}, data}
-                                        }
+                                    http::HttpResponse nres = {};
+                                    nres.version = http::HttpVersion::V1_1;
+                                    nres.status = http::HttpStatus::CREATED;
+                                    nres.headers = {
+                                        CONTROLLER_APP_COMMON_HTTP_HEADERS
                                     };
+                                    http::HttpChunk nc = {};
+                                    nc.chunk_size = {data.size()};
+                                    nc.chunk_data = data;
+                                    nres.chunks = {
+                                        nc
+                                    };
+                                    std::get<http::HttpResponse>(rr) = nres;
                                     session->set(rr);
                                     session->write([&, session](){ return; });
                                 } else {
@@ -1154,18 +1177,20 @@ namespace app{
                                     // Instead of sending a 201 Created response, we send a 404 not found response, with no body.
                                     // The remote peer should respond by truncating the event stream, and cleaning up the execution context.
                                     http::HttpReqRes rr = session->get();
-                                    http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                    res = {
-                                        http::HttpVersion::V1_1,
-                                        http::HttpStatus::NOT_FOUND,
-                                        {
-                                            {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                                            CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                        },
-                                        {
-                                            {{0}, ""}
-                                        }
+                                    http::HttpResponse nres = {};
+                                    nres.version = http::HttpVersion::V1_1;
+                                    nres.status = http::HttpStatus::NOT_FOUND;
+                                    http::HttpHeader content_length = {};
+                                    content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                                    content_length.field_value = "0";
+                                    nres.headers = {
+                                        content_length,
+                                        CONTROLLER_APP_COMMON_HTTP_HEADERS
                                     };
+                                    nres.chunks = {
+                                        {}
+                                    };
+                                    std::get<http::HttpResponse>(rr) = nres;
                                     session->set(rr);
                                     session->write([&,session](){
                                         session->close();
@@ -1182,8 +1207,13 @@ namespace app{
                                     /* There has been an error, the execution context no longer exists. Simply terminate the stream. */
                                     http::HttpReqRes rr = session->get();
                                     http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                    res.chunks.push_back(http::HttpChunk{{1},"]"});
-                                    res.chunks.push_back(http::HttpChunk{{0},""});
+                                    http::HttpChunk nc = {};
+                                    nc.chunk_size = {1};
+                                    nc.chunk_data = "]";
+                                    res.chunks.push_back(nc);
+                                    nc.chunk_size = {0};
+                                    nc.chunk_data.clear();
+                                    res.chunks.push_back(nc);
                                     session->set(rr);
                                     session->write([&,session](){
                                         session->close();
@@ -1272,7 +1302,7 @@ namespace app{
                             ctx_ptr->sessions().push_back(session);
                         }
                         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
-                        res = create_response(*ctx_ptr, val);
+                        res = create_response(*ctx_ptr);
                         if ( initialized_ ) {
                             // invalidate the fibers.
                             for (auto& thread_control: ctx_ptr->thread_controls()){
@@ -1301,16 +1331,18 @@ namespace app{
             session->set(rr);
         } else {
             http::HttpReqRes rr;
-            http::HttpResponse res = {
-                req.version,
-                http::HttpStatus::NOT_FOUND,
-                {
-                    {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                    CONTROLLER_APP_COMMON_HTTP_HEADERS
-                },
-                {
-                    {{0}, ""}
-                }
+            http::HttpResponse res = {};
+            res.version = req.version;
+            res.status = http::HttpStatus::NOT_FOUND;
+            http::HttpHeader content_length = {};
+            content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+            content_length.field_value = "0";
+            res.headers = {
+                content_length,
+                CONTROLLER_APP_COMMON_HTTP_HEADERS
+            };
+            res.chunks = {
+                {}
             };
             std::get<http::HttpResponse>(rr) = res;
             session->write(
@@ -1322,7 +1354,7 @@ namespace app{
         }
     }
 
-    http::HttpResponse Controller::create_response(ExecutionContext& ctx, boost::json::value& val){
+    http::HttpResponse Controller::create_response(ExecutionContext& ctx){
         http::HttpResponse res = {};
         if(ctx.route() == controller::resources::Routes::RUN){
             // The run route is not necessarily single threaded so we must use threadsafe get.
@@ -1330,20 +1362,20 @@ namespace app{
             http::HttpReqRes rr = session->get();
             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
             if(!initialized_){
-                res = {
-                    req.version,
-                    http::HttpStatus::NOT_FOUND,
-                    {
-                        {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                        CONTROLLER_APP_COMMON_HTTP_HEADERS                         
-                    },
-                    {
-                        {{0},""}
-                    }
+                res.version = req.version;
+                res.status = http::HttpStatus::NOT_FOUND;
+                http::HttpHeader content_length = {};
+                content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                content_length.field_value = "0";
+                res.headers = {
+                    content_length,
+                    CONTROLLER_APP_COMMON_HTTP_HEADERS
+                };
+                res.chunks = {
+                    {}
                 };
             } else if (ctx.is_stopped()){
                 boost::json::object jv;
-                bool ec{false};
                 const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
                 if ( __OW_ACTIONS == nullptr ){
                     std::cerr << "Environment Variable __OW_ACTIONS is not defined." << std::endl;
@@ -1359,7 +1391,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1347:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1360:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);
@@ -1379,16 +1411,20 @@ namespace app{
                     std::string data = boost::json::serialize(jctx);
                     std::stringstream len;
                     len << data.size();
-                    res = {
-                        req.version,
-                        http::HttpStatus::OK,
-                        {
-                            {http::HttpHeaderField::CONTENT_LENGTH, len.str()},
-                            CONTROLLER_APP_COMMON_HTTP_HEADERS
-                        },
-                        {
-                            {{data.size()}, data}
-                        }
+                    res.version = req.version;
+                    res.status = http::HttpStatus::OK;
+                    http::HttpHeader content_length = {};
+                    content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                    content_length.field_value = len.str();
+                    res.headers = {
+                        content_length,
+                        CONTROLLER_APP_COMMON_HTTP_HEADERS
+                    };
+                    http::HttpChunk nc = {};
+                    nc.chunk_size = {data.size()};
+                    nc.chunk_data = data;
+                    res.chunks = {
+                        nc
                     };
                 } else {
                     auto& relation = ctx.manifest()[0];
@@ -1396,29 +1432,37 @@ namespace app{
                     relation->release_value();
                     std::stringstream len;
                     len << value.size();
-                    res = {
-                        req.version,
-                        http::HttpStatus::OK,
-                        {
-                            {http::HttpHeaderField::CONTENT_LENGTH, len.str()},
-                            CONTROLLER_APP_COMMON_HTTP_HEADERS
-                        },
-                        {
-                            {{value.size()}, value}
-                        }
+                    res.version = req.version;
+                    res.status = http::HttpStatus::OK;
+                    http::HttpHeader cl = {};
+                    cl.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                    cl.field_value = len.str();
+                    res.headers = {
+                        cl,
+                        CONTROLLER_APP_COMMON_HTTP_HEADERS
+                    };
+                    http::HttpChunk nc = {};
+                    nc.chunk_size = {value.size()};
+                    nc.chunk_data = value;
+                    res.chunks = {
+                        nc
                     };
                 }
             } else {
-                res = {
-                    req.version,
-                    http::HttpStatus::INTERNAL_SERVER_ERROR,
-                    {
-                        {http::HttpHeaderField::CONTENT_LENGTH, "33"},
-                        CONTROLLER_APP_COMMON_HTTP_HEADERS
-                    },
-                    {
-                        {{33}, "{\"error\":\"Internal Server Error\"}"}
-                    }
+                res.version = req.version;
+                res.status = http::HttpStatus::INTERNAL_SERVER_ERROR;
+                http::HttpHeader cl = {};
+                cl.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                cl.field_value = "33";
+                res.headers = {
+                    cl,
+                    CONTROLLER_APP_COMMON_HTTP_HEADERS
+                };
+                http::HttpChunk nc = {};
+                nc.chunk_size = {33};
+                nc.chunk_data = "{\"error\":\"Internal Server Error\"}";
+                res.chunks = {
+                    nc
                 };
             }            
         } else if (ctx.route() == controller::resources::Routes::INIT){
@@ -1426,34 +1470,32 @@ namespace app{
             // operation is safe.
             http::HttpRequest& req = std::get<http::HttpRequest>(*(ctx.sessions().front()));
             if (initialized_) {
-                res = {
-                    req.version,
-                    http::HttpStatus::CONFLICT,
-                    {
-                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
-                        {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                        {http::HttpHeaderField::CONNECTION, "close"},
-                        {http::HttpHeaderField::END_OF_HEADERS, ""}
-                    },
-                    {
-                        {{0}, ""}
-                    }
+                res.version = req.version;
+                res.status = http::HttpStatus::CONFLICT;
+                http::HttpHeader cl = {};
+                cl.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                cl.field_value = "0";
+                res.headers = {
+                    cl,
+                    CONTROLLER_APP_COMMON_HTTP_HEADERS
                 };
-            } else {       
-                res = {
-                    req.version,
-                    http::HttpStatus::OK,
-                    {
-                        {http::HttpHeaderField::CONTENT_TYPE, "application/json"},
-                        {http::HttpHeaderField::CONTENT_LENGTH, "0"},
-                        {http::HttpHeaderField::CONNECTION, "close"},
-                        {http::HttpHeaderField::END_OF_HEADERS, ""}
-                    },
-                    {
-                        {{0}, ""}
-                    }
+                res.chunks = {
+                    {}
                 };
-            }         
+            } else {     
+                res.version = req.version;
+                res.status = http::HttpStatus::OK;
+                http::HttpHeader cl = {};
+                cl.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                cl.field_value = "0";
+                res.headers = {
+                    cl,
+                    CONTROLLER_APP_COMMON_HTTP_HEADERS
+                };
+                res.chunks = {
+                    {}
+                };
+            }   
         }
         // Unknown routes are handled directly at the root of the application.
         return res;

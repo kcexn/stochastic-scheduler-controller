@@ -55,7 +55,7 @@ namespace init{
                     int upstream[2] = {};
 
                     base64extract(path.string(), downstream, upstream, req);
-                    tar_extract(path.string(), downstream, upstream);
+                    tar_extract(path.string());
                     std::filesystem::remove(path);
                     for ( auto pair: req.value().env() ){
                         if ( setenv(pair.first.c_str(), pair.second.c_str(), 1) != 0 ){
@@ -143,7 +143,7 @@ namespace init{
         waitpid(pid,&wstatus,0);
     }
 
-    void tar_extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2]){
+    void tar_extract(const std::string& filename){
         int status = 0;
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         std::string fn_path;

@@ -31,7 +31,7 @@ namespace app{
         void start_controller();
         void route_response(std::shared_ptr<http::HttpClientSession>& session);
         void route_request(std::shared_ptr<http::HttpSession>& session);
-        http::HttpResponse create_response(ExecutionContext& ctx, boost::json::value& val);
+        http::HttpResponse create_response(ExecutionContext& ctx);
         void flush_wsk_logs() { 
             std::cout << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; 
             std::cerr << "XXX_THE_END_OF_A_WHISK_ACTIVATION_XXX" << std::endl; 

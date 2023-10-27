@@ -1,6 +1,6 @@
 CXX = g++
 AR = ar
-CXX_FLAGS = -Wpedantic
+CXX_FLAGS = -Wpedantic -Wall -Wextra
 LD_FLAGS = -lboost_system
 LIBRARY_PATH = -L/usr/local/lib/ -Llib/
 SRC_DIR = ./src

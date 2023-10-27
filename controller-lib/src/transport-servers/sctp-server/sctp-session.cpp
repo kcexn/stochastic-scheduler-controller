@@ -2,7 +2,7 @@
 #include <iostream>
 
 namespace sctp_transport{
-    void SctpSession::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
+    void SctpSession::async_read(std::function<void(boost::system::error_code ec, std::size_t length)>){
         return;
         // read_fn_ = std::move(fn);
     }
@@ -38,9 +38,8 @@ namespace sctp_transport{
                 0,
                 id_.assoc
             };
-            transport::protocols::sctp::status status = {
-                id_.assoc
-            };
+            transport::protocols::sctp::status status = {};
+            status.sstat_assoc_id = id_.assoc;
             socklen_t optsize = sizeof(status);
             int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_STATUS, &status, &optsize);
             if(ec == -1){
@@ -49,7 +48,7 @@ namespace sctp_transport{
                     case EINVAL:
                         return;
                     default:
-                        std::cerr << "sctp-session.cpp:52:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "sctp-session.cpp:51:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                 }
             }
@@ -73,7 +72,7 @@ namespace sctp_transport{
                             }
                         );
                     } catch (std::bad_weak_ptr& e){
-                        std::cerr << "sctp-session.cpp:76:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
+                        std::cerr << "sctp-session.cpp:75:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
                         throw e;
                     }
                     return;
@@ -90,7 +89,7 @@ namespace sctp_transport{
                             }
                         );
                     } catch (std::bad_weak_ptr& e){
-                        std::cerr << "sctp-session.cpp:93:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
+                        std::cerr << "sctp-session.cpp:92:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
                         throw e;
                     }
                     
@@ -113,7 +112,7 @@ namespace sctp_transport{
                     // std::cerr << "sctp-session.cpp:86:SCTP_SHUTDOWN_ACK_SENT" << std::endl;
                     return;
                 default:
-                    std::cerr << "sctp-session.cpp:116:unrecognized status.sstat_state value:" << status.sstat_state << std::endl;
+                    std::cerr << "sctp-session.cpp:115:unrecognized status.sstat_state value:" << status.sstat_state << std::endl;
                     throw "what?";
             }
             // The union guarantees that the cmsghdr will have enough
@@ -153,7 +152,7 @@ namespace sctp_transport{
                                 }
                             );
                         } catch(std::bad_weak_ptr& e){
-                            std::cerr << "sctp-session.cpp:156:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
+                            std::cerr << "sctp-session.cpp:155:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
                             throw e;
                         }
                         return;
@@ -169,44 +168,23 @@ namespace sctp_transport{
                                 }
                             );
                         } catch(std::bad_weak_ptr& e){
-                            std::cerr << "sctp-session.cpp:172:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
+                            std::cerr << "sctp-session.cpp:171:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
                         }
                         return;
                     }
                     case EINVAL:
-                    {
-                        // int errsv = errno;
-                        // struct timespec ts = {};
-                        // int status = clock_gettime(CLOCK_REALTIME, &ts);
-                        // if(status == -1){
-                        //     std::cerr << "sctp-session.cpp:87:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        //     std::cerr << "sctp-session.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) \
-                        //             << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() \
-                        //             << ":write_data=" << std::string(write_data->begin(), write_data->end()) \
-                        //             << ",write_data_size=" << write_data->size() \
-                        //             << ",assoc_id=" << id_.assoc << ",stream_id=" << id_.sid \
-                        //             << std::endl;
-                        //     return;
-                        // }
-                        // std::cerr << "sctp-session.cpp:92:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) \
-                        //     << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() \
-                        //     << ":write_data=" << std::string(write_data->begin(), write_data->end()) \
-                        //     << ",write_data_size=" << write_data->size() \
-                        //     << ",assoc_id=" << id_.assoc << ",stream_id=" << id_.sid \
-                        //     << std::endl;
                         return;
-                    }
                     default:
                     {
                         struct timespec ts = {};
                         int errsv = errno;
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){
-                            std::cerr << "sctp-session.cpp:205:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "sctp-session.cpp:206:sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::cerr << "sctp-session.cpp:183:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "sctp-session.cpp:184:sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                             return;
                         }
-                        std::cerr << "sctp-session.cpp:209:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                        std::cerr << "sctp-session.cpp:187:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                         return;
                     }
                 }
@@ -224,7 +202,7 @@ namespace sctp_transport{
                             }
                         );
                     } catch (std::bad_weak_ptr& e) {
-                        std::cerr << "sctp-session.cpp:227:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
+                        std::cerr << "sctp-session.cpp:205:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
                         throw e;
                     }
                     return;
@@ -233,11 +211,11 @@ namespace sctp_transport{
                 }
             }
         } else {
-            std::cerr << "sctp-session.cpp:236:sctp_session async wait_write error:" << ec.message() << std::endl;
+            std::cerr << "sctp-session.cpp:214:sctp_session async wait_write error:" << ec.message() << std::endl;
         }
     }
 
-    void SctpSession::read(const boost::system::error_code& ec, const std::string& received_data){
+    void SctpSession::read(const boost::system::error_code&, const std::string& received_data){
         acquire_stream() << received_data;
         release_stream();
         // if (read_fn_){

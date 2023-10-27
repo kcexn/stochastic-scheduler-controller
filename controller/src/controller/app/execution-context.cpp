@@ -8,14 +8,14 @@
 namespace controller{
 namespace app{
     // Execution Context
-    ExecutionContext::ExecutionContext(ExecutionContext::Init init)
+    ExecutionContext::ExecutionContext(ExecutionContext::Init)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
         execution_context_idx_stack_{0},
         execution_context_idx_array_{0},
         route_{controller::resources::Routes::INIT}
     {}
 
-    ExecutionContext::ExecutionContext(ExecutionContext::Run run)
+    ExecutionContext::ExecutionContext(ExecutionContext::Run)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
         execution_context_idx_stack_{0},
         execution_context_idx_array_{0},
@@ -99,7 +99,7 @@ namespace app{
         sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 
-    ExecutionContext::ExecutionContext(ExecutionContext::Run run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers)
+    ExecutionContext::ExecutionContext(ExecutionContext::Run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers)
       : execution_context_id_(uuid),
         execution_context_idx_stack_{idx},
         execution_context_idx_array_{idx},
@@ -244,10 +244,9 @@ namespace app{
                 std::cerr << "execution-context.cpp:242:std::from_chars failed." << std::endl;
                 throw "This should never happen.";
             }
-            struct sockaddr_in raddr ={
-                AF_INET,
-                htons(rpp)
-            };
+            struct sockaddr_in raddr = {};
+            raddr.sin_family = AF_INET;
+            raddr.sin_port = htons(rpp);
             int ec = inet_aton(rpip.c_str(), &raddr.sin_addr);
             if(ec == 0){
                 std::cerr << "execution-context.cpp:251:inet_aton failed." << std::endl;

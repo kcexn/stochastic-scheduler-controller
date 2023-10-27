@@ -28,7 +28,7 @@ namespace run{
         const boost::json::object& value() const { return value_; }
         const std::map<std::string, std::string>& env() const { return env_; }
         const UUID::Uuid& execution_context_id() const { return execution_context_id_; }
-        const std::size_t idx() const { return execution_context_idx_; }
+        std::size_t idx() const { return execution_context_idx_; }
         const std::vector<std::string>& peers() const { return peers_; }
     private:
         UUID::Uuid execution_context_id_;
@@ -37,7 +37,7 @@ namespace run{
         boost::json::object value_;
         std::map<std::string, std::string> env_;
     };
-    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs, boost::asio::io_context& ioc);
+    std::shared_ptr<controller::app::ExecutionContext> handle(Request& req, std::vector<std::shared_ptr<controller::app::ExecutionContext> >& ctx_ptrs);
 }//namespace run
 }//namespace resources
 }//namespace controller

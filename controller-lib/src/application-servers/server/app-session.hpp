@@ -26,7 +26,7 @@ namespace app_server{
     {
     public:
         Session(Server<Types...>& server): server_(server) {}
-        Session(Server<Types...>& server, const std::shared_ptr<server::Session>& t_session_ptr): server_(server), t_session_(t_session_ptr) {}
+        Session(Server<Types...>& server, const std::shared_ptr<server::Session>& t_session_ptr): t_session_(t_session_ptr), server_(server) {}
         void erase(){
             server_.acquire();
             try{

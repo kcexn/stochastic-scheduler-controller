@@ -20,22 +20,22 @@ namespace UUID{
     // constant is extremely close to 0. Our choice of `0` is an arbitrary one.
     struct Uuid{
         constexpr static struct Version4{} v4{};
-        const static std::size_t size = 16; // UUID is always a 16 byte array.
+        constexpr static std::size_t size = 16; // UUID is always a 16 byte array.
 
         Uuid():bytes{}{}; // 0 initializing default constructor.
-        Uuid(const Uuid& other) noexcept; // copy constructor.
-        explicit Uuid(Uuid::Version4 v) noexcept; // explicit version 4 constructor.
+        Uuid(const Uuid& other); // copy constructor.
+        explicit Uuid(Uuid::Version4 v); // explicit version 4 constructor.
         explicit Uuid(Uuid::Version4 v, const std::string& uuid); // Construct Uuid from string.
 
         // Public Member bytes.
         unsigned char bytes[Uuid::size];
 
-        const std::uint32_t time_low() const noexcept;
-        const std::uint16_t time_mid() const noexcept;
-        const std::uint16_t time_hi_and_version() const noexcept;
-        const unsigned char clock_seq_hi_and_reserved() const noexcept;
-        const unsigned char clock_seq_low() const noexcept;
-        const Node node() const noexcept;
+        std::uint32_t time_low() const;
+        std::uint16_t time_mid() const;
+        std::uint16_t time_hi_and_version() const;
+        unsigned char clock_seq_hi_and_reserved() const;
+        unsigned char clock_seq_low() const;
+        Node node() const;
     };
     std::ostream& operator<<(std::ostream& os, const Uuid& uuid);
     std::istream& operator>>(std::istream& is, Uuid& uuid);

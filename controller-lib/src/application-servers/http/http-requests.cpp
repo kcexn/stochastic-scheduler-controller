@@ -11,7 +11,6 @@ namespace http
 {
     HttpBigNum::HttpBigNum(HttpBigNum::Hex, const std::string& hex_str) {
         const std::size_t max_str_width = 2*sizeof(std::size_t);
-        const std::size_t hexstr_len = hex_str.size();
         std::vector<std::string> hex_str_partitions((hex_str.size()/max_str_width) + 1);
         std::size_t offset = 0;
         for(offset = 0; offset < hex_str_partitions.size()-1; ++offset){

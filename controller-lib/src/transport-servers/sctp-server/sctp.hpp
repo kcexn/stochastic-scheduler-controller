@@ -32,12 +32,12 @@ namespace protocols{
         /* Socket Options */
         struct recvrcvinfo {
             // Settable and Gettable
-            static int level(const sctp& p){ return IPPROTO_SCTP; }
-            static int name(const sctp& p){ return SCTP_RECVRCVINFO; }
-            const void* data(const sctp& p) const { return &optval; }
-            void* data(const sctp& p) { return &optval; }
-            static void resize(const sctp& p, const std::size_t& s){ return; }
-            static std::size_t size(const sctp& p) { return sizeof(int); }
+            static int level(const sctp&){ return IPPROTO_SCTP; }
+            static int name(const sctp&){ return SCTP_RECVRCVINFO; }
+            const void* data(const sctp&) const { return &optval; }
+            void* data(const sctp&) { return &optval; }
+            static void resize(const sctp&, const std::size_t&){ return; }
+            static std::size_t size(const sctp&) { return sizeof(int); }
             int optval = 0;
             recvrcvinfo(const int& opt){
                 optval = opt;

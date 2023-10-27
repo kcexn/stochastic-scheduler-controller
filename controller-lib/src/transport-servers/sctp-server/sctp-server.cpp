@@ -135,7 +135,7 @@ namespace sctp_transport{
                     1
                 };
                 session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
-                PendingConnect connection = {session, fn};
+                PendingConnect connection = {session, fn, {}};
                 std::memcpy(&connection.addr, (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
                 acquire();
                 pending_connects_.push_back(connection);

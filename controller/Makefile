@@ -1,5 +1,5 @@
 CXX = g++
-CXX_FLAGS = -Wpedantic
+CXX_FLAGS = -Wpedantic -Wall -Wextra
 INCLUDE_PATH = -I../boost/boost_1_82_0/ -I../controller-lib/include/
 LIBRARY_PATH = -L/usr/local/lib/ -L../controller-lib/lib/
 LD_FLAGS = -l boost_system -l boost_json -l boost_context -l:libowcontroller_utils.a -lpthread
