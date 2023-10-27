@@ -244,9 +244,8 @@ namespace app{
                     // While there are stopped threads.
                     while(it != ctx_ptrs.end()){
                         auto& ctxp = *it;
-                        status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-                        if(status == -1){
-                            std::cerr << "controller-app.cpp:246:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
+                            std::cerr << "controller-app.cpp:248:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "what?";
                         }
                         // Check to see if the context is stopped.
@@ -316,7 +315,7 @@ namespace app{
                                 return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                             });
                             if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
-                                std::cerr << "controller-app.cpp:306:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "controller-app.cpp:318:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 throw "what?";
                             }
                         } else {
@@ -395,6 +394,10 @@ namespace app{
                                 return (tmp == ctx_ptr->thread_controls().end())? false : true;
                             });
                         }
+                    }
+                    if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
+                        std::cerr << "controller-app.cpp:399:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "what?";
                     }
                 }
             }
