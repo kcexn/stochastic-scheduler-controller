@@ -41,26 +41,26 @@ namespace app{
         std::vector<std::size_t> tmp;
         if(!is_stopped()){
             if(pid_ > 0){
-                if(setpriority(PRIO_PGRP, pid_, 19) == -1){
+                if(kill(-pid_, SIGTERM) == -1){
                     switch(errno)
                     {
                         case ESRCH:
                             break;
                         default:
-                            std::cerr << "thread-controls.cpp:50:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "thread-controls.cpp:50:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "what?";
                     }
                 } else {
-                    if(kill(-pid_, SIGTERM) == -1){
-                        switch(errno)
-                        {
-                            case ESRCH:
-                                break;
-                            default:
-                                std::cerr << "thread-controls.cpp:60:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                throw "what?";
-                        }
-                    } else {
+                    // if(setpriority(PRIO_PGRP, pid_, 5) == -1){
+                    //     switch(errno)
+                    //     {
+                    //         case ESRCH:
+                    //             break;
+                    //         default:
+                    //             std::cerr << "thread-controls.cpp:60:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    //             throw "what?";
+                    //     }
+                    // } else {
                         if(kill(-pid_, SIGCONT) == -1){
                             switch(errno)
                             {
@@ -71,7 +71,7 @@ namespace app{
                                     throw "what?";
                             }
                         }
-                    }
+                    // }
                 }
             }
             int status = pthread_cancel(tid_);

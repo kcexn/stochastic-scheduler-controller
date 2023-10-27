@@ -139,11 +139,11 @@ namespace run{
                         case 0:
                         {
                             //Child Process.
-                            errno = 0;
-                            status = nice(2);
-                            if(status == -1 && errno != 0){
-                                std::cerr << "run.cpp:146:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            }
+                            // errno = 0;
+                            // status = nice(2);
+                            // if(status == -1 && errno != 0){
+                            //     std::cerr << "run.cpp:146:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            // }
                             setpgid(0,0);
                             std::uint64_t notice = 1;
                             int len = 0;

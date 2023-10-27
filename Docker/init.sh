@@ -1,15 +1,15 @@
 #!/bin/bash
 function terminate {
-	printf ":%s:APPLICATION TERMINATED\n" $(date +%s%3N) >> /var/log/controller.stdout.log
-	/usr/sbin/nginx -s quit
 	kill %1
-	sleep 15
+	printf ":%s:APPLICATION TERMINATED\n" $(date +%s%3N) >> /var/log/controller.stdout.log
+	sleep 10
+	/usr/sbin/nginx -s stop
 	kill -s SIGKILL %1
 }
 trap terminate SIGTERM
 
 # Start the controller
-/usr/local/bin/controller > >(tee -a /var/log/controller.stdout.log) 2> >(tee -a /var/log/controller.stderr.log 1>&2) &
+/usr/local/bin/controller > >(tee -a /var/log/controller.stdout.log) 2> >(tee -a /var/log/controller.stderr.log >&2) &
 while [[ ! -S /run/controller/controller.sock ]]; do
 	sleep 0.05
 done
