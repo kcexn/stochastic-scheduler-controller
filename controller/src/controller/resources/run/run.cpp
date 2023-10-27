@@ -458,8 +458,13 @@ namespace run{
                         throw "This shouldn't happen.";
                     }
                     val.resize(value_size);
-                    relation->acquire_value() = val;
-                    relation->release_value();
+                    if(val.empty()){
+                        relation->acquire_value() = "{}";
+                        relation->release_value();
+                    } else {
+                        relation->acquire_value() = val;
+                        relation->release_value();
+                    }
                     // waitpid is handled by trapping SIGCHLD
                     return std::move(g);
                 }

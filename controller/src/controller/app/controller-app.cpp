@@ -173,13 +173,6 @@ namespace app{
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            if(thread_local_signal & CTL_TERMINATE_EVENT){
-                if(ctx_ptrs.empty()){
-                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
-                    lk.unlock();
-                    break;
-                }
-            }
             if(thread_local_signal & ~CTL_TERMINATE_EVENT){
                 io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             }
@@ -227,6 +220,12 @@ namespace app{
                             route_request(http_session_ptr);
                         }
                     }
+                }
+            }
+            if(thread_local_signal & CTL_TERMINATE_EVENT){
+                if(hs_.empty() && ctx_ptrs.empty() && hcs_.empty()){
+                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                    break;
                 }
             }
             if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
