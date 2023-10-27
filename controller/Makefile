@@ -19,10 +19,8 @@ DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 
 # NORMAL SETTINGS
 REL_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin \
-				-fmodulo-sched \
 				-fsched-pressure \
 				-fno-semantic-interposition \
-				-freschedule-modulo-scheduled-loops \
 				-fipa-pta \
 				-march=x86-64-v2
 # REL_CXX_FLAGS = -g -Og
