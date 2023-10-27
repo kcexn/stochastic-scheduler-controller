@@ -152,16 +152,11 @@ namespace app{
             std::cerr << "controller-app.cpp:152:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
             throw "what?";
         }
-        status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-        if(status == -1){
-            std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-            throw "what?";
-        }
         // Initialize resources I might need.
         errno = 0;
         status = nice(2);
         if(status == -1 && errno != 0){
-            std::cerr << "controller-app.cpp:164:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+            std::cerr << "controller-app.cpp:159:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
@@ -169,6 +164,10 @@ namespace app{
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
+            if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
+                std::cerr << "controller-app.cpp:168:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                throw "what?";
+            }
             std::shared_ptr<server::Session> server_session;
             lk.lock();
             not_timed_out = io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
@@ -394,10 +393,6 @@ namespace app{
                                 return (tmp == ctx_ptr->thread_controls().end())? false : true;
                             });
                         }
-                    }
-                    if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                        std::cerr << "controller-app.cpp:399:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
                     }
                 }
             }

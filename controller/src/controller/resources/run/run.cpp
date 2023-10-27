@@ -87,9 +87,8 @@ namespace run{
         for (auto& relation: ctx_ptr->manifest()){
             boost::context::fiber f{
                 [&, req, ctx_ptr, relation, sigmask](boost::context::fiber&& g) {
-                    int status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-                    if(status == -1){
-                        std::cerr << "run.cpp:92:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
+                        std::cerr << "run.cpp:91:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                     }
                      // Get the index of the relation.
@@ -339,9 +338,8 @@ namespace run{
                     }
 
                     g = std::move(g).resume();
-                    status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-                    if(status == -1){
-                        std::cerr << "controller-app.cpp:340:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
+                        std::cerr << "controller-app.cpp:342:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                     }
 
