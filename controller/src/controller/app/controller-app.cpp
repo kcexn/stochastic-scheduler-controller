@@ -164,7 +164,7 @@ namespace app{
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
             if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                std::cerr << "controller-app.cpp:168:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                std::cerr << "controller-app.cpp:167:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                 throw "what?";
             }
             std::shared_ptr<server::Session> server_session;
@@ -239,7 +239,7 @@ namespace app{
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
                     if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                        std::cerr << "controller-app.cpp:243:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "controller-app.cpp:242:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                     }
                     auto& ctxp = *it;
@@ -271,13 +271,10 @@ namespace app{
                             std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            http::HttpChunk new_chunk = {};
-                            new_chunk.chunk_size = {1};
-                            new_chunk.chunk_data = "]";
-                            res.chunks.push_back(new_chunk); /* Close the JSON stream array. */
-                            new_chunk.chunk_size = {0};
-                            new_chunk.chunk_data.clear();
-                            res.chunks.push_back(new_chunk); /* Close the HTTP stream. */
+                            res.chunks.emplace_back();
+                            res.chunks.back().chunk_size = {1};
+                            res.chunks.back().chunk_data = "]"; // Close the JSON stream array.
+                            res.chunks.emplace_back(); // Close the HTTP stream.
                             next_session->set(rr);
                             next_session->write([&,next_session](){
                                 next_session->close();
@@ -288,13 +285,10 @@ namespace app{
                             std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
                             http::HttpReqRes rr = next_session->get();
                             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                            http::HttpChunk new_chunk = {};
-                            new_chunk.chunk_size = {1};
-                            new_chunk.chunk_data = "]";
-                            req.chunks.push_back(new_chunk); /* Close the JSON stream array. */
-                            new_chunk.chunk_size = {0};
-                            new_chunk.chunk_data.clear();
-                            req.chunks.push_back(new_chunk); /* Close the HTTP stream. */
+                            req.chunks.emplace_back();
+                            req.chunks.back().chunk_size = {1};
+                            req.chunks.back().chunk_data = "]"; // Close the JSON stream array.
+                            req.chunks.emplace_back(); // Close the HTTP stream.
                             next_session->set(rr);
                             next_session->write([&,next_session](){
                                 return;
@@ -309,6 +303,10 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
+                        if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
+                            std::cerr << "controller-app.cpp:307:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            throw "what?";
+                        }
                     } else {
                         // Evaluate which thread to execute next and notify it.
                         auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
@@ -383,10 +381,6 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end())? false : true;
                         });
-                    }
-                    if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
-                        std::cerr << "controller-app.cpp:389:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
                     }
                 }
             }
@@ -1199,13 +1193,10 @@ namespace app{
                                     /* There has been an error, the execution context no longer exists. Simply terminate the stream. */
                                     http::HttpReqRes rr = session->get();
                                     http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                    http::HttpChunk nc = {};
-                                    nc.chunk_size = {1};
-                                    nc.chunk_data = "]";
-                                    res.chunks.push_back(nc);
-                                    nc.chunk_size = {0};
-                                    nc.chunk_data.clear();
-                                    res.chunks.push_back(nc);
+                                    res.chunks.emplace_back();
+                                    res.chunks.back().chunk_size = {1};
+                                    res.chunks.back().chunk_data = "]";
+                                    res.chunks.emplace_back();
                                     session->set(rr);
                                     session->write([&,session](){
                                         session->close();
