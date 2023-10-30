@@ -21,7 +21,8 @@ namespace app{
             ctx_mtx_(std::make_unique<std::mutex>()),
             cv_(std::make_unique<std::condition_variable>()), 
             signal_(std::make_unique<std::atomic<std::uint16_t> >()),
-            valid_(std::make_unique<std::atomic<bool> >(true))
+            valid_(std::make_unique<std::atomic<bool> >(true)),
+            ready_(std::make_unique<std::atomic<bool> >(false))
         {}
         pthread_t& tid() { return tid_; }
         std::atomic<std::uint16_t>& signal() { return *signal_; }
@@ -30,6 +31,8 @@ namespace app{
         bool is_started() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_START_EVENT) == CTL_IO_SCHED_START_EVENT);}
         bool is_stopped() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_END_EVENT) == CTL_IO_SCHED_END_EVENT); }
         bool is_valid() const { return valid_->load(std::memory_order::memory_order_relaxed); }
+        std::atomic<bool>& ready() { return *ready_; }
+        std::condition_variable& cv() { return *cv_; }
         std::vector<std::size_t> invalidate();
         std::vector<std::size_t> stop_thread();
         boost::context::fiber& f() { return f_; }
@@ -46,6 +49,7 @@ namespace app{
         std::unique_ptr<std::condition_variable> cv_;
         std::unique_ptr<std::atomic<std::uint16_t> > signal_;
         std::unique_ptr<std::atomic<bool> > valid_;
+        std::unique_ptr<std::atomic<bool> > ready_;
         std::vector<std::size_t> execution_context_idxs_;
         boost::context::fiber f_;
     };

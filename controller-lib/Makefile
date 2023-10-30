@@ -2,7 +2,7 @@ CXX = g++
 AR = gcc-ar
 GCC_PATH = /usr/lib/gcc/x86_64-linux-gnu/12/
 CXX_FLAGS = -Wpedantic -Wall -Wextra
-LD_FLAGS = -lboost_system -g -pg
+LD_FLAGS = -lboost_system
 LIBRARY_PATH = -L/usr/local/lib/ -Llib/
 SRC_DIR = ./src
 TESTS_DIR = ./tests
@@ -31,7 +31,7 @@ REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # SHARED LIBRARY SETTINGS
-SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
+# SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
 				-fmodulo-sched \
 				-fmodulo-sched-allow-regmoves \
 				-freschedule-modulo-scheduled-loops \
@@ -41,7 +41,9 @@ SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
 				-fno-semantic-interposition \
 				-fipa-pta \
 				-ffat-lto-objects \
-				-g -pg \
+				-march=x86-64-v2
+SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
+				-ffat-lto-objects \
 				-march=x86-64-v2
 # SHARED_CXX_FLAGS = -g -Og -fpic
 STATIC_AR_FLAGS = rcs --plugin $(GCC_PATH)/liblto_plugin.so

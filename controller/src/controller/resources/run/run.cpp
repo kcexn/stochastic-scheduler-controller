@@ -249,8 +249,7 @@ namespace run{
                         }
                     }while(errno == EINTR || errno == EWOULDBLOCK);                    
                     // Save the PID in the relevant thread control.
-                    ctx_ptr->thread_controls()[idx].pid() = pid;    
-                    ctx_ptr->synchronize();
+                    ctx_ptr->thread_controls()[idx].pid() = pid;  
                     if(close(sync_fd) == -1){
                         std::cerr << "run.cpp:255:Closing the write side of sync_fd in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";

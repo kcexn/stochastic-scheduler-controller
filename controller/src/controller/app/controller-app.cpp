@@ -211,6 +211,7 @@ namespace app{
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
                     auto& ctxp = *it;
+                    while(waitpid(-1, nullptr, WNOHANG) > 0){}
                     // Check to see if the context is stopped.
                     // std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
                     // if(!__OW_ACTIVATION_ID.empty()){
@@ -271,10 +272,6 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
-                        pid_t pid = 0;
-                        do{
-                            pid = waitpid(-1, nullptr, WNOHANG);
-                        }while(pid > 0);
                     } else {
                         // Evaluate which thread to execute next and notify it.
                         auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
@@ -444,50 +441,47 @@ namespace app{
                             std::vector<server::Remote> old_peers = (*ctx)->get_peers();
                             (*ctx)->merge_peer_addresses(peers);
                             std::vector<server::Remote> new_peers = (*ctx)->get_peers();
+                            std::shared_ptr<controller::app::ExecutionContext>& ctx_ptr = *ctx;
+                            boost::json::object jo;
+                            UUID::Uuid uuid = ctx_ptr->execution_context_id();
+                            std::stringstream uuid_str;
+                            uuid_str << uuid;
+                            jo.emplace("uuid", boost::json::string(uuid_str.str()));
+                            boost::json::array pja;
+                            for(auto& peer: new_peers){                                                         
+                                pja.push_back(boost::json::string(rtostr(peer)));
+                            }                                                           
+                            jo.emplace("peers", pja);
+                            
+                            boost::json::object jo_ctx;
+                            jo_ctx.emplace("execution_context", jo);
+                            std::string data("[");
+                            std::string json_str(boost::json::serialize(jo_ctx));
+                            data.append(json_str);
+                            http::HttpRequest nreq = {};
+                            nreq.verb = http::HttpVerb::PUT;
+                            nreq.route = "/run";
+                            nreq.version = http::HttpVersion::V1_1;
+                            nreq.headers = {
+                                CONTROLLER_APP_COMMON_HTTP_HEADERS
+                            };
+                            http::HttpChunk nchunk = {};
+                            nchunk.chunk_size = {data.size()};
+                            nchunk.chunk_data = data;
+                            nreq.chunks = {
+                                nchunk
+                            };
                             for(auto& peer: new_peers){
                                 auto it = std::find_if(old_peers.begin(), old_peers.end(), [&](auto& p){
                                     return (p.ipv4_addr.address.sin_addr.s_addr == peer.ipv4_addr.address.sin_addr.s_addr && p.ipv4_addr.address.sin_port == peer.ipv4_addr.address.sin_port);
                                 });
                                 if(it == old_peers.end()){
-                                    std::shared_ptr<controller::app::ExecutionContext>& ctx_ptr = *ctx;
-                                    io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                    io_.async_connect(peer, [&, nreq, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                         if(!ec){
                                             std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                             hcs_.push_back(client_session);
-                                            ctx_ptr->peer_client_sessions().push_back(client_session);
-
-                                            boost::json::object jo;
-                                            UUID::Uuid uuid = ctx_ptr->execution_context_id();
-                                            std::stringstream uuid_str;
-                                            uuid_str << uuid;
-                                            jo.emplace("uuid", boost::json::string(uuid_str.str()));
-
-                                            std::vector<server::Remote> peers = ctx_ptr->get_peers();
-                                            boost::json::array ja;
-                                            for(auto& peer: peers){                                                         
-                                                ja.push_back(boost::json::string(rtostr(peer)));
-                                            }                                                           
-                                            jo.emplace("peers", ja);
-                                            
-                                            boost::json::object jo_ctx;
-                                            jo_ctx.emplace("execution_context", jo);
-                                            std::string data("[");
-                                            std::string json_str(boost::json::serialize(jo_ctx));
-                                            data.append(json_str);
-                                            http::HttpRequest nreq = {};
-                                            nreq.verb = http::HttpVerb::PUT;
-                                            nreq.route = "/run";
-                                            nreq.version = http::HttpVersion::V1_1;
-                                            nreq.headers = {
-                                                CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                            };
-                                            http::HttpChunk nchunk = {};
-                                            nchunk.chunk_size = {data.size()};
-                                            nchunk.chunk_data = data;
-                                            nreq.chunks = {
-                                                nchunk
-                                            };
-                                            std::get<http::HttpRequest>(*client_session) = nreq;
+                                            ctx_ptr->peer_client_sessions().push_back(client_session);  
+                                            std::get<http::HttpRequest>(*client_session) = nreq;                                         
                                             client_session->write([&, client_session](){ return; });
                                         }
                                     });
@@ -771,34 +765,55 @@ namespace app{
                                     }
                                     #endif
                                     const std::size_t& manifest_size = ctx_ptr->manifest().size();
-                                    for( std::size_t i = 0; i < manifest_size; ++i ){
-                                        std::thread executor(
-                                            [&, ctx_ptr, i](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
-                                                try{
-                                                    pthread_t tid = pthread_self();
-                                                    ctx_ptr->thread_controls()[i].tid() = tid;
-                                                    // The first resume sets up the action runtime environment for execution.
-                                                    // The action runtime doesn't have to be set up in a distinct 
-                                                    // thread of execution, but since we need to take the time to set up 
-                                                    // a thread anyway, deferring the process fork in the execution context until after the 
-                                                    // thread is established so that the fork can happen concurrently 
-                                                    // is a more performant solution.
-                                                    ctx_ptr->thread_controls()[i].resume();
-                                                    ctx_ptr->thread_controls()[i].wait();
-                                                    ctx_ptr->thread_controls()[i].resume();
-                                                    ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                } catch (const boost::context::detail::forced_unwind& e){
-                                                    ctx_ptr->thread_controls()[i].signal().fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);                             
-                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                }
-                                            },  io_mbox_ptr_
-                                        );
-                                        executor.detach();
+                                    // This id is pushed in the context constructor.
+                                    std::size_t execution_idx = ctx_ptr->pop_execution_idx();
+                                    // Get the starting relation.
+                                    std::string start_key(ctx_ptr->manifest()[execution_idx % manifest_size]->key());
+                                    std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
+
+                                    // Find the index in the manifest of the starting relation.
+                                    auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
+                                        return rel->key() == start->key();
+                                    });
+                                    if (start_it == ctx_ptr->manifest().end()){
+                                        std::cerr << "controller-app.cpp:782:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
+                                        // If the start key is past the end of the manifest, that means that
+                                        // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
+                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                                        return;
                                     }
-                                    ctx_ptr->wait_for_sync();
+                                    std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
+                                    std::thread initializer(
+                                        [&, ctx_ptr, manifest_size, start_idx](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                            for(std::size_t i=0; i < manifest_size; ++i){
+                                                ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].resume();
+                                                std::thread executor(
+                                                    [&, ctx_ptr, i, manifest_size, start_idx, mbox_ptr](){
+                                                        try{
+                                                            pthread_t tid = pthread_self();
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].tid() = tid;
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].ready().store(true, std::memory_order::memory_order_relaxed);
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].cv().notify_one();
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].wait();
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].resume();
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                        } catch (const boost::context::detail::forced_unwind& e){
+                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].signal().fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);                             
+                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
+                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                        }
+                                                    }
+                                                );
+                                                executor.detach();
+                                            }
+                                            return;
+                                        }, io_mbox_ptr_
+                                    );
+                                    initializer.detach();
+                                    ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                                     /* Initialize the http client sessions */
                                     if(ctx_ptr->execution_context_idx_array().front() == 0){
                                         /* This is the primary context */
@@ -909,7 +924,7 @@ namespace app{
                                             constexpr std::size_t max_retries = 5;
                                             std::size_t counter = 0;
                                             while(counter < max_retries){
-                                                pid_t pid = fork();
+                                                pid_t pid = vfork();
                                                 switch(pid)
                                                 {
                                                     case 0:
@@ -950,44 +965,44 @@ namespace app{
                                         // waitpid is handled by trapping SIGCHLD.
                                     } else {
                                         /* This is a secondary context */
+                                        boost::json::object jo;
+                                        UUID::Uuid uuid = ctx_ptr->execution_context_id();
+                                        std::stringstream uuid_str;
+                                        uuid_str << uuid;
+                                        jo.emplace("uuid", boost::json::string(uuid_str.str()));
+
+                                        std::vector<server::Remote> peers = ctx_ptr->get_peers();
+                                        boost::json::array ja;
+                                        for(auto& peer: peers){                                                       
+                                            ja.push_back(boost::json::string(rtostr(peer)));
+                                        }                                                           
+                                        jo.emplace("peers", ja);
+                                        
+                                        boost::json::object jo_ctx;
+                                        jo_ctx.emplace("execution_context", jo);
+                                        std::string data("[");
+                                        std::string json_str(boost::json::serialize(jo_ctx));
+                                        data.append(json_str);
+                                        http::HttpRequest nreq = {};
+                                        nreq.verb = http::HttpVerb::PUT;
+                                        nreq.route = "/run";
+                                        nreq.version = http::HttpVersion::V1_1;
+                                        nreq.headers = {
+                                            CONTROLLER_APP_COMMON_HTTP_HEADERS
+                                        };
+                                        http::HttpChunk nc = {};
+                                        nc.chunk_size = {data.size()};
+                                        nc.chunk_data = data;
+                                        nreq.chunks = {
+                                            nc
+                                        };
                                         for(auto& peer: ctx_ptr->peer_addresses()){
                                             if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){   
-                                                io_.async_connect(peer, [&, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
+                                                io_.async_connect(peer, [&, ctx_ptr, nreq](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                                     if(!ec){
                                                         std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
                                                         hcs_.push_back(client_session);
                                                         ctx_ptr->peer_client_sessions().push_back(client_session);
-                                                        boost::json::object jo;
-                                                        UUID::Uuid uuid = ctx_ptr->execution_context_id();
-                                                        std::stringstream uuid_str;
-                                                        uuid_str << uuid;
-                                                        jo.emplace("uuid", boost::json::string(uuid_str.str()));
-
-                                                        std::vector<server::Remote> peers = ctx_ptr->get_peers();
-                                                        boost::json::array ja;
-                                                        for(auto& peer: peers){                                                       
-                                                            ja.push_back(boost::json::string(rtostr(peer)));
-                                                        }                                                           
-                                                        jo.emplace("peers", ja);
-                                                        
-                                                        boost::json::object jo_ctx;
-                                                        jo_ctx.emplace("execution_context", jo);
-                                                        std::string data("[");
-                                                        std::string json_str(boost::json::serialize(jo_ctx));
-                                                        data.append(json_str);
-                                                        http::HttpRequest nreq = {};
-                                                        nreq.verb = http::HttpVerb::PUT;
-                                                        nreq.route = "/run";
-                                                        nreq.version = http::HttpVersion::V1_1;
-                                                        nreq.headers = {
-                                                            CONTROLLER_APP_COMMON_HTTP_HEADERS
-                                                        };
-                                                        http::HttpChunk nc = {};
-                                                        nc.chunk_size = {data.size()};
-                                                        nc.chunk_data = data;
-                                                        nreq.chunks = {
-                                                            nc
-                                                        };
                                                         std::get<http::HttpRequest>(*client_session) = nreq;
                                                         client_session->write([&, client_session](){ return; });
                                                     }
@@ -996,27 +1011,6 @@ namespace app{
                                         }
                                     }
                                 }
-                                // This id is pushed in the context constructor.
-                                std::size_t execution_idx = ctx_ptr->pop_execution_idx();
-                                std::size_t manifest_size = ctx_ptr->manifest().size();
-                                // Get the starting relation.
-                                std::string start_key(ctx_ptr->manifest()[execution_idx % manifest_size]->key());
-                                std::shared_ptr<Relation> start = ctx_ptr->manifest().next(start_key, execution_idx);
-
-                                // Find the index in the manifest of the starting relation.
-                                auto start_it = std::find_if(ctx_ptr->manifest().begin(), ctx_ptr->manifest().end(), [&](auto& rel){
-                                    return rel->key() == start->key();
-                                });
-                                if (start_it == ctx_ptr->manifest().end()){
-                                    std::cerr << "controller-app.cpp:1043:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
-                                    // If the start key is past the end of the manifest, that means that
-                                    // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
-                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                    return;
-                                }
-                                std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
-                                ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
                             } else {
                                 // invalidate the fibers.
                                 std::cerr << "controller-app.cpp:1062:/run route reached before initialization." << std::endl;
@@ -1175,7 +1169,7 @@ namespace app{
 
                                         /* Trigger rescheduling if necessary */
                                         std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
-                                        auto& thread = (*server_ctx)->thread_controls()[idx];     
+                                        auto& thread = (*server_ctx)->thread_controls()[idx];    
                                         auto execution_idxs = thread.stop_thread();
                                         std::size_t manifest_size = (*server_ctx)->manifest().size();
                                         for(auto& i: execution_idxs){

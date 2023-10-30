@@ -55,7 +55,6 @@ namespace app{
 
         // Thread Control Members
         std::vector<ThreadControls>& thread_controls() { return thread_controls_; }
-
         void wait_for_sync(){
             std::unique_lock<std::mutex> lk(sync_); 
             sync_cv_.wait(lk, [&](){ 
@@ -65,7 +64,13 @@ namespace app{
             lk.unlock();
             return;
         }
-        void synchronize(){ sync_.lock(); sync_counter_.fetch_sub(1, std::memory_order::memory_order_relaxed); sync_.unlock(); sync_cv_.notify_all(); return;}
+        void synchronize(){ 
+            sync_.lock(); 
+            sync_counter_.fetch_sub(1, std::memory_order::memory_order_relaxed); 
+            sync_.unlock(); 
+            sync_cv_.notify_all(); 
+            return;
+        }
 
         std::map<std::string, std::string>& env(){ return env_; }
 

@@ -39,6 +39,9 @@ namespace app{
 
     std::vector<std::size_t> ThreadControls::stop_thread() {
         std::vector<std::size_t> tmp;
+        std::unique_lock<std::mutex> lk(*mtx_);
+        cv_->wait(lk, [&](){ return (ready_->load(std::memory_order::memory_order_relaxed)); });
+        lk.unlock();
         if(!is_stopped()){
             if(pid_ > 0){
                 if(kill(-pid_, SIGTERM) == -1){

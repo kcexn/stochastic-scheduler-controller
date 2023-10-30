@@ -147,12 +147,25 @@ namespace io{
                         session->acquire_stream().write(session->buf().data(), length);
                         session->release_stream();
                         std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                        mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                        mbox->session = session;
-                        lk.unlock();
-                        mbox->sched_signal_cv_ptr->notify_one();
+                        bool status = mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(2), [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                        if(!status){
+                            std::thread await([&, ec, session, mbox](){
+                                std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
+                                mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                                mbox->session = session;
+                                lk.unlock();
+                                mbox->sched_signal_cv_ptr->notify_one();
+                            });
+                            await.detach();
+                        } else {
+                            mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                            mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                            mbox->session = session;
+                            lk.unlock();
+                            mbox->sched_signal_cv_ptr->notify_one();
+                        }
                         return;
                     } else {
                         if(ec != boost::asio::error::eof){
@@ -168,12 +181,25 @@ namespace io{
         ss_.init([&, mbox](const boost::system::error_code& ec,  std::shared_ptr<sctp_transport::SctpSession> session){
             if(!ec){
                 std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                mbox->session = session;
-                lk.unlock();
-                mbox->sched_signal_cv_ptr->notify_one();
+                bool status = mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(2), [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                if(!status){
+                    std::thread await([&, ec, session, mbox](){
+                        std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
+                        mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                        mbox->session = session;
+                        lk.unlock();
+                        mbox->sched_signal_cv_ptr->notify_one();
+                    });
+                    await.detach();
+                } else {
+                    mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                    mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                    mbox->session = session;
+                    lk.unlock();
+                    mbox->sched_signal_cv_ptr->notify_one();
+                }
                 return;               
             } else {
                 std::cerr << "Error in ss_.init()" << ec.message() << std::endl;
