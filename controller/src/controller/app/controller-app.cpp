@@ -153,18 +153,13 @@ namespace app{
             throw "what?";
         }
         // Initialize resources I might need.
-        errno = 0;
-        status = nice(2);
-        if(status == -1 && errno != 0){
-            std::cerr << "controller-app.cpp:159:nice failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-        }
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
             if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                std::cerr << "controller-app.cpp:167:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                std::cerr << "controller-app.cpp:162:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                 throw "what?";
             }
             std::shared_ptr<server::Session> server_session;
@@ -239,7 +234,7 @@ namespace app{
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
                     if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                        std::cerr << "controller-app.cpp:242:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "controller-app.cpp:237:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
                     }
                     auto& ctxp = *it;
@@ -304,7 +299,7 @@ namespace app{
                             return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
                         if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
-                            std::cerr << "controller-app.cpp:307:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                            std::cerr << "controller-app.cpp:302:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             throw "what?";
                         }
                     } else {
@@ -329,7 +324,7 @@ namespace app{
                             boost::json::error_code ec;
                             boost::json::value jv = boost::json::parse(f_val, ec);
                             if(ec){
-                                std::cerr << "controller-app.cpp:331:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                std::cerr << "controller-app.cpp:327:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                                 throw "This shouldn't happen.";
                             }
                             jo.emplace(f_key, jv);
@@ -938,7 +933,7 @@ namespace app{
                                             }
                                             argv.push_back(nullptr);
 
-                                            std::size_t max_retries = 5;
+                                            constexpr std::size_t max_retries = 5;
                                             std::size_t counter = 0;
                                             while(counter < max_retries){
                                                 pid_t pid = fork();
@@ -946,22 +941,6 @@ namespace app{
                                                 {
                                                     case 0:
                                                     {
-                                                        sigset_t sigmask = {};
-                                                        int status = sigemptyset(&sigmask);
-                                                        if(status == -1){
-                                                            std::cerr << "controller-app.cpp:947:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                            throw "what?";
-                                                        }
-                                                        status = sigaddset(&sigmask, SIGCHLD);
-                                                        if(status == -1){
-                                                            std::cerr << "controller-app.cpp:952:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                            throw "what?";
-                                                        }
-                                                        status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
-                                                        if(status == -1){
-                                                            std::cerr << "controller-app.cpp:957:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                            throw "what?";
-                                                        }
                                                         execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
                                                         exit(1);
                                                         break;
@@ -974,13 +953,13 @@ namespace app{
                                                             {
                                                                 ++counter;
                                                                 if(counter >= max_retries){
-                                                                    std::cerr << "controller-app.cpp:972:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
+                                                                    std::cerr << "controller-app.cpp:961:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
                                                                     raise(SIGTERM);
                                                                     break;
                                                                 }
                                                                 struct timespec ts = {0,5000000};
                                                                 nanosleep(&ts, nullptr);
-                                                                std::cerr << "controller-app.cpp:978:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":RETRYING" << std::endl;
+                                                                std::cerr << "controller-app.cpp:967:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":RETRYING" << std::endl;
                                                                 break;
                                                             }
                                                             default:
@@ -1056,7 +1035,7 @@ namespace app{
                                     return rel->key() == start->key();
                                 });
                                 if (start_it == ctx_ptr->manifest().end()){
-                                    std::cerr << "controller-app.cpp:1051:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
+                                    std::cerr << "controller-app.cpp:1043:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
                                     // If the start key is past the end of the manifest, that means that
                                     // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
