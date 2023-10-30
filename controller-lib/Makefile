@@ -2,7 +2,7 @@ CXX = g++
 AR = gcc-ar
 GCC_PATH = /usr/lib/gcc/x86_64-linux-gnu/12/
 CXX_FLAGS = -Wpedantic -Wall -Wextra
-LD_FLAGS = -lboost_system
+LD_FLAGS = -lboost_system -g -pg
 LIBRARY_PATH = -L/usr/local/lib/ -Llib/
 SRC_DIR = ./src
 TESTS_DIR = ./tests
@@ -41,6 +41,7 @@ SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
 				-fno-semantic-interposition \
 				-fipa-pta \
 				-ffat-lto-objects \
+				-g -pg \
 				-march=x86-64-v2
 # SHARED_CXX_FLAGS = -g -Og -fpic
 STATIC_AR_FLAGS = rcs --plugin $(GCC_PATH)/liblto_plugin.so

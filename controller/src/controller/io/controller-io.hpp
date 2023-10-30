@@ -3,6 +3,7 @@
 #include <memory>
 #include <transport-servers/sctp-server/sctp-server.hpp>
 #include <transport-servers/unix-server/unix-server.hpp>
+#include <sys/eventfd.h>
 /*Forward Declarations*/
 namespace boost{
 namespace asio{
@@ -29,12 +30,21 @@ namespace io{
         // Payload.
         std::shared_ptr<server::Session> session;
 
+        // eventfd
+        int efd;
+
         // Explicit default constructor.
         explicit MessageBox():
             sched_signal_mtx_ptr(std::make_shared<std::mutex>()),
             sched_signal_ptr(std::make_shared<std::atomic<std::uint16_t> >()),
             sched_signal_cv_ptr(std::make_shared<std::condition_variable>())
-        {}
+        {
+            efd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+            if(efd == -1){
+                std::cerr << "controller-io.hpp:44:eventfd() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                throw "what?";
+            }
+        }
     };
 
     // This class encapsulates all of the io operations we need for the 

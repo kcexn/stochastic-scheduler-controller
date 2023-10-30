@@ -57,36 +57,23 @@ namespace sctp_transport{
                 case SCTP_COOKIE_WAIT:
                 {
                     // std::cerr << "sctp-session.cpp:54:SCTP_COOKIE_WAIT" << std::endl;
-                    try{
-                        std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
-                        socket_.async_wait(
-                            transport::protocols::sctp::socket::wait_type::wait_write,
-                            [&, self, write_data, fn](const boost::system::error_code& ec){
-                                write_(write_data, fn, ec);
-                            }
-                        );
-                    } catch (std::bad_weak_ptr& e){
-                        std::cerr << "sctp-session.cpp:75:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
-                        throw e;
-                    }
+                    socket_.async_wait(
+                        transport::protocols::sctp::socket::wait_type::wait_write,
+                        [&, write_data, fn](const boost::system::error_code& ec){
+                            write_(write_data, fn, ec);
+                        }
+                    );
                     return;
                 }
                 case SCTP_COOKIE_ECHOED:
                 {
                     // std::cerr << "sctp-session.cpp:64:SCTP_COOKIE_ECHOED" << std::endl;
-                    try{
-                        std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
-                        socket_.async_wait(
-                            transport::protocols::sctp::socket::wait_type::wait_write,
-                            [&, self, write_data, fn](const boost::system::error_code& ec){
-                                write_(write_data, fn, ec);
-                            }
-                        );
-                    } catch (std::bad_weak_ptr& e){
-                        std::cerr << "sctp-session.cpp:92:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
-                        throw e;
-                    }
-                    
+                    socket_.async_wait(
+                        transport::protocols::sctp::socket::wait_type::wait_write,
+                        [&, write_data, fn](const boost::system::error_code& ec){
+                            write_(write_data, fn, ec);
+                        }
+                    );                   
                     return;
                 }
                 case SCTP_ESTABLISHED:
@@ -131,39 +118,28 @@ namespace sctp_transport{
             cmsg->cmsg_type = SCTP_SNDINFO;
             cmsg->cmsg_len = CMSG_LEN(sizeof(sndinfo));
             std::memcpy(CMSG_DATA(cmsg), &sndinfo, sizeof(sndinfo));
-            int len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL | MSG_DONTWAIT);
+            int len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL);
             if(len == -1){
                 switch(errno)
                 {
                     case EWOULDBLOCK:
                     {
-                        try{
-                            std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
-                            socket_.async_wait(
-                                transport::protocols::sctp::socket::wait_type::wait_write,
-                                [&, self, write_data, fn](const boost::system::error_code& ec){
-                                    write_(write_data, fn, ec);
-                                }
-                            );
-                        } catch(std::bad_weak_ptr& e){
-                            std::cerr << "sctp-session.cpp:155:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
-                            throw e;
-                        }
+                        socket_.async_wait(
+                            transport::protocols::sctp::socket::wait_type::wait_write,
+                            [&, write_data, fn](const boost::system::error_code& ec){
+                                write_(write_data, fn, ec);
+                            }
+                        );
                         return;
                     }
                     case EINTR:
                     {
-                        try{
-                            std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
-                            socket_.async_wait(
-                                transport::protocols::sctp::socket::wait_type::wait_write,
-                                [&, self, write_data, fn](const boost::system::error_code& ec){
-                                    write_(write_data, fn, ec);
-                                }
-                            );
-                        } catch(std::bad_weak_ptr& e){
-                            std::cerr << "sctp-session.cpp:171:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
-                        }
+                        socket_.async_wait(
+                            transport::protocols::sctp::socket::wait_type::wait_write,
+                            [&, write_data, fn](const boost::system::error_code& ec){
+                                write_(write_data, fn, ec);
+                            }
+                        );
                         return;
                     }
                     case EINVAL:
@@ -187,18 +163,12 @@ namespace sctp_transport{
                 if(remaining_bytes > 0){
                     std::shared_ptr<std::vector<char> > buf_ptr = std::make_shared<std::vector<char> >(remaining_bytes);
                     std::memcpy(buf_ptr->data(), write_data->data() + len, remaining_bytes);
-                    try{
-                        std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
-                        socket_.async_wait(
-                            transport::protocols::sctp::socket::wait_type::wait_write,
-                            [&, self, buf_ptr, fn](const boost::system::error_code& ec){
-                                self->write_(buf_ptr, fn, ec);
-                            }
-                        );
-                    } catch (std::bad_weak_ptr& e) {
-                        std::cerr << "sctp-session.cpp:205:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
-                        throw e;
-                    }
+                    socket_.async_wait(
+                        transport::protocols::sctp::socket::wait_type::wait_write,
+                        [&, buf_ptr, fn](const boost::system::error_code& ec){
+                            write_(buf_ptr, fn, ec);
+                        }
+                    );
                     return;
                 } else {
                     fn();

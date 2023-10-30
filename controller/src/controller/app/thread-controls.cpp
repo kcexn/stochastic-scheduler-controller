@@ -51,27 +51,16 @@ namespace app{
                             throw "what?";
                     }
                 } else {
-                    // if(setpriority(PRIO_PGRP, pid_, 5) == -1){
-                    //     switch(errno)
-                    //     {
-                    //         case ESRCH:
-                    //             break;
-                    //         default:
-                    //             std::cerr << "thread-controls.cpp:60:setpriority() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                    //             throw "what?";
-                    //     }
-                    // } else {
-                        if(kill(-pid_, SIGCONT) == -1){
-                            switch(errno)
-                            {
-                                case ESRCH:
-                                    break;
-                                default:
-                                    std::cerr << "thread-controls.cpp:70:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                    throw "what?";
-                            }
+                    if(kill(-pid_, SIGCONT) == -1){
+                        switch(errno)
+                        {
+                            case ESRCH:
+                                break;
+                            default:
+                                std::cerr << "thread-controls.cpp:70:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                throw "what?";
                         }
-                    // }
+                    }
                 }
             }
             int status = pthread_cancel(tid_);

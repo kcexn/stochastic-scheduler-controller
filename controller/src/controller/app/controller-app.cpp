@@ -6,6 +6,7 @@
 #include "../resources/resources.hpp"
 #include <charconv>
 #include <transport-servers/sctp-server/sctp-session.hpp>
+#include <sys/wait.h>
 
 #define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
@@ -109,11 +110,6 @@ namespace app{
         io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc),
         ioc_(ioc)
     {
-        // Initialize parent controls
-        io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
-        io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<std::uint16_t> >();
-        io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
-
         std::thread application(
             &Controller::start, this
         );
@@ -128,11 +124,6 @@ namespace app{
         io_(io_mbox_ptr_, upath.string(), ioc, sport),
         ioc_(ioc)
     {
-        // Initialize parent controls
-        io_mbox_ptr_->sched_signal_mtx_ptr = std::make_shared<std::mutex>();
-        io_mbox_ptr_->sched_signal_ptr = std::make_shared<std::atomic<std::uint16_t> >();
-        io_mbox_ptr_->sched_signal_cv_ptr = std::make_shared<std::condition_variable>();
-
         std::thread application(
             &Controller::start, this
         );
@@ -144,10 +135,11 @@ namespace app{
         // Initialize resources I might need.
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
+        std::shared_ptr<server::Session> server_session;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
-            std::shared_ptr<server::Session> server_session;
+            server_session = std::shared_ptr<server::Session>();
             lk.lock();
             io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
@@ -279,6 +271,10 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
+                        pid_t pid = 0;
+                        do{
+                            pid = waitpid(-1, nullptr, WNOHANG);
+                        }while(pid > 0);
                     } else {
                         // Evaluate which thread to execute next and notify it.
                         auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
