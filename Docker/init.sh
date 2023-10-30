@@ -19,7 +19,7 @@ wait %1
 printf ":%s:wait - exit status=$?\n" $(date +%s%3N) >> /var/log/controller.stdout.log
 printf ":%s:CONTAINER EXITING\n" $(date +%s%3N) >> /var/log/controller.stdout.log
 # Uncomment the below with an appropriately configured webdav server for capturing error logs or core dumps.
-curl -T gmon.out "http://10.180.11.8100/upload/$HOSTNAME-gmon.out"
+mkdir -p /tmp/profile/$HOSTNAME
 curl -T /var/log/controller.stdout.log "http://10.180.0.11:8100/upload/$HOSTNAME-stdout.log"
 curl -T /var/log/nginx-access.log "http://10.180.0.11:8100/upload/$HOSTNAME-nginx-access.log"
 curl -T /var/log/controller.stderr.log "http://10.180.0.11:8100/upload/$HOSTNAME-stderr.log"

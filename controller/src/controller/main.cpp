@@ -20,15 +20,6 @@ extern "C"{
                 SIGNAL_CV_PTR->notify_all();
                 break;
             }
-            case SIGCHLD:
-            {
-                int wstatus = 0;
-                pid_t pid = 0;
-                do{
-                    pid = waitpid(-1, &wstatus, WNOHANG);
-                } while(pid > 0);
-                break;
-            }
         }
     }
 }
@@ -76,7 +67,6 @@ int main(int argc, char* argv[])
     sigemptyset(&(new_action.sa_mask));
     new_action.sa_flags=0;
     sigaction(SIGTERM, &new_action, NULL);
-    sigaction(SIGCHLD, &new_action, NULL);
 
     sigset_t sigmask = {};
     int status = sigemptyset(&sigmask);

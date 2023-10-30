@@ -10,18 +10,12 @@ namespace sctp_transport{
     void SctpSession::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) {
         std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
         std::memcpy(write_data_ptr->data(), write_buffer.data(), write_buffer.size());
-        try{
-            std::shared_ptr<SctpSession> self = std::static_pointer_cast<SctpSession>(shared_from_this());
-            socket_.async_wait(
-                transport::protocols::sctp::socket::wait_type::wait_write,
-                [&, self, write_data_ptr, fn](const boost::system::error_code& ec){
-                    write_(write_data_ptr, fn, ec);
-                }
-            );
-        } catch(std::bad_weak_ptr& e){
-            std::cerr << "sctp-session.cpp:22:shared_from_this() failed with std::bad_weak_ptr:" << e.what() << std::endl;
-            throw e;
-        }
+        socket_.async_wait(
+            transport::protocols::sctp::socket::wait_type::wait_write,
+            [&, write_data_ptr, fn](const boost::system::error_code& ec){
+                write_(write_data_ptr, fn, ec);
+            }
+        );
     }
 
     void SctpSession::write_(std::shared_ptr<std::vector<char> > write_data, const std::function<void()> fn, const boost::system::error_code& ec){

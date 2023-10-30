@@ -141,27 +141,12 @@ namespace app{
     }
 
     void Controller::start(){
-        sigset_t sigmask = {};
-        int status = sigemptyset(&sigmask);
-        if(status == -1){
-            std::cerr << "controller-app.cpp:147:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-            throw "what?";
-        }
-        status = sigaddset(&sigmask, SIGCHLD);
-        if(status == -1){
-            std::cerr << "controller-app.cpp:152:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-            throw "what?";
-        }
         // Initialize resources I might need.
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
-            if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                std::cerr << "controller-app.cpp:162:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                throw "what?";
-            }
             std::shared_ptr<server::Session> server_session;
             lk.lock();
             io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
@@ -233,10 +218,6 @@ namespace app{
                 });
                 // While there are stopped threads.
                 while(it != ctx_ptrs.end()){
-                    if(sigprocmask(SIG_BLOCK, &sigmask, nullptr) == -1){
-                        std::cerr << "controller-app.cpp:237:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                        throw "what?";
-                    }
                     auto& ctxp = *it;
                     // Check to see if the context is stopped.
                     // std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
@@ -298,10 +279,6 @@ namespace app{
                             });
                             return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
                         });
-                        if(sigprocmask(SIG_UNBLOCK, &sigmask, nullptr) == -1){
-                            std::cerr << "controller-app.cpp:302:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            throw "what?";
-                        }
                     } else {
                         // Evaluate which thread to execute next and notify it.
                         auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
