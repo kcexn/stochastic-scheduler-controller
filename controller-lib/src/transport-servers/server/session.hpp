@@ -22,10 +22,11 @@ namespace server
     public:
         // const static std::size_t max_buflen = 65536;
         Session(Server& server): server_(server), stream_(std::ios_base::in | std::ios_base::out | std::ios_base::app){}
-        inline std::array<char, SERVER_SESSION_MAX_BUFLEN>& buf() { return buf_; }
-        inline std::stringstream& acquire_stream(){ mtx_.lock(); return stream_; }
-        inline void release_stream(){ mtx_.unlock(); }
-        inline void cancel() { 
+        std::array<char, SERVER_SESSION_MAX_BUFLEN>& buf() { return buf_; }
+        boost::asio::const_buffer& read_buf() { return data_; }
+        std::stringstream& acquire_stream(){ mtx_.lock(); return stream_; }
+        void release_stream(){ mtx_.unlock(); }
+        void cancel() { 
             stop_signal_.emit(boost::asio::cancellation_type::total);
         }
         void erase();
@@ -34,7 +35,7 @@ namespace server
         virtual void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) =0;
         virtual void close() =0;
 
-        inline bool operator==(const Session& other) { return this == &other; }
+        bool operator==(const Session& other) { return this == &other; }
 
         virtual ~Session() = default;
         
@@ -45,6 +46,7 @@ namespace server
 
     private:
         server::Server& server_;
+        boost::asio::const_buffer data_;
         std::array<char, SERVER_SESSION_MAX_BUFLEN> buf_;
         std::stringstream stream_;
         std::mutex mtx_;
