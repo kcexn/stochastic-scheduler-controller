@@ -144,29 +144,22 @@ namespace io{
                    on the socket until the transport session is ultimately closed. */
                 session->async_read([&, session, mbox](boost::system::error_code ec, std::size_t length){
                     if(!ec){
+                        // struct timespec ts[2] = {};
+                        // clock_gettime(CLOCK_REALTIME, &ts[0]);
+                        // std::cout << "controller-io.cpp:149:" << (ts[0].tv_sec*1000 + ts[0].tv_nsec/1000000) << ":us_.session->async_read() started." << std::endl;
+
                         session->acquire_stream().write(session->buf().data(), length);
                         session->release_stream();
                         std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                        bool status = mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(2), [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                        if(!status){
-                            std::thread await([&, ec, session, mbox](){
-                                std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                                mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                                mbox->session = session;
-                                lk.unlock();
-                                mbox->sched_signal_cv_ptr->notify_one();
-                            });
-                            await.detach();
-                        } else {
-                            mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                            mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                            mbox->session = session;
-                            lk.unlock();
-                            mbox->sched_signal_cv_ptr->notify_one();
-                        }
-                        return;
+                        mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                        mbox->session = session;
+                        lk.unlock();
+                        mbox->sched_signal_cv_ptr->notify_one();
+
+                        // clock_gettime(CLOCK_REALTIME, &ts[1]);
+                        // std::cout << "controller-io.cpp:162:" << (ts[1].tv_sec*1000 + ts[1].tv_nsec/1000000) << ":us_.session->async_read() finished." << std::endl;
                     } else {
                         if(ec != boost::asio::error::eof){
                             std::cerr << "Error in unix async read:" << ec.message() << std::endl;
@@ -180,33 +173,28 @@ namespace io{
 
         ss_.init([&, mbox](const boost::system::error_code& ec,  std::shared_ptr<sctp_transport::SctpSession> session){
             if(!ec){
+                // struct timespec ts[2] = {};
+                // clock_gettime(CLOCK_REALTIME, &ts[0]);
+                // std::cout << "controller-io.cpp:198:" << (ts[0].tv_sec*1000 + ts[0].tv_nsec/1000000) << ":ss_ callback started." << std::endl;
+
                 std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                bool status = mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(2), [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                if(!status){
-                    std::thread await([&, ec, session, mbox](){
-                        std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                        mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                        mbox->session = session;
-                        lk.unlock();
-                        mbox->sched_signal_cv_ptr->notify_one();
-                    });
-                    await.detach();
-                } else {
-                    mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                    mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                    mbox->session = session;
-                    lk.unlock();
-                    mbox->sched_signal_cv_ptr->notify_one();
-                }
+                mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                mbox->session = session;
+                lk.unlock();
+                mbox->sched_signal_cv_ptr->notify_one();
+
+                // clock_gettime(CLOCK_REALTIME, &ts[2]);
+                // std::cout << "controller-io.cpp:209:" << (ts[2].tv_sec*1000 + ts[2].tv_nsec/1000000) << ":ss_ callback started." << std::endl;
                 return;               
             } else {
                 std::cerr << "Error in ss_.init()" << ec.message() << std::endl;
             }
         });
+        std::chrono::milliseconds wake_period(2);
         while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
-            ioc_.run();
+            ioc_.run_for(wake_period);
         }
         // std::cout << "controller-io.cpp:204:IO thread exiting" << std::endl;
         stopped_.store(true, std::memory_order::memory_order_relaxed);

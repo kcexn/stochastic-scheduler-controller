@@ -136,6 +136,10 @@ namespace app{
         std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
         std::shared_ptr<server::Session> server_session;
+        // struct timespec troute[2] = {};
+        // struct timespec tschedend[2] = {};
+        // struct timespec ts[2] = {};
+        // struct timespec ts = {};
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
@@ -144,6 +148,10 @@ namespace app{
             io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
+            // if(status){
+            //     clock_gettime(CLOCK_REALTIME, &ts);
+            //     std::cout << "controller-app.cpp:153:loop started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+            // }
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             if(thread_local_signal & ~CTL_TERMINATE_EVENT){
                 io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
@@ -152,18 +160,26 @@ namespace app{
                 io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
                 server_session = io_mbox_ptr_->session;
             }
+            // if(status){
+            //     clock_gettime(CLOCK_REALTIME, &ts);
+            //     std::cout << "controller-app.cpp:165:msg_flag read:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+            // }
             lk.unlock();
-            io_mbox_ptr_->mbx_cv.notify_one();
+            io_mbox_ptr_->mbx_cv.notify_all();
             if(server_session){
+                // clock_gettime(CLOCK_MONOTONIC, &troute[0]);
                 std::shared_ptr<http::HttpSession> http_session_ptr;
                 auto http_client = std::find_if(hcs_.begin(), hcs_.end(), [&](auto& hc){
                     return *hc == server_session;
                 });
                 if(http_client != hcs_.end()){
+                    
                     /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
                     std::shared_ptr<http::HttpClientSession> http_client_ptr = std::static_pointer_cast<http::HttpClientSession>(*http_client);
                     http_client_ptr->read();
                     route_response(http_client_ptr);
+                    // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
+                    // std::cout << "Client Routing time:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
                 } else {
                     /* Otherwise by default any read request must be a server session. */
                     auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
@@ -175,6 +191,8 @@ namespace app{
                         if(std::get<http::HttpRequest>(*http_session_ptr).verb_started){
                             hs_.push_back(http_session_ptr);
                             route_request(http_session_ptr);
+                            // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
+                            // std::cout << "Server Routing time - new session:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
                         }
                     } else {
                         // For our application all session pointers are http session pointers.
@@ -190,28 +208,103 @@ namespace app{
                         if((it != server_res.headers.end()) || (server_res.chunks.size() > 0 && server_res.chunks.back().chunk_size != http::HttpBigNum{0})){
                             http_session_ptr->read();
                             route_request(http_session_ptr);
+                            // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
+                            // std::cout << "Server Routing time - existing session:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
                         }
                     }
                 }
             }
+            // if(status){
+            //     clock_gettime(CLOCK_REALTIME, &ts);
+            //     std::cout << "controller-app.cpp:219:http streams routed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+            // }
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 if(hs_.empty() && ctx_ptrs.empty() && hcs_.empty()){
                     controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
                     break;
                 }
             }
+            // if(status){
+            //     clock_gettime(CLOCK_REALTIME, &ts);
+            //     std::cout << "controller-app.cpp:229:terminate processed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+            // }
             if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
-                // Find a context that has a valid stopped thread.
-                auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
+                // clock_gettime(CLOCK_REALTIME, &ts);
+                // std::cout << "controller-app.cpp:233:sched end processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
+                while(waitpid(-1, nullptr, WNOHANG) > 0){}
+                // Find stopped contexts:
+                auto stopped = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctxp){
+                    return (ctxp->is_stopped());
+                });
+                while(stopped != ctx_ptrs.end()){
+                    auto& ctxp = *stopped;
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:243:stopped context processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
+                    boost::json::value val;
+                    // create the response.
+                    http::HttpReqRes rr;
+                    std::get<http::HttpResponse>(rr) = create_response(*ctxp);
+                    while(ctxp->sessions().size() > 0 ){
+                        std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
+                        next_session->set(rr);
+                        next_session->write(
+                            [&, next_session](){
+                                next_session->close();
+                            }
+                        );
+                        ctxp->sessions().pop_back();
+                        flush_wsk_logs();
+                    }
+                    // Finish and close all of the HTTP sessions.
+                    while(ctxp->peer_server_sessions().size() > 0){
+                        std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
+                        http::HttpReqRes rr = next_session->get();
+                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                        res.chunks.emplace_back();
+                        res.chunks.back().chunk_size = {1};
+                        res.chunks.back().chunk_data = "]"; // Close the JSON stream array.
+                        res.chunks.emplace_back(); // Close the HTTP stream.
+                        next_session->set(rr);
+                        next_session->write([&,next_session](){
+                            next_session->close();
+                        });
+                        ctxp->peer_server_sessions().pop_back();
+                    }
+                    while(ctxp->peer_client_sessions().size() > 0){
+                        std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
+                        http::HttpReqRes rr = next_session->get();
+                        http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                        req.chunks.emplace_back();
+                        req.chunks.back().chunk_size = {1};
+                        req.chunks.back().chunk_data = "]"; // Close the JSON stream array.
+                        req.chunks.emplace_back(); // Close the HTTP stream.
+                        next_session->set(rr);
+                        next_session->write([&,next_session](){
+                            return;
+                        });
+                        ctxp->peer_client_sessions().pop_back();
+                    }
+                    ctx_ptrs.erase(stopped); // This invalidates the iterator in the loop, so we have to perform the original search again.
+                    // Find a context that has a stopped thread.
+                    stopped = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctxp){
+                        return (ctxp->is_stopped());
+                    });
+
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:296:stopped context processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+                }
+
+                // Find contexts that have stopped threads but are not stopped.
+                auto updated = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
                     auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
-                        return thread.is_stopped() && thread.is_valid();
+                        return thread.is_stopped() && thread.has_pending_idxs();
                     });
                     return (tmp == ctx_ptr->thread_controls().end())? false : true;
                 });
-                // While there are stopped threads.
-                while(it != ctx_ptrs.end()){
-                    auto& ctxp = *it;
-                    while(waitpid(-1, nullptr, WNOHANG) > 0){}
+                while(updated != ctx_ptrs.end()){
+                    auto& ctxp = *updated;
                     // Check to see if the context is stopped.
                     // std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
                     // if(!__OW_ACTIVATION_ID.empty()){
@@ -219,141 +312,100 @@ namespace app{
                     //     clock_gettime(CLOCK_REALTIME, &ts);
                     //     std::cout << "controller-app.cpp:220:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":__OW_ACTIVATION_ID=" << __OW_ACTIVATION_ID << std::endl;
                     // }
-                    if (ctxp->is_stopped()){
-                        boost::json::value val;
-                        // create the response.
-                        http::HttpReqRes rr;
-                        std::get<http::HttpResponse>(rr) = create_response(*ctxp);
-                        while(ctxp->sessions().size() > 0 ){
-                            std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
-                            next_session->set(rr);
-                            next_session->write(
-                                [&, next_session](){
-                                    next_session->close();
-                                }
-                            );
-                            ctxp->sessions().pop_back();
-                            flush_wsk_logs();
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:316:stopped thread processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
+                    // Evaluate which thread to execute next and notify it.
+                    auto stopped_thread = std::find_if(ctxp->thread_controls().begin(), ctxp->thread_controls().end(), [&](auto& thread){
+                        return thread.is_stopped() && thread.has_pending_idxs();
+                    });
+                    // invalidate the thread.
+                    std::vector<std::size_t> execution_context_idxs = stopped_thread->pop_idxs();
+                    // Do the subsequent steps only if there are execution idxs that exited normally.
+                    // get the index of the stopped thread.
+                    std::ptrdiff_t idx = stopped_thread - ctxp->thread_controls().begin();
+                    
+                    /* For every peer in the peer table notify them with a state update */
+                    // It's only worth constructing the state update values if there are peers to update.
+                    if( (ctxp->peer_client_sessions().size() + ctxp->peer_server_sessions().size()) > 0 ){
+                        std::shared_ptr<Relation>& finished = ctxp->manifest()[idx];
+                        std::string f_key(finished->key());
+                        std::string f_val(finished->acquire_value());
+                        finished->release_value();
+                        boost::json::object jo;
+                        boost::json::error_code ec;
+                        boost::json::value jv = boost::json::parse(f_val, ec);
+                        if(ec){
+                            std::cerr << "controller-app.cpp:327:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                            throw "This shouldn't happen.";
                         }
-                        // Finish and close all of the HTTP sessions.
-                        while(ctxp->peer_server_sessions().size() > 0){
-                            std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
-                            http::HttpReqRes rr = next_session->get();
-                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            res.chunks.emplace_back();
-                            res.chunks.back().chunk_size = {1};
-                            res.chunks.back().chunk_data = "]"; // Close the JSON stream array.
-                            res.chunks.emplace_back(); // Close the HTTP stream.
-                            next_session->set(rr);
-                            next_session->write([&,next_session](){
-                                next_session->close();
-                            });
-                            ctxp->peer_server_sessions().pop_back();
-                        }
-                        while(ctxp->peer_client_sessions().size() > 0){
-                            std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
-                            http::HttpReqRes rr = next_session->get();
+                        jo.emplace(f_key, jv);
+                        boost::json::object jf_val;
+                        jf_val.emplace("result", jo);
+                        std::string data(",");
+                        std::string jsonf_val = boost::json::serialize(jf_val);
+                        data.append(jsonf_val);
+                        for(auto& peer_session: ctxp->peer_client_sessions()){
+                            /* Update peers */
+                            http::HttpReqRes rr = peer_session->get();
                             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                            req.chunks.emplace_back();
-                            req.chunks.back().chunk_size = {1};
-                            req.chunks.back().chunk_data = "]"; // Close the JSON stream array.
-                            req.chunks.emplace_back(); // Close the HTTP stream.
-                            next_session->set(rr);
-                            next_session->write([&,next_session](){
-                                return;
-                            });
-                            ctxp->peer_client_sessions().pop_back();
+                            http::HttpChunk chunk = {};
+                            chunk.chunk_size = {data.size()};
+                            chunk.chunk_data = data;
+                            req.chunks.push_back(chunk);
+                            peer_session->set(rr);
+                            peer_session->write([&, peer_session](){return;});
                         }
-                        ctx_ptrs.erase(it); // This invalidates the iterator in the loop, so we have to perform the original search again.
-                        // Find a context that has a stopped thread.
-                        it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctx_ptr){
-                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
-                                return thread.is_stopped() && thread.is_valid();
-                            });
-                            return (tmp == ctx_ptr->thread_controls().end()) ? false : true;
-                        });
-                    } else {
-                        // Evaluate which thread to execute next and notify it.
-                        auto stopped_thread = std::find_if((*it)->thread_controls().begin(), (*it)->thread_controls().end(), [&](auto& thread){
-                            return thread.is_stopped() && thread.is_valid();
-                        });
-                        // invalidate the thread.
-                        std::vector<std::size_t> execution_context_idxs = stopped_thread->invalidate();
-                        // Do the subsequent steps only if there are execution idxs that exited normally.
-                        // get the index of the stopped thread.
-                        std::ptrdiff_t idx = stopped_thread - (*it)->thread_controls().begin();
-                        
-                        /* For every peer in the peer table notify them with a state update */
-                        // It's only worth constructing the state update values if there are peers to update.
-                        if( ((*it)->peer_client_sessions().size() + (*it)->peer_server_sessions().size()) > 0 ){
-                            std::shared_ptr<Relation>& finished = (*it)->manifest()[idx];
-                            std::string f_key(finished->key());
-                            std::string f_val(finished->acquire_value());
-                            finished->release_value();
-                            boost::json::object jo;
-                            boost::json::error_code ec;
-                            boost::json::value jv = boost::json::parse(f_val, ec);
-                            if(ec){
-                                std::cerr << "controller-app.cpp:327:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
-                                throw "This shouldn't happen.";
-                            }
-                            jo.emplace(f_key, jv);
-                            boost::json::object jf_val;
-                            jf_val.emplace("result", jo);
-                            std::string data(",");
-                            std::string jsonf_val = boost::json::serialize(jf_val);
-                            data.append(jsonf_val);
-                            for(auto& peer_session: (*it)->peer_client_sessions()){
-                                /* Update peers */
-                                http::HttpReqRes rr = peer_session->get();
-                                http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                                http::HttpChunk chunk = {};
-                                chunk.chunk_size = {data.size()};
-                                chunk.chunk_data = data;
-                                req.chunks.push_back(chunk);
-                                peer_session->set(rr);
-                                peer_session->write([&, peer_session](){return;});
-                            }
-                            for(auto& peer_session: (*it)->peer_server_sessions()){
-                                /* Update peers */
-                                http::HttpReqRes rr = peer_session->get();
-                                http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                                http::HttpChunk chunk = {};
-                                chunk.chunk_size = {data.size()};
-                                chunk.chunk_data = data;
-                                res.chunks.push_back(chunk);
-                                peer_session->set(rr);
-                                peer_session->write([&, peer_session](){return;});
-                            }
-                        }    
-                        // Get the key of the action at this index+1 (mod thread_controls.size())
-                        std::string key((*it)->manifest()[(++idx)%((*it)->thread_controls().size())]->key());
-                        for (auto& idx: execution_context_idxs){
-                            // Get the next relation to execute from the dependencies of the relation at this key.
-                            std::shared_ptr<Relation> next = (*it)->manifest().next(key, idx);
-                            // Retrieve the index of this relation in the manifest.
-                            auto next_it = std::find_if((*it)->manifest().begin(), (*it)->manifest().end(), [&](auto& rel){
-                                return rel->key() == next->key();
-                            });
-                            std::ptrdiff_t next_idx = next_it - (*it)->manifest().begin();
-                            //Start the thread at this index.
-                            (*it)->thread_controls()[next_idx].notify(idx);
+                        for(auto& peer_session: ctxp->peer_server_sessions()){
+                            /* Update peers */
+                            http::HttpReqRes rr = peer_session->get();
+                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                            http::HttpChunk chunk = {};
+                            chunk.chunk_size = {data.size()};
+                            chunk.chunk_data = data;
+                            res.chunks.push_back(chunk);
+                            peer_session->set(rr);
+                            peer_session->write([&, peer_session](){return;});
                         }
-                        // Search through remaining contexts.
-                        it = std::find_if(it, ctx_ptrs.end(), [&](auto& ctx_ptr){
-                            auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
-                                return thread.is_stopped() && thread.is_valid();
-                            });
-                            return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                    }    
+                    // Get the key of the action at this index+1 (mod thread_controls.size())
+                    std::string key(ctxp->manifest()[(++idx)%(ctxp->thread_controls().size())]->key());
+                    for (auto& idx: execution_context_idxs){
+                        // Get the next relation to execute from the dependencies of the relation at this key.
+                        std::shared_ptr<Relation> next = ctxp->manifest().next(key, idx);
+                        // Retrieve the index of this relation in the manifest.
+                        auto next_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
+                            return rel->key() == next->key();
                         });
+                        std::ptrdiff_t next_idx = next_it - ctxp->manifest().begin();
+                        //Start the thread at this index.
+                        ctxp->thread_controls()[next_idx].notify(idx);
                     }
+                    // Search through remaining contexts.
+                    updated = std::find_if(++updated, ctx_ptrs.end(), [&](auto& ctx_ptr){
+                        auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](auto& thread){
+                            return thread.is_stopped() && thread.has_pending_idxs();
+                        });
+                        return (tmp == ctx_ptr->thread_controls().end())? false : true;
+                    });
+                    
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:393:stopped thread processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                 }
             }
+            // if(status){
+            //     clock_gettime(CLOCK_REALTIME, &ts);
+            //     std::cout << "controller-app.cpp:387:sched end processed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+            // }
         }
         return;
     }
 
     void Controller::route_response(std::shared_ptr<http::HttpClientSession>& session){
+        // struct timespec ts = {};
+        // clock_gettime(CLOCK_REALTIME, &ts);
+        // std::cout << "controller-app.cpp:396:route_response started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
         http::HttpReqRes req_res = session->get();
         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
         http::HttpRequest& req = std::get<http::HttpRequest>(req_res);
@@ -361,7 +413,13 @@ namespace app{
             return (header.field_name == http::HttpHeaderField::CONTENT_LENGTH);
         });
         if(res.status == http::HttpStatus::CREATED){
+            // clock_gettime(CLOCK_REALTIME, &ts);
+            // std::cout << "controller-app.cpp:406:http:HttpStatus::Created started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
             for(; res.pos < res.next_chunk; ++res.pos){
+                // clock_gettime(CLOCK_REALTIME, &ts);
+                // std::cout << "controller-app.cpp:410:chunk processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
                 std::size_t next_comma = 0;
                 const http::HttpChunk& chunk = res.chunks[res.pos];
                 const http::HttpBigNum& chunk_size = chunk.chunk_size;
@@ -382,16 +440,14 @@ namespace app{
                             return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
                         });
                         if(server_ctx != ctx_ptrs.end()){
-                            std::size_t num_valid_threads = 0;
+                            std::vector<std::thread> stops;
                             for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                thread_control.stop_thread();
-                                if(thread_control.is_valid()){
-                                    if(num_valid_threads > 0){
-                                        thread_control.invalidate();
-                                    } else {
-                                        ++num_valid_threads;
-                                    }
-                                }
+                                stops.emplace_back([&](){
+                                    thread_control.stop_thread();
+                                });
+                            }
+                            for(auto& stop: stops){
+                                stop.join();
                             }
                             for(auto& rel: (*server_ctx)->manifest()){
                                 auto& value = rel->acquire_value();
@@ -428,6 +484,10 @@ namespace app{
                         auto tmp = std::find(cp->peer_client_sessions().begin(), cp->peer_client_sessions().end(), session);
                         return (tmp == cp->peer_client_sessions().end()) ? false : true;
                     });
+
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:486:JSON parsed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
                     if(ctx == ctx_ptrs.end()){
                         session->close();
                         return;
@@ -506,59 +566,74 @@ namespace app{
                             }
                             (*rel)->release_value();
 
-                            /* Reschedule if necessary */
-                            std::ptrdiff_t idx = rel - (*ctx)->manifest().begin();
-                            auto& thread = (*ctx)->thread_controls()[idx];     
-                            auto execution_idxs = thread.stop_thread();
-                            std::size_t manifest_size = (*ctx)->manifest().size();
-                            for(auto& i: execution_idxs){
-                                // Get the starting relation.
-                                std::string start_key((*ctx)->manifest()[i % manifest_size]->key());
-                                std::shared_ptr<Relation> start = (*ctx)->manifest().next(start_key, i);
-                                if(start->key().empty()){
-                                    // If the start key is empty, that means that all tasks in the schedule are complete.
-                                    std::size_t num_valid_threads = 0;
-                                    for(auto& thread_control: (*ctx)->thread_controls()){
-                                        thread_control.stop_thread();
-                                        if(thread_control.is_valid()){
-                                            if(num_valid_threads > 0){
-                                                thread_control.invalidate();
-                                            } else {
-                                                ++num_valid_threads;
+                            auto& ctxp = *ctx;
+                            std::ptrdiff_t idx = rel - (ctxp)->manifest().begin();
+                            std::size_t manifest_size = ctxp->manifest().size();
+                            std::shared_ptr<std::condition_variable> wait_cv_ = std::make_shared<std::condition_variable>();
+                            std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_](){
+                                auto& thread = ctxp->thread_controls()[idx];
+                                // This operation can block.
+                                auto execution_idxs = thread.stop_thread();
+                                /* Reschedule if necessary */
+                                for(auto& i: execution_idxs){
+                                    // Get the starting relation.
+                                    std::string start_key(ctxp->manifest()[i % manifest_size]->key());
+                                    std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
+                                    if(start->key().empty()){
+                                        // If the start key is empty, that means that all tasks in the schedule are complete.
+                                        for(auto& thread_control: ctxp->thread_controls()){
+                                            thread_control.stop_thread();
+                                        }
+                                        for(auto& rel: ctxp->manifest()){
+                                            auto& value = rel->acquire_value();
+                                            if(value.empty()){
+                                                value = "{}";
                                             }
+                                            rel->release_value();
                                         }
-                                    }
-                                    for(auto& rel: (*ctx)->manifest()){
-                                        auto& value = rel->acquire_value();
-                                        if(value.empty()){
-                                            value = "{}";
+                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                                        wait_cv_->notify_one();
+                                        return;
+                                    } else {
+                                        // Find the index in the manifest of the starting relation.
+                                        auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
+                                            return rel->key() == start->key();
+                                        });
+                                        if(start_it == ctxp->manifest().end()){
+                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                            throw "This shouldn't be possible";
                                         }
-                                        rel->release_value();
-                                    }
-                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                    break;
-                                } else {
-                                    thread.invalidate();
-                                    // Find the index in the manifest of the starting relation.
-                                    auto start_it = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& rel){
-                                        return rel->key() == start->key();
-                                    });
-                                    if(start_it == (*ctx)->manifest().end()){
-                                        std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                        throw "This shouldn't be possible";
-                                    }
-                                    std::ptrdiff_t start_idx = start_it - (*ctx)->manifest().begin();
-                                    (*ctx)->thread_controls()[start_idx].notify(i);
-                                }                 
+                                        std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
+                                        ctxp->thread_controls()[start_idx].notify(i);
+                                    }                 
+                                }
+                                wait_cv_->notify_one();
+                                return;
+                            });
+                            std::mutex wait_mtx_;
+                            std::unique_lock<std::mutex> lk(wait_mtx_);
+                            if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2)) == std::cv_status::no_timeout){
+                                reschedule.join();
+                            } else {
+                                reschedule.detach();
                             }
                         }
                     }
+
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:629:results handled:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                 }
+
+                // clock_gettime(CLOCK_REALTIME, &ts);
+                // std::cout << "controller-app.cpp:633:chunk processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
             }
             http::HttpReqRes rr = session->get();
             std::get<http::HttpResponse>(rr) = res;
             session->set(rr);
+
+            // clock_gettime(CLOCK_REALTIME, &ts);
+            // std::cout << "controller-app.cpp:640:http:HttpStatus::Created started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
         } else {
             auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
                 auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
@@ -575,7 +650,6 @@ namespace app{
                     // A peer list size of 2 indicates that the only peers I have are myself, and a primary context.
                     // If the only peers I have in my list are myself and a primary context AND an error code is returned by a peer (MUST be the primary context).
                     // Then the execution context is finished and I should terminate the context.
-                    std::size_t num_valid_threads = 0;
                     for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
                         auto& thread = ctx_ptr->thread_controls()[i];
                         auto& relation = ctx_ptr->manifest()[i];
@@ -585,13 +659,6 @@ namespace app{
                         }
                         relation->release_value();
                         thread.stop_thread();
-                        if(thread.is_valid()){
-                            if(num_valid_threads > 0){
-                                thread.invalidate();
-                            } else {
-                                ++num_valid_threads;
-                            }
-                        }
                     }
                     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                     io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
@@ -607,10 +674,16 @@ namespace app{
     }
 
     void Controller::route_request(std::shared_ptr<http::HttpSession>& session){
+        // struct timespec ts = {};
+        // clock_gettime(CLOCK_REALTIME, &ts);
+        // std::cout << "controller-app.cpp:691:route_request started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
         http::HttpReqRes req_res = session->get();
         http::HttpRequest& req = std::get<http::HttpRequest>(req_res);            
         // Start processing chunks, iff next_chunk > 0.
         if(req.route == "/run" || req.route == "/init"){
+            // clock_gettime(CLOCK_REALTIME, &ts);
+            // std::cout << "controller-app.cpp:698:path routing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
             // For our application, each chunk that is emitted on the HTTP stream must be a fully 
             // formed and correct JSON object. There are two possible options for the arrival of data on the HTTP stream.
             // 1) An array of JSON objects e.g.;
@@ -627,6 +700,8 @@ namespace app{
             // Finally, the closing brace that we need to look for is the closing brace of the entire JSON object, and not of 
             // any nested objects. So we must search for the closing brace from the comma delimiter position in reverse.
             for(; req.pos < req.next_chunk; ++req.pos){
+                // clock_gettime(CLOCK_REALTIME, &ts);
+                // std::cout << "controller-app.cpp:716:chunk processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                 std::size_t next_comma = 0;
                 const http::HttpChunk& chunk = req.chunks[req.pos];
                 const http::HttpBigNum& chunk_size = chunk.chunk_size;
@@ -638,6 +713,8 @@ namespace app{
                 }
 
                 while(http::HttpBigNum{next_comma} < chunk_size){
+                    // struct timespec tjson[2] = {};
+                    // clock_gettime(CLOCK_MONOTONIC, &tjson[0]);
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
                         std::cerr << "controller-app.cpp:675:json_obj_str is empty" << std::endl;
@@ -649,18 +726,17 @@ namespace app{
                             return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
                         });
                         if(server_ctx != ctx_ptrs.end()){
-                            std::size_t num_valid_threads = 0;
-                            for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                thread_control.stop_thread();
-                                if(thread_control.is_valid()){
-                                    if(num_valid_threads > 0){
-                                        thread_control.invalidate();
-                                    } else {
-                                        ++num_valid_threads;
-                                    }
-                                }
+                            auto& ctxp = *server_ctx;
+                            std::vector<std::thread> stops;
+                            for(auto& thread_control: ctxp->thread_controls()){
+                                stops.emplace_back([&](){
+                                    thread_control.stop_thread();
+                                });
                             }
-                            for (auto& rel: (*server_ctx)->manifest()){
+                            for(auto& stop: stops){
+                                stop.join();
+                            }
+                            for (auto& rel: ctxp->manifest()){
                                 auto& value = rel->acquire_value();
                                 if(value.empty()){
                                     value = "{}";
@@ -669,6 +745,8 @@ namespace app{
                             } 
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                            // clock_gettime(CLOCK_MONOTONIC, &tjson[1]);
+                            // std::cout << "route request ] termination time: " << (tjson[1].tv_sec*1000000 + tjson[1].tv_nsec/1000) - (tjson[0].tv_sec*1000000 + tjson[0].tv_nsec/1000) << std::endl;
                             break;
                         } else {
                             break;
@@ -684,8 +762,16 @@ namespace app{
                         std::cerr << "controller-app.cpp:716:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                         throw "Json Parsing failed.";
                     }
+
+                    // clock_gettime(CLOCK_REALTIME, &ts);
+                    // std::cout << "controller-app.cpp:787:JSON parsing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+
                     if(req.route == "/run"){
                         if(req.verb == http::HttpVerb::POST){
+                            // clock_gettime(CLOCK_REALTIME, &ts);
+                            // std::cout << "controller-app.cpp:792:/run POST:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+                            // struct timespec ts[2] = {};
+                            // clock_gettime(CLOCK_MONOTONIC, &ts[0]);
                             controller::resources::run::Request run(val.as_object());
                             auto env = run.env();
                             // std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
@@ -745,18 +831,12 @@ namespace app{
                                             throw "This shouldn't happen!";
                                         }
                                         if(rip.sin_addr.s_addr == io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr && rip.sin_port == io_.local_sctp_address.ipv4_addr.address.sin_port){
-                                            std::size_t num_valid_threads = 0;
                                             for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
                                                 auto& thread = ctx_ptr->thread_controls()[i];
                                                 auto& relation = ctx_ptr->manifest()[i];
                                                 relation->acquire_value() = "{}";
                                                 relation->release_value();
                                                 thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                if(num_valid_threads > 0){
-                                                    thread.invalidate();
-                                                } else {
-                                                    ++num_valid_threads;
-                                                }
                                             }
                                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
@@ -790,21 +870,28 @@ namespace app{
                                                 ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].resume();
                                                 std::thread executor(
                                                     [&, ctx_ptr, i, manifest_size, start_idx, mbox_ptr](){
-                                                        try{
-                                                            pthread_t tid = pthread_self();
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].tid() = tid;
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].ready().store(true, std::memory_order::memory_order_relaxed);
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].cv().notify_one();
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].wait();
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].resume();
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        // pthread_t tid = pthread_self();
+                                                        auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
+                                                        // thread_control.tid() = tid;
+                                                        thread_control.ready().store(true, std::memory_order::memory_order_relaxed);
+                                                        thread_control.synchronize();
+                                                        thread_control.wait();
+                                                        if(thread_control.is_stopped()){
                                                             mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                             mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                        } catch (const boost::context::detail::forced_unwind& e){
-                                                            ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].signal().fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);                             
-                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT | CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
-                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                            return;
                                                         }
+                                                        while(thread_control.f()){
+                                                            thread_control.resume();
+                                                            if(thread_control.is_stopped()){
+                                                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                                mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                                return;
+                                                            }
+                                                        }
+                                                        thread_control.signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                     }
                                                 );
                                                 executor.detach();
@@ -1028,7 +1115,13 @@ namespace app{
                                     ctx_ptr->sessions().pop_back();
                                 }
                             }
+                            // clock_gettime(CLOCK_MONOTONIC, &ts[1]);
+                            // std::cout << "Run route - POST time: " << (ts[1].tv_sec*1000000 + ts[1].tv_nsec/1000) - (ts[0].tv_sec*1000000 + ts[0].tv_nsec/1000) << std::endl;
                         } else if(req.verb == http::HttpVerb::PUT){
+                            // clock_gettime(CLOCK_REALTIME, &ts);
+                            // std::cout << "controller-app.cpp:1141:/run PUT:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+                            // struct timespec ts[2] = {};
+                            // clock_gettime(CLOCK_MONOTONIC, &ts[0]);
                             /* New Connections Go Here. */
                             if(req.pos == 0){
                                 /* A new incoming stream. */
@@ -1168,56 +1261,67 @@ namespace app{
                                         (*relation)->release_value();
 
                                         /* Trigger rescheduling if necessary */
-                                        std::ptrdiff_t idx = relation - (*server_ctx)->manifest().begin();
-                                        auto& thread = (*server_ctx)->thread_controls()[idx];    
-                                        auto execution_idxs = thread.stop_thread();
-                                        std::size_t manifest_size = (*server_ctx)->manifest().size();
-                                        for(auto& i: execution_idxs){
-                                            // Get the starting relation.
-                                            std::string start_key((*server_ctx)->manifest()[i % manifest_size]->key());
-                                            std::shared_ptr<Relation> start = (*server_ctx)->manifest().next(start_key, i);
-                                            if(start->key().empty()){
-                                                // If the start key is empty, that means that all tasks in the schedule are complete.
-                                                std::size_t num_valid_threads = 0;                                                    
-                                                for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                                    thread_control.stop_thread();
-                                                    if(thread_control.is_valid()){
-                                                        if(num_valid_threads > 0){
-                                                            thread_control.invalidate();
-                                                        } else {
-                                                            ++num_valid_threads;
+                                        auto& ctxp = *server_ctx;
+                                        std::ptrdiff_t idx = relation - ctxp->manifest().begin();
+                                        std::size_t manifest_size = ctxp->manifest().size();
+                                        std::shared_ptr<std::condition_variable> wait_cv_ = std::make_shared<std::condition_variable>();
+                                        std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_](){
+                                            auto& thread = ctxp->thread_controls()[idx];    
+                                            auto execution_idxs = thread.stop_thread();
+                                            for(auto& i: execution_idxs){
+                                                // Get the starting relation.
+                                                std::string start_key(ctxp->manifest()[i % manifest_size]->key());
+                                                std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
+                                                if(start->key().empty()){
+                                                    // If the start key is empty, that means that all tasks in the schedule are complete.
+                                                    for(auto& thread_control: ctxp->thread_controls()){
+                                                        thread_control.stop_thread();
+                                                    }
+                                                    for(auto& rel: ctxp->manifest()){
+                                                        auto& value = rel->acquire_value();
+                                                        if(value.empty()){
+                                                            value = "{}";
                                                         }
+                                                        rel->release_value();
                                                     }
-                                                }
-                                                for(auto& rel: (*server_ctx)->manifest()){
-                                                    auto& value = rel->acquire_value();
-                                                    if(value.empty()){
-                                                        value = "{}";
+                                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                                                    wait_cv_->notify_one();
+                                                    return;
+                                                } else {
+                                                    // Find the index in the manifest of the starting relation.
+                                                    auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
+                                                        return rel->key() == start->key();
+                                                    });
+                                                    if(start_it == ctxp->manifest().end()){
+                                                        std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                                        throw "This shouldn't be possible";
                                                     }
-                                                    rel->release_value();
-                                                }
-                                                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                                break;
-                                            } else {
-                                                thread.invalidate();
-                                                // Find the index in the manifest of the starting relation.
-                                                auto start_it = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& rel){
-                                                    return rel->key() == start->key();
-                                                });
-                                                if(start_it == (*server_ctx)->manifest().end()){
-                                                    std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                    throw "This shouldn't be possible";
-                                                }
-                                                std::ptrdiff_t start_idx = start_it - (*server_ctx)->manifest().begin();
-                                                (*server_ctx)->thread_controls()[start_idx].notify(i);
-                                            }                 
+                                                    std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
+                                                    ctxp->thread_controls()[start_idx].notify(i);
+                                                }             
+                                            }
+                                            wait_cv_->notify_one();
+                                            return;
+                                        });
+                                        std::mutex wait_mtx_;
+                                        std::unique_lock lk(wait_mtx_);
+                                        if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2)) == std::cv_status::no_timeout){
+                                            reschedule.join();
+                                        } else {
+                                            reschedule.detach();
                                         }
                                     }
                                 }
                             }
+                            // clock_gettime(CLOCK_MONOTONIC, &ts[1]);
+                            // std::cout << "Run route - PUT time: " << (ts[1].tv_sec*1000000 + ts[1].tv_nsec/1000) - (ts[0].tv_sec*1000000 + ts[0].tv_nsec/1000) << std::endl;
                         }                 
                     } else if (req.route == "/init"){
+                        // clock_gettime(CLOCK_REALTIME, &ts);
+                        // std::cout << "controller-app.cpp:1348:/init POST:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+                        // struct timespec ts[2] = {};
+                        // clock_gettime(CLOCK_MONOTONIC, &ts[0]);
                         controller::resources::init::Request init(val.as_object());
                         // It is not strictly necessary to construct a context for initialization requests.
                         // But it keeps the controller resource interface homogeneous and easy to follow.
@@ -1252,12 +1356,17 @@ namespace app{
                                 session->close();
                             }
                         );
+                        // clock_gettime(CLOCK_MONOTONIC, &ts[1]);
+                        // std::cout << "Initialization Route time: " << (ts[1].tv_sec*1000000 + ts[1].tv_nsec/1000) - (ts[0].tv_sec*1000000 + ts[0].tv_nsec/1000) << std::endl;
                     }
                 }
             }
             http::HttpReqRes rr = session->get();
             std::get<http::HttpRequest>(rr) = req;
             session->set(rr);
+
+            // clock_gettime(CLOCK_REALTIME, &ts);
+            // std::cout << "controller-app.cpp:1395:routing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
         } else {
             http::HttpReqRes rr;
             http::HttpResponse res = {};
@@ -1281,6 +1390,9 @@ namespace app{
                 }
             );
         }
+
+        // clock_gettime(CLOCK_REALTIME, &ts);
+        // std::cout << "controller-app.cpp:1404:route_request finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
     }
 
     http::HttpResponse Controller::create_response(ExecutionContext& ctx){
@@ -1431,13 +1543,6 @@ namespace app{
     }
 
     void Controller::stop(){
-        // struct timespec ts;
-        // if(clock_gettime(CLOCK_REALTIME, &ts) == -1){
-        //     std::cerr << "controller-app.cpp:1464:clock_gettime() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-        //     std::cout << "controller-app.cpp:1464:Controller::stop() called." << std::endl;
-        // } else {
-        //     std::cout << "controller-app.cpp:1467:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":Controller::stop() called." << std::endl;
-        // }
         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
 

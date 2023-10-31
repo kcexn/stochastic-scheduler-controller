@@ -126,7 +126,6 @@ namespace run{
                             //Child Process.
                             setpgid(0,0);
                             std::uint64_t notice = 1;
-                            int len = 0;
                             struct pollfd pfds[1] = {};
                             pfds[0] = {
                                 sync_fd,
@@ -134,8 +133,7 @@ namespace run{
                                 0
                             };
                             do{
-                                len = poll(&pfds[0], 1, -1);
-                                if(len == -1){
+                                if(poll(&pfds[0], 1, -1) == -1){
                                     switch(errno)
                                     {
                                         case EINTR:
@@ -145,7 +143,7 @@ namespace run{
                                             throw "what?";
                                     }
                                 } else if(pfds[0].revents & POLLOUT){
-                                    len = write(sync_fd, &notice, sizeof(notice));
+                                    int len = write(sync_fd, &notice, sizeof(notice));
                                     if(len == -1){
                                         switch(errno)
                                         {
@@ -217,7 +215,6 @@ namespace run{
                         0
                     };
                     // Block until the child process sets the pgid.
-                    int len;
                     do{
                         if(poll(&pfds[0], 1, -1) == -1){
                             std::cerr << "run.cpp:223:poll() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
@@ -230,7 +227,7 @@ namespace run{
                             }
                         } else if(pfds[0].revents & POLLIN){
                             std::uint64_t notice = 0;
-                            len = read(sync_fd, &notice, sizeof(notice));
+                            int len = read(sync_fd, &notice, sizeof(notice));
                             if(len == -1){
                                 std::cerr << "run.cpp:235:read() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                                 switch(errno)
@@ -249,7 +246,9 @@ namespace run{
                         }
                     }while(errno == EINTR || errno == EWOULDBLOCK);                    
                     // Save the PID in the relevant thread control.
-                    ctx_ptr->thread_controls()[idx].pid() = pid;  
+                    ctx_ptr->thread_controls()[idx].pid() = pid;
+                    g = std::move(g).resume();
+
                     if(close(sync_fd) == -1){
                         std::cerr << "run.cpp:255:Closing the write side of sync_fd in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
@@ -264,38 +263,11 @@ namespace run{
                         throw "this shouldn't happen.";
                     }
 
-                    pfds[0].events = 0;
-                    pfds[1].events = POLLIN;
-                    pfds[2].events = 0;
-                    do{
-                        int status = poll(&pfds[1], 1, -1);
-                        if(status == -1){
-                            switch(errno)
-                            {
-                                case EINTR:
-                                    break;
-                                default:
-                                    std::cerr << "run.cpp:279:poll failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                    throw "what?";
-                            }
-                        } else if (pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
-                            char ready[1] = {};
-                            len = read(upstream[0], ready, 1);
-                            if(len == -1){
-                                switch(errno)
-                                {
-                                    case EINTR:
-                                        break;
-                                    default:
-                                        std::cerr << "run.cpp:291:ready failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                        throw "what?";
-                                }
-                            }
-                        } else {
-                            std::cerr << "run.cpp:296:pfds has no recognized events." << std::endl;
-                            throw "what?";
-                        }
-                    }while(errno == EINTR);
+                    g = std::move(g).resume();
+                    char ready[1] = {};
+                    read(upstream[0], ready, 1);
+
+                    g = std::move(g).resume();
                     if(kill(-pid, SIGSTOP) == -1){
                         int errsv = errno;
                         struct timespec ts = {};
@@ -316,7 +288,6 @@ namespace run{
                     }
 
                     g = std::move(g).resume();
-
                     if (kill(-pid, SIGCONT) == -1){
                         int errsv = errno;
                         struct timespec ts = {};
@@ -357,8 +328,8 @@ namespace run{
                     pfds[2].events = POLLOUT;
                     std::size_t bytes_written = 0;
                     do{
-                        int status = poll(&pfds[2], 1, -1);
-                        if(status == -1){
+                        g = std::move(g).resume();
+                        if(poll(&pfds[2], 1, -1) == -1){
                             switch(errno)
                             {
                                 case EINTR:
@@ -371,7 +342,8 @@ namespace run{
                             std::cerr << "run.cpp:372:the child process has closed the read end of the downstream pipe." << std::endl;
                             throw "what?";
                         } else if(pfds[2].revents & POLLOUT){
-                            len = write(downstream[1], params.data(), params.size());
+                            g = std::move(g).resume();
+                            int len = write(downstream[1], params.data(), params.size());
                             if(len == -1){
                                 switch(errno)
                                 {
@@ -386,17 +358,19 @@ namespace run{
                             }
                         }
                     }while(errno == EINTR || bytes_written < params.size());
+                    g = std::move(g).resume();
                     if (close(downstream[1]) == -1){
                         std::cerr << "Closing the downstream write side of the pipe from the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";
                     }
-                    std::size_t max_length = 65536;
+                    constexpr std::size_t max_length = 65536;
                     std::size_t value_size = 0;
                     std::string val; 
                     pfds[0].events = 0;
                     pfds[1].events = POLLIN;
                     pfds[2].events = 0;
                     do{
+                        g = std::move(g).resume();
                         if(poll(&pfds[1], 1, -1) == -1){
                             switch(errno)
                             {
@@ -408,7 +382,8 @@ namespace run{
                             }
                         } else if(pfds[1].revents & POLLIN || pfds[1].revents & POLLHUP){
                             val.resize(max_length + value_size);
-                            len = read(upstream[0], (val.data() + value_size), max_length);
+                            g = std::move(g).resume();
+                            int len = read(upstream[0], (val.data() + value_size), max_length);
                             if (len != -1){
                                 value_size += len;
                             } else {
@@ -426,6 +401,7 @@ namespace run{
                             throw "what?";
                         }
                     }while(errno == EINTR || value_size == val.size());
+                    g = std::move(g).resume();
                     if (close(upstream[0]) == -1){
                         std::cerr << "Closing the upstream read side of the pipe in the parent process failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "This shouldn't happen.";

@@ -24,7 +24,7 @@ DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 DEBUG_TESTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # RELEASE SETTINGS
-REL_CXX_FLAGS = -O3 -DNDEBUG -flto=auto -fuse-linker-plugin
+REL_CXX_FLAGS = -O3 -flto=auto -fuse-linker-plugin
 REL_LD_FLAGS = $(LIBRARY_PATH) $(LD_FLAGS)
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
@@ -42,8 +42,9 @@ REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 				-fipa-pta \
 				-ffat-lto-objects \
 				-march=x86-64-v2
-SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
+SHARED_CXX_FLAGS = -Og -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
 				-ffat-lto-objects \
+				-g \
 				-march=x86-64-v2
 # SHARED_CXX_FLAGS = -g -Og -fpic
 STATIC_AR_FLAGS = rcs --plugin $(GCC_PATH)/liblto_plugin.so

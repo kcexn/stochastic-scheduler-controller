@@ -29,7 +29,7 @@ DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 				-fipa-pta \
 				-pthread \
 				-march=x86-64-v2
-REL_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin \
+REL_CXX_FLAGS = -Og -g -flto=auto -fuse-linker-plugin \
 				-pthread \
 				-march=x86-64-v2
 # REL_CXX_FLAGS = -g -Og
