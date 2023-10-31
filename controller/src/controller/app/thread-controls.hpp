@@ -42,6 +42,7 @@ namespace app{
         void acquire(){ ctx_mtx_->lock(); return; }
         void release(){ ctx_mtx_->unlock(); return; }
         pid_t& pid() { return pid_; }
+        void kill_subprocesses();
     private:
         pthread_t tid_;
         pid_t pid_;

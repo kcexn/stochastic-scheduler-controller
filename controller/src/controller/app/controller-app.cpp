@@ -165,7 +165,7 @@ namespace app{
             //     std::cout << "controller-app.cpp:165:msg_flag read:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
             // }
             lk.unlock();
-            io_mbox_ptr_->mbx_cv.notify_all();
+            io_mbox_ptr_->mbx_cv.notify_one();
             if(server_session){
                 // clock_gettime(CLOCK_MONOTONIC, &troute[0]);
                 std::shared_ptr<http::HttpSession> http_session_ptr;
@@ -877,6 +877,7 @@ namespace app{
                                                         thread_control.synchronize();
                                                         thread_control.wait();
                                                         if(thread_control.is_stopped()){
+                                                            thread_control.kill_subprocesses();
                                                             mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                             mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                             return;
@@ -884,6 +885,7 @@ namespace app{
                                                         while(thread_control.f()){
                                                             thread_control.resume();
                                                             if(thread_control.is_stopped()){
+                                                                thread_control.kill_subprocesses();
                                                                 mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                                 mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                                 return;
@@ -1007,46 +1009,19 @@ namespace app{
                                                 argv.push_back("/dev/null");
                                             }
                                             argv.push_back(nullptr);
-
-                                            constexpr std::size_t max_retries = 5;
-                                            std::size_t counter = 0;
-                                            while(counter < max_retries){
-                                                pid_t pid = vfork();
-                                                switch(pid)
+                                            switch(vfork())
+                                            {
+                                                case 0:
                                                 {
-                                                    case 0:
-                                                    {
-                                                        execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
-                                                        exit(1);
-                                                        break;
-                                                    }
-                                                    case -1:
-                                                    {
-                                                        switch(errno)
-                                                        {
-                                                            case EAGAIN:
-                                                            {
-                                                                ++counter;
-                                                                if(counter >= max_retries){
-                                                                    std::cerr << "controller-app.cpp:961:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":GIVING UP" << std::endl;
-                                                                    raise(SIGTERM);
-                                                                    break;
-                                                                }
-                                                                struct timespec ts = {0,5000000};
-                                                                nanosleep(&ts, nullptr);
-                                                                std::cerr << "controller-app.cpp:967:fork cURL failed:" << std::make_error_code(std::errc(errno)).message() << ":RETRYING" << std::endl;
-                                                                break;
-                                                            }
-                                                            default:
-                                                                std::cerr << "Fork cURL failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                                throw "This shouldn't happen!";      
-                                                        }
-                                                        break;
-                                                    }
-                                                    default:
-                                                        counter = max_retries;
-                                                        break;
+                                                    execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
+                                                    exit(1);
+                                                    break;
                                                 }
+                                                case -1:
+                                                    std::cerr << "fork cURL failed." << std::endl;
+                                                    throw "what?";
+                                                default:
+                                                    break;
                                             }
                                         }
                                         // waitpid is handled by trapping SIGCHLD.

@@ -327,8 +327,8 @@ namespace run{
                     pfds[1].events = 0;
                     pfds[2].events = POLLOUT;
                     std::size_t bytes_written = 0;
+                    g = std::move(g).resume();
                     do{
-                        g = std::move(g).resume();
                         if(poll(&pfds[2], 1, -1) == -1){
                             switch(errno)
                             {
@@ -342,7 +342,6 @@ namespace run{
                             std::cerr << "run.cpp:372:the child process has closed the read end of the downstream pipe." << std::endl;
                             throw "what?";
                         } else if(pfds[2].revents & POLLOUT){
-                            g = std::move(g).resume();
                             int len = write(downstream[1], params.data(), params.size());
                             if(len == -1){
                                 switch(errno)

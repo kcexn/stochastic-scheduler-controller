@@ -176,18 +176,30 @@ namespace io{
                 // struct timespec ts[2] = {};
                 // clock_gettime(CLOCK_REALTIME, &ts[0]);
                 // std::cout << "controller-io.cpp:198:" << (ts[0].tv_sec*1000 + ts[0].tv_nsec/1000000) << ":ss_ callback started." << std::endl;
-
                 std::unique_lock<std::mutex> lk(mbox->mbx_mtx);
-                mbox->mbx_cv.wait(lk, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                mbox->session = session;
-                lk.unlock();
-                mbox->sched_signal_cv_ptr->notify_one();
-
+                bool status = mbox->mbx_cv.wait_for(lk, std::chrono::milliseconds(2), [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                if(!status){
+                    lk.unlock();
+                    std::thread q([&, mbox, session](){
+                        std::unique_lock<std::mutex> lk1(mbox->mbx_mtx);
+                        mbox->mbx_cv.wait(lk1, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                        mbox->session = session;
+                        lk1.unlock();
+                        mbox->sched_signal_cv_ptr->notify_one();
+                    });
+                    q.detach();
+                }else {
+                    mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                    mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                    mbox->session = session;
+                    lk.unlock();
+                    mbox->sched_signal_cv_ptr->notify_one();
+                }
                 // clock_gettime(CLOCK_REALTIME, &ts[2]);
                 // std::cout << "controller-io.cpp:209:" << (ts[2].tv_sec*1000 + ts[2].tv_nsec/1000000) << ":ss_ callback started." << std::endl;
-                return;               
+                return;  
             } else {
                 std::cerr << "Error in ss_.init()" << ec.message() << std::endl;
             }
