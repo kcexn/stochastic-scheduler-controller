@@ -133,7 +133,7 @@ namespace app{
 
     void Controller::start(){
         // Initialize resources I might need.
-        std::unique_lock<std::mutex> lk(io_mbox_ptr_->mbx_mtx, std::defer_lock);
+        std::unique_lock<std::mutex> lk(*(io_mbox_ptr_->sched_signal_mtx_ptr), std::defer_lock);
         std::uint16_t thread_local_signal;
         std::shared_ptr<server::Session> server_session;
         // struct timespec troute[2] = {};
@@ -165,7 +165,7 @@ namespace app{
             //     std::cout << "controller-app.cpp:165:msg_flag read:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
             // }
             lk.unlock();
-            io_mbox_ptr_->mbx_cv.notify_one();
+            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
             if(server_session){
                 // clock_gettime(CLOCK_MONOTONIC, &troute[0]);
                 std::shared_ptr<http::HttpSession> http_session_ptr;

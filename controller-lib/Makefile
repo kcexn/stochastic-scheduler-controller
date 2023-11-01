@@ -31,18 +31,20 @@ REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # SHARED LIBRARY SETTINGS
-# SHARED_CXX_FLAGS = -O3 -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
-				-fmodulo-sched \
-				-fmodulo-sched-allow-regmoves \
-				-freschedule-modulo-scheduled-loops \
-				-fsched-pressure \
-				-fsched-spec-load \
-				-fdevirtualize-at-ltrans \
-				-fno-semantic-interposition \
-				-fipa-pta \
-				-ffat-lto-objects \
-				-march=x86-64-v2
-SHARED_CXX_FLAGS = -Og -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
+SHARED_CXX_FLAGS = -O3 -g -D NDEBUG -fpic \
+	-flto=auto \
+	-fuse-linker-plugin \
+	-fmodulo-sched \
+	-fmodulo-sched-allow-regmoves \
+	-fdevirtualize-at-ltrans \
+	-fsched-pressure \
+	-fsched-spec-load \
+	-freschedule-modulo-scheduled-loops \
+	-fno-semantic-interposition \
+	-fipa-pta \
+	-ffat-lto-objects \
+	-march=x86-64-v2
+# SHARED_CXX_FLAGS = -Og -D NDEBUG -flto=auto -fuse-linker-plugin -fpic \
 				-ffat-lto-objects \
 				-g \
 				-march=x86-64-v2

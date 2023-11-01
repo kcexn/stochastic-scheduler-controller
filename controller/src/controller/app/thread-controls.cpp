@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sys/resource.h>
 #include <sys/eventfd.h>
+#include <poll.h>
 #include <unistd.h>
 
 #define MAX_LENGTH 65535
@@ -252,6 +253,39 @@ static bool write_params_to_subprocess(std::shared_ptr<controller::app::Relation
     return true;
 }
 
+static bool wait_for_result_from_subprocess(std::array<int, 2>& pipe, std::size_t& state){
+    struct pollfd pfd ={
+        pipe[0],
+        POLLIN,
+        0
+    };
+    int nfds = 0;
+    do{
+        nfds = poll(&pfd, 1, 5);
+        if(nfds < 0){
+            switch(errno)
+            {
+                case EINTR:
+                    break;
+                default:
+                    std::cerr << "thread-controls.cpp:273:poll() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        } else if(nfds == 0){
+            return true;
+        } else {
+            if(pfd.revents & (POLLIN | POLLHUP)){
+                ++state;
+                return true;
+            } else {
+                return false;
+            }
+        }
+    }while(nfds < 0);
+    ++state;
+    return true;
+}
+
 static bool read_result_from_subprocess(std::shared_ptr<controller::app::Relation> relation, std::array<int, 2>& pipe){
     std::array<char, MAX_LENGTH> buf;
     char delimiter = '\n';
@@ -380,6 +414,8 @@ namespace app{
                 ++state_;
                 return write_params_to_subprocess(relation, pipe_, boost::json::serialize(params));
             case 5:
+                return wait_for_result_from_subprocess(pipe_, state_);
+            case 6:
                 ++state_;
                 return read_result_from_subprocess(relation, pipe_);
             default:

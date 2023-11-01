@@ -8,7 +8,7 @@ out:flush()
 
 -- Begin execution.
 input = io.stdin:read()
-if(input == nil) then
+if(not input) then
     out:write(
         cjson.encode({["error"]="Action input was empty."})
     )

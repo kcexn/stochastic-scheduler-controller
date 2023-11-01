@@ -7,6 +7,7 @@ function terminate {
 	kill -s SIGKILL %1
 }
 trap terminate SIGTERM
+ulimit -c 1024
 
 # Start the controller
 /usr/local/bin/controller > >(tee -a /var/log/controller.stdout.log) 2> >(tee -a /var/log/controller.stderr.log >&2) &
