@@ -216,7 +216,7 @@ namespace io{
                 std::cerr << "Error in ss_.init()" << ec.message() << std::endl;
             }
         });
-        std::chrono::milliseconds wake_period(2);
+        std::chrono::milliseconds wake_period(100);
         while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run_for(wake_period);
         }

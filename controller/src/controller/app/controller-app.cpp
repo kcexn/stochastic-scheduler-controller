@@ -864,8 +864,11 @@ namespace app{
                                         return;
                                     }
                                     std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
+                                    std::shared_ptr<std::condition_variable> sync_ = std::make_shared<std::condition_variable>();
+                                    std::shared_ptr<std::atomic<bool> > sflag = std::make_shared<std::atomic<bool> >();
+                                    sflag->store(false, std::memory_order::memory_order_relaxed);
                                     std::thread initializer(
-                                        [&, ctx_ptr, manifest_size, start_idx, run](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                        [&, ctx_ptr, manifest_size, start_idx, run, sync_, sflag](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
                                             for(std::size_t i=0; i < manifest_size; ++i){
                                                 auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
                                                 if(thread_control.is_stopped()){
@@ -924,11 +927,20 @@ namespace app{
                                                 );
                                                 executor.detach();
                                             }
+                                            sflag->store(true, std::memory_order::memory_order_relaxed);
+                                            sync_->notify_one();
                                             return;
                                         }, io_mbox_ptr_
                                     );
-                                    initializer.detach();
                                     ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
+                                    std::mutex smtx;
+                                    std::unique_lock<std::mutex> slk(smtx);
+                                    if(sync_->wait_for(slk, std::chrono::milliseconds(20), [&](){ return sflag->load(std::memory_order::memory_order_relaxed); })){
+                                        initializer.join();
+                                    } else {
+                                        initializer.detach();
+                                    }
+                                    slk.unlock();
                                     /* Initialize the http client sessions */
                                     if(ctx_ptr->execution_context_idx_array().front() == 0){
                                         /* This is the primary context */
