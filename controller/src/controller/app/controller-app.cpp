@@ -110,11 +110,16 @@ namespace app{
         io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc),
         ioc_(ioc)
     {
-        std::thread application(
-            &Controller::start, this
-        );
-        tid_ = application.native_handle();
-        application.detach();
+        try{
+            std::thread application(
+                &Controller::start, this
+            );
+            tid_ = application.native_handle();
+            application.detach();
+        } catch (std::system_error& e){
+            std::cerr << "controller-app.cpp:118:application failed to start with error:" << e.what() << std::endl;
+            throw e;
+        }
     }
 
     Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc, const std::filesystem::path& upath, std::uint16_t sport)
@@ -124,11 +129,16 @@ namespace app{
         io_(io_mbox_ptr_, upath.string(), ioc, sport),
         ioc_(ioc)
     {
-        std::thread application(
-            &Controller::start, this
-        );
-        tid_ = application.native_handle();
-        application.detach();
+        try{
+            std::thread application(
+                &Controller::start, this
+            );
+            tid_ = application.native_handle();
+            application.detach();
+        } catch (std::system_error& e){
+            std::cerr << "controller-app.cpp:137:application failed to start with error:" << e.what() << std::endl;
+            throw e;
+        }
     }
 
     void Controller::start(){
@@ -442,9 +452,14 @@ namespace app{
                         if(server_ctx != ctx_ptrs.end()){
                             std::vector<std::thread> stops;
                             for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                stops.emplace_back([&](){
-                                    thread_control.stop_thread();
-                                });
+                                try{
+                                    stops.emplace_back([&](){
+                                        thread_control.stop_thread();
+                                    });
+                                } catch (std::system_error& e){
+                                    std::cerr << "controller-app.cpp:460:stop thread failed to start with error:" << e.what() << std::endl;
+                                    throw e;
+                                }
                             }
                             for(auto& stop: stops){
                                 stop.join();
@@ -570,53 +585,61 @@ namespace app{
                             std::ptrdiff_t idx = rel - (ctxp)->manifest().begin();
                             std::size_t manifest_size = ctxp->manifest().size();
                             std::shared_ptr<std::condition_variable> wait_cv_ = std::make_shared<std::condition_variable>();
-                            std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_](){
-                                auto& thread = ctxp->thread_controls()[idx];
-                                // This operation can block.
-                                auto execution_idxs = thread.stop_thread();
-                                /* Reschedule if necessary */
-                                for(auto& i: execution_idxs){
-                                    // Get the starting relation.
-                                    std::string start_key(ctxp->manifest()[i % manifest_size]->key());
-                                    std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
-                                    if(start->key().empty()){
-                                        // If the start key is empty, that means that all tasks in the schedule are complete.
-                                        for(auto& thread_control: ctxp->thread_controls()){
-                                            thread_control.stop_thread();
-                                        }
-                                        for(auto& rel: ctxp->manifest()){
-                                            auto& value = rel->acquire_value();
-                                            if(value.empty()){
-                                                value = "{}";
+                            std::shared_ptr<std::atomic<bool> > wflag = std::make_shared<std::atomic<bool> >();
+                            wflag->store(false, std::memory_order::memory_order_relaxed);
+                            try{
+                                std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_, wflag](){
+                                    auto& thread = ctxp->thread_controls()[idx];
+                                    // This operation can block.
+                                    auto execution_idxs = thread.stop_thread();
+                                    /* Reschedule if necessary */
+                                    for(auto& i: execution_idxs){
+                                        // Get the starting relation.
+                                        std::string start_key(ctxp->manifest()[i % manifest_size]->key());
+                                        std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
+                                        if(start->key().empty()){
+                                            // If the start key is empty, that means that all tasks in the schedule are complete.
+                                            for(auto& thread_control: ctxp->thread_controls()){
+                                                thread_control.stop_thread();
                                             }
-                                            rel->release_value();
-                                        }
-                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                        wait_cv_->notify_one();
-                                        return;
-                                    } else {
-                                        // Find the index in the manifest of the starting relation.
-                                        auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
-                                            return rel->key() == start->key();
-                                        });
-                                        if(start_it == ctxp->manifest().end()){
-                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                            throw "This shouldn't be possible";
-                                        }
-                                        std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
-                                        ctxp->thread_controls()[start_idx].notify(i);
-                                    }                 
+                                            for(auto& rel: ctxp->manifest()){
+                                                auto& value = rel->acquire_value();
+                                                if(value.empty()){
+                                                    value = "{}";
+                                                }
+                                                rel->release_value();
+                                            }
+                                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                                            wait_cv_->notify_one();
+                                            return;
+                                        } else {
+                                            // Find the index in the manifest of the starting relation.
+                                            auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
+                                                return rel->key() == start->key();
+                                            });
+                                            if(start_it == ctxp->manifest().end()){
+                                                std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                                throw "This shouldn't be possible";
+                                            }
+                                            std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
+                                            ctxp->thread_controls()[start_idx].notify(i);
+                                        }                 
+                                    }
+                                    wflag->store(true, std::memory_order::memory_order_relaxed);
+                                    wait_cv_->notify_one();
+                                    return;
+                                });
+                                std::mutex wait_mtx_;
+                                std::unique_lock<std::mutex> lk(wait_mtx_);
+                                if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
+                                    reschedule.join();
+                                } else {
+                                    reschedule.detach();
                                 }
-                                wait_cv_->notify_one();
-                                return;
-                            });
-                            std::mutex wait_mtx_;
-                            std::unique_lock<std::mutex> lk(wait_mtx_);
-                            if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2)) == std::cv_status::no_timeout){
-                                reschedule.join();
-                            } else {
-                                reschedule.detach();
+                            } catch (std::system_error& e){
+                                std::cerr << "controller-app.cpp:631:reschedule failed to start with error:" << e.what() << std::endl;
+                                throw e;
                             }
                         }
                     }
@@ -729,9 +752,14 @@ namespace app{
                             auto& ctxp = *server_ctx;
                             std::vector<std::thread> stops;
                             for(auto& thread_control: ctxp->thread_controls()){
+                                try{
                                 stops.emplace_back([&](){
                                     thread_control.stop_thread();
                                 });
+                                } catch(std::system_error& e){
+                                    std::cerr << "controller-app.cpp:760:stops thread failed to start with error:" << e.what() << std::endl;
+                                    throw e;
+                                }
                             }
                             for(auto& stop: stops){
                                 stop.join();
@@ -867,80 +895,90 @@ namespace app{
                                     std::shared_ptr<std::condition_variable> sync_ = std::make_shared<std::condition_variable>();
                                     std::shared_ptr<std::atomic<bool> > sflag = std::make_shared<std::atomic<bool> >();
                                     sflag->store(false, std::memory_order::memory_order_relaxed);
-                                    std::thread initializer(
-                                        [&, ctx_ptr, manifest_size, start_idx, run, sync_, sflag](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
-                                            for(std::size_t i=0; i < manifest_size; ++i){
-                                                auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
-                                                if(thread_control.is_stopped()){
-                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                    continue;
-                                                }
-                                                // Fork exec the executor subprocess.
-                                                if(thread_control.thread_continue()){
+                                    try{
+                                        std::thread initializer(
+                                            [&, ctx_ptr, manifest_size, start_idx, run, sync_, sflag](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                                for(std::size_t i=0; i < manifest_size; ++i){
+                                                    auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
                                                     if(thread_control.is_stopped()){
-                                                        thread_control.cleanup();
                                                         mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                         continue;
                                                     }
-                                                } else {
-                                                    thread_control.cleanup();
-                                                    continue;
-                                                }
-                                                std::thread executor(
-                                                    [&, ctx_ptr, i, manifest_size, start_idx, mbox_ptr](){
-                                                        auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
-                                                        // The first continue synchronizes the controller with the exec'd launcher.
-                                                        if(thread_control.thread_continue()){
-                                                            if(thread_control.is_stopped()){
-                                                                thread_control.cleanup();
-                                                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                                mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                                return;
-                                                            }
-                                                        }
-                                                        // After we are synchronized with the exec'd launcher, we send a SIGSTOP to the subprocess group, and 
-                                                        // block the executor thread until further notice.
-                                                        thread_control.wait();
+                                                    // Fork exec the executor subprocess.
+                                                    if(thread_control.thread_continue()){
                                                         if(thread_control.is_stopped()){
                                                             thread_control.cleanup();
                                                             mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                             mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                            return;
+                                                            continue;
                                                         }
-                                                        // After the thread is unblocked continue running until the function has completed, or until
-                                                        // we are preempted.
-                                                        while(thread_control.thread_continue()){
-                                                            if(thread_control.is_stopped()){
-                                                                thread_control.cleanup();
+                                                    } else {
+                                                        thread_control.cleanup();
+                                                        continue;
+                                                    }
+                                                    try{
+                                                        std::thread executor(
+                                                            [&, ctx_ptr, i, manifest_size, start_idx, mbox_ptr](){
+                                                                auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
+                                                                // The first continue synchronizes the controller with the exec'd launcher.
+                                                                if(thread_control.thread_continue()){
+                                                                    if(thread_control.is_stopped()){
+                                                                        thread_control.cleanup();
+                                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                                        mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                                        return;
+                                                                    }
+                                                                }
+                                                                // After we are synchronized with the exec'd launcher, we send a SIGSTOP to the subprocess group, and 
+                                                                // block the executor thread until further notice.
+                                                                thread_control.wait();
+                                                                if(thread_control.is_stopped()){
+                                                                    thread_control.cleanup();
+                                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                                    return;
+                                                                }
+                                                                // After the thread is unblocked continue running until the function has completed, or until
+                                                                // we are preempted.
+                                                                while(thread_control.thread_continue()){
+                                                                    if(thread_control.is_stopped()){
+                                                                        thread_control.cleanup();
+                                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                                        mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                                        return;
+                                                                    }
+                                                                }
+                                                                thread_control.signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                                 mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                                 mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                                 return;
                                                             }
-                                                        }
-                                                        thread_control.signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                        mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                        return;
+                                                        );
+                                                        executor.detach();
+                                                    } catch (std::system_error& e){
+                                                        std::cerr << "controller-app.cpp:959:executor failed to start with error:" << e.what() << std::endl;
+                                                        throw e;
                                                     }
-                                                );
-                                                executor.detach();
-                                            }
-                                            sflag->store(true, std::memory_order::memory_order_relaxed);
-                                            sync_->notify_one();
-                                            return;
-                                        }, io_mbox_ptr_
-                                    );
-                                    ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
-                                    std::mutex smtx;
-                                    std::unique_lock<std::mutex> slk(smtx);
-                                    if(sync_->wait_for(slk, std::chrono::milliseconds(20), [&](){ return sflag->load(std::memory_order::memory_order_relaxed); })){
-                                        initializer.join();
-                                    } else {
-                                        initializer.detach();
+                                                }
+                                                sflag->store(true, std::memory_order::memory_order_relaxed);
+                                                sync_->notify_one();
+                                                return;
+                                            }, io_mbox_ptr_
+                                        );
+                                        ctx_ptr->thread_controls()[start_idx].notify(execution_idx);
+                                        std::mutex smtx;
+                                        std::unique_lock<std::mutex> slk(smtx);
+                                        if(sync_->wait_for(slk, std::chrono::milliseconds(20), [&](){ return sflag->load(std::memory_order::memory_order_relaxed); })){
+                                            initializer.join();
+                                        } else {
+                                            initializer.detach();
+                                        }
+                                        slk.unlock();
+                                    } catch(std::system_error& e){
+                                        std::cerr << "controller-app.cpp:965:initializer failed to start with error:" << e.what() << std::endl;
+                                        throw e;
                                     }
-                                    slk.unlock();
                                     /* Initialize the http client sessions */
                                     if(ctx_ptr->execution_context_idx_array().front() == 0){
                                         /* This is the primary context */
@@ -1278,51 +1316,59 @@ namespace app{
                                         std::ptrdiff_t idx = relation - ctxp->manifest().begin();
                                         std::size_t manifest_size = ctxp->manifest().size();
                                         std::shared_ptr<std::condition_variable> wait_cv_ = std::make_shared<std::condition_variable>();
-                                        std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_](){
-                                            auto& thread = ctxp->thread_controls()[idx];    
-                                            auto execution_idxs = thread.stop_thread();
-                                            for(auto& i: execution_idxs){
-                                                // Get the starting relation.
-                                                std::string start_key(ctxp->manifest()[i % manifest_size]->key());
-                                                std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
-                                                if(start->key().empty()){
-                                                    // If the start key is empty, that means that all tasks in the schedule are complete.
-                                                    for(auto& thread_control: ctxp->thread_controls()){
-                                                        thread_control.stop_thread();
-                                                    }
-                                                    for(auto& rel: ctxp->manifest()){
-                                                        auto& value = rel->acquire_value();
-                                                        if(value.empty()){
-                                                            value = "{}";
+                                        std::shared_ptr<std::atomic<bool> > wflag = std::make_shared<std::atomic<bool> >();
+                                        wflag->store(false, std::memory_order::memory_order_relaxed);
+                                        try{
+                                            std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_, wflag](){
+                                                auto& thread = ctxp->thread_controls()[idx];    
+                                                auto execution_idxs = thread.stop_thread();
+                                                for(auto& i: execution_idxs){
+                                                    // Get the starting relation.
+                                                    std::string start_key(ctxp->manifest()[i % manifest_size]->key());
+                                                    std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
+                                                    if(start->key().empty()){
+                                                        // If the start key is empty, that means that all tasks in the schedule are complete.
+                                                        for(auto& thread_control: ctxp->thread_controls()){
+                                                            thread_control.stop_thread();
                                                         }
-                                                        rel->release_value();
-                                                    }
-                                                    io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                    io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                                    wait_cv_->notify_one();
-                                                    return;
-                                                } else {
-                                                    // Find the index in the manifest of the starting relation.
-                                                    auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
-                                                        return rel->key() == start->key();
-                                                    });
-                                                    if(start_it == ctxp->manifest().end()){
-                                                        std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                        throw "This shouldn't be possible";
-                                                    }
-                                                    std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
-                                                    ctxp->thread_controls()[start_idx].notify(i);
-                                                }             
+                                                        for(auto& rel: ctxp->manifest()){
+                                                            auto& value = rel->acquire_value();
+                                                            if(value.empty()){
+                                                                value = "{}";
+                                                            }
+                                                            rel->release_value();
+                                                        }
+                                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                                                        wait_cv_->notify_one();
+                                                        return;
+                                                    } else {
+                                                        // Find the index in the manifest of the starting relation.
+                                                        auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
+                                                            return rel->key() == start->key();
+                                                        });
+                                                        if(start_it == ctxp->manifest().end()){
+                                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
+                                                            throw "This shouldn't be possible";
+                                                        }
+                                                        std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
+                                                        ctxp->thread_controls()[start_idx].notify(i);
+                                                    }             
+                                                }
+                                                wflag->store(true, std::memory_order::memory_order_relaxed);
+                                                wait_cv_->notify_one();
+                                                return;
+                                            });
+                                            std::mutex wait_mtx_;
+                                            std::unique_lock lk(wait_mtx_);
+                                            if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
+                                                reschedule.join();
+                                            } else {
+                                                reschedule.detach();
                                             }
-                                            wait_cv_->notify_one();
-                                            return;
-                                        });
-                                        std::mutex wait_mtx_;
-                                        std::unique_lock lk(wait_mtx_);
-                                        if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2)) == std::cv_status::no_timeout){
-                                            reschedule.join();
-                                        } else {
-                                            reschedule.detach();
+                                        } catch(std::system_error& e){
+                                            std::cerr << "controller-app.cpp:1322:reschedule failed to start with error:" << e.what() << std::endl;
+                                            throw e;
                                         }
                                     }
                                 }

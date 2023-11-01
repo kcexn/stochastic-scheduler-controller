@@ -62,12 +62,16 @@ namespace io{
             IPPROTO_SCTP,
             laddr
         };
-
-        std::thread io(
-            &IO::start, this
-        );
-        io_ = io.native_handle();
-        io.detach();
+        try{
+            std::thread io(
+                &IO::start, this
+            );
+            io_ = io.native_handle();
+            io.detach();
+        } catch(std::system_error& e){
+            std::cerr << "controller-io.cpp:70:io thread failed to start with error:" << e.what() << std::endl;
+            throw e;
+        }
     }
 
     IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport)
@@ -129,11 +133,16 @@ namespace io{
             laddr
         };
 
-        std::thread io(
-            &IO::start, this
-        );
-        io_ = io.native_handle();
-        io.detach();
+        try{
+            std::thread io(
+                &IO::start, this
+            );
+            io_ = io.native_handle();
+            io.detach();
+        } catch(std::system_error& e){
+            std::cerr << "controller-io.cpp:70:io thread failed to start with error:" << e.what() << std::endl;
+            throw e;
+        }
     }
 
     void IO::start(){
@@ -159,16 +168,21 @@ namespace io{
                             mbox->sched_signal_cv_ptr->notify_one();
                         } else {
                             lk.unlock();
-                            std::thread q([&, mbox, session](){
-                                std::unique_lock<std::mutex> lk1(*(mbox->sched_signal_mtx_ptr));
-                                mbox->sched_signal_cv_ptr->wait(lk1, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                                mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                                mbox->session = session;
-                                lk1.unlock();
-                                mbox->sched_signal_cv_ptr->notify_one();
-                            });
-                            q.detach();
+                            try{
+                                std::thread q([&, mbox, session](){
+                                    std::unique_lock<std::mutex> lk1(*(mbox->sched_signal_mtx_ptr));
+                                    mbox->sched_signal_cv_ptr->wait(lk1, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                                    mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                                    mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                                    mbox->session = session;
+                                    lk1.unlock();
+                                    mbox->sched_signal_cv_ptr->notify_one();
+                                });
+                                q.detach();
+                            } catch (std::system_error& e){
+                                std::cerr << "controller-io.cpp:173:us_ q thread failed to start with error:" << e.what() << std::endl;
+                                throw e;
+                            }
                         }
                         // clock_gettime(CLOCK_REALTIME, &ts[1]);
                         // std::cout << "controller-io.cpp:162:" << (ts[1].tv_sec*1000 + ts[1].tv_nsec/1000000) << ":us_.session->async_read() finished." << std::endl;
@@ -198,16 +212,21 @@ namespace io{
                     mbox->sched_signal_cv_ptr->notify_one();
                 } else {
                     lk.unlock();
-                    std::thread q([&, mbox, session](){
-                        std::unique_lock<std::mutex> lk1(*(mbox->sched_signal_mtx_ptr));
-                        mbox->sched_signal_cv_ptr->wait(lk1, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
-                        mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
-                        mbox->session = session;
-                        lk1.unlock();
-                        mbox->sched_signal_cv_ptr->notify_one();
-                    });
-                    q.detach();
+                    try{
+                        std::thread q([&, mbox, session](){
+                            std::unique_lock<std::mutex> lk1(*(mbox->sched_signal_mtx_ptr));
+                            mbox->sched_signal_cv_ptr->wait(lk1, [&](){ return !(mbox->msg_flag.load(std::memory_order::memory_order_relaxed)); });
+                            mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
+                            mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                            mbox->session = session;
+                            lk1.unlock();
+                            mbox->sched_signal_cv_ptr->notify_one();
+                        });
+                        q.detach();
+                    } catch(std::system_error& e){
+                        std::cerr << "controller-io.cpp:217:ss_ q thread failed to start with error:" << e.what() << std::endl;
+                        throw e;
+                    }
                 }           
                 // clock_gettime(CLOCK_REALTIME, &ts[2]);
                 // std::cout << "controller-io.cpp:209:" << (ts[2].tv_sec*1000 + ts[2].tv_nsec/1000000) << ":ss_ callback started." << std::endl;
