@@ -865,27 +865,52 @@ namespace app{
                                     }
                                     std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
                                     std::thread initializer(
-                                        [&, ctx_ptr, manifest_size, start_idx](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                        [&, ctx_ptr, manifest_size, start_idx, run](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
                                             for(std::size_t i=0; i < manifest_size; ++i){
-                                                ctx_ptr->thread_controls()[(i+start_idx) % manifest_size].resume();
+                                                auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
+                                                if(thread_control.is_stopped()){
+                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                    continue;
+                                                }
+                                                // Fork exec the executor subprocess.
+                                                if(thread_control.thread_continue()){
+                                                    if(thread_control.is_stopped()){
+                                                        thread_control.cleanup();
+                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                        mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                        continue;
+                                                    }
+                                                } else {
+                                                    thread_control.cleanup();
+                                                    continue;
+                                                }
                                                 std::thread executor(
                                                     [&, ctx_ptr, i, manifest_size, start_idx, mbox_ptr](){
-                                                        // pthread_t tid = pthread_self();
                                                         auto& thread_control = ctx_ptr->thread_controls()[(i+start_idx) % manifest_size];
-                                                        // thread_control.tid() = tid;
-                                                        thread_control.ready().store(true, std::memory_order::memory_order_relaxed);
-                                                        thread_control.synchronize();
+                                                        // The first continue synchronizes the controller with the exec'd launcher.
+                                                        if(thread_control.thread_continue()){
+                                                            if(thread_control.is_stopped()){
+                                                                thread_control.cleanup();
+                                                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                                mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                                return;
+                                                            }
+                                                        }
+                                                        // After we are synchronized with the exec'd launcher, we send a SIGSTOP to the subprocess group, and 
+                                                        // block the executor thread until further notice.
                                                         thread_control.wait();
                                                         if(thread_control.is_stopped()){
-                                                            thread_control.kill_subprocesses();
+                                                            thread_control.cleanup();
                                                             mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                             mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                             return;
                                                         }
-                                                        while(thread_control.f()){
-                                                            thread_control.resume();
+                                                        // After the thread is unblocked continue running until the function has completed, or until
+                                                        // we are preempted.
+                                                        while(thread_control.thread_continue()){
                                                             if(thread_control.is_stopped()){
-                                                                thread_control.kill_subprocesses();
+                                                                thread_control.cleanup();
                                                                 mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                                 mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                                 return;
@@ -894,6 +919,7 @@ namespace app{
                                                         thread_control.signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                                         mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                        return;
                                                     }
                                                 );
                                                 executor.detach();
@@ -1302,7 +1328,7 @@ namespace app{
                         // But it keeps the controller resource interface homogeneous and easy to follow.
                         // Also, since the initialization route is only called once, the cost to performance
                         // should not be significant.
-                        std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::init::handle(init);
+                        std::shared_ptr<ExecutionContext> ctx_ptr = controller::resources::init::handle();
                         auto http_it = std::find_if(ctx_ptr->sessions().cbegin(), ctx_ptr->sessions().cend(), [&](auto& ptr){
                             return ptr == session;
                         });
@@ -1311,18 +1337,11 @@ namespace app{
                         }
                         http::HttpResponse& res = std::get<http::HttpResponse>(req_res);
                         res = create_response(*ctx_ptr);
-                        if ( initialized_ ) {
-                            // invalidate the fibers.
-                            for (auto& thread_control: ctx_ptr->thread_controls()){
-                                thread_control.invalidate_fiber();
-                            }
-                        } else {
+                        if(!initialized_) {
                             // Execute the initializer.
                             if ( res.status == http::HttpStatus::OK ){
+                                init.run();
                                 initialized_ = true;
-                                for(auto& thread_control: ctx_ptr->thread_controls()){
-                                    thread_control.resume();
-                                }
                             }
                         }
                         session->write(

@@ -47,13 +47,12 @@ namespace init{
     public:
         Request( boost::json::object obj );
         const InitValue& value() const { return value_; }
+        void run();
     private:
         InitValue value_;
     };
 
-    std::shared_ptr<controller::app::ExecutionContext> handle( Request& req);
-    void base64extract(const std::string& filename, int pipefd_down[2], int pipefd_up[2], const Request& req);
-    void tar_extract(const std::string& filename);
+    std::shared_ptr<controller::app::ExecutionContext> handle();
 }// init namespace
 }// resources namespace
 }// controller namespace
