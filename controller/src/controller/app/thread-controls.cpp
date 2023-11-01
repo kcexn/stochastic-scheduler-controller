@@ -367,19 +367,19 @@ namespace app{
     }
 
     void ThreadControls::notify(std::size_t idx){
-        std::unique_lock<std::mutex> lk(*ctx_mtx_);
+        ctx_mtx_->lock();
         execution_context_idxs_.push_back(idx);
-        lk.unlock();
+        ctx_mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
         cv_->notify_all();
         return;
     }  
 
     std::vector<std::size_t> ThreadControls::stop_thread() {
-        std::unique_lock<std::mutex> lk(*ctx_mtx_);
+        ctx_mtx_->lock();
         std::vector<std::size_t> tmp(execution_context_idxs_.begin(), execution_context_idxs_.end());
         execution_context_idxs_.clear();
-        lk.unlock();
+        ctx_mtx_->unlock();
         if(!is_stopped()){
             // we must guarantee that the thread is unblocked (started) before it can be preempted.
             signal_->fetch_or(CTL_IO_SCHED_START_EVENT | CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);

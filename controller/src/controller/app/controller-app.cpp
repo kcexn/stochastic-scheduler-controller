@@ -753,9 +753,9 @@ namespace app{
                             std::vector<std::thread> stops;
                             for(auto& thread_control: ctxp->thread_controls()){
                                 try{
-                                stops.emplace_back([&](){
-                                    thread_control.stop_thread();
-                                });
+                                    stops.emplace_back([&](){
+                                        thread_control.stop_thread();
+                                    });
                                 } catch(std::system_error& e){
                                     std::cerr << "controller-app.cpp:760:stops thread failed to start with error:" << e.what() << std::endl;
                                     throw e;
