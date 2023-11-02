@@ -130,66 +130,77 @@ namespace sctp_transport{
         if(ec == -1){
             if(errno == EINVAL){
                 /* remote address is not in the peer address table. */
+                transport::protocols::sctp::sid_t stream_number = 1;
+                acquire();
+                for(auto& pending_connect: pending_connects_){
+                    struct sockaddr_in* addr = (struct sockaddr_in*)(&pending_connect.addr);
+                    if(addr->sin_port == rmt.ipv4_addr.address.sin_port && addr->sin_addr.s_addr == rmt.ipv4_addr.address.sin_addr.s_addr){
+                        ++stream_number;
+                    }
+                }
                 transport::protocols::sctp::stream_t stream = {
                     SCTP_FUTURE_ASSOC,
-                    1
+                    stream_number
                 };
                 session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
                 PendingConnect connection = {session, fn, {}};
                 std::memcpy(&connection.addr, (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
-                acquire();
                 pending_connects_.push_back(connection);
                 release();
-                socket_.async_wait(
-                    transport::protocols::sctp::socket::wait_type::wait_write,
-                    [&, session, rmt, fn](const boost::system::error_code& ec) {
-                        if(!ec){
-                            int err = connect(socket_.native_handle(), (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
-                            boost::system::error_code error;
-                            if(err < 0){
-                                switch(errno)
-                                {
-                                    case EINPROGRESS:
-                                        break;
-                                    case EISCONN:
+                if(stream_number == 1){
+                    socket_.async_wait(
+                        transport::protocols::sctp::socket::wait_type::wait_write,
+                        [&, session, rmt, fn](const boost::system::error_code& ec) {
+                            if(!ec){
+                                int err = connect(socket_.native_handle(), (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
+                                boost::system::error_code error;
+                                if(err < 0){
+                                    switch(errno)
                                     {
-                                        transport::protocols::sctp::paddrinfo paddrinfo = {};
-                                        socklen_t paddrinfo_size = sizeof(paddrinfo);
-                                        std::memcpy(&(paddrinfo.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
-                                        err = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
-                                        if(err == -1){
-                                            switch(errno)
-                                            {
-                                                default:
-                                                    std::cerr << "sctp-server.cpp:164:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                    throw "what?";
+                                        case EINPROGRESS:
+                                            break;
+                                        case EISCONN:
+                                        {
+                                            transport::protocols::sctp::paddrinfo paddrinfo = {};
+                                            socklen_t paddrinfo_size = sizeof(paddrinfo);
+                                            std::memcpy(&(paddrinfo.spinfo_address), &(rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
+                                            err = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_GET_PEER_ADDR_INFO, &paddrinfo, &paddrinfo_size);
+                                            if(err == -1){
+                                                switch(errno)
+                                                {
+                                                    default:
+                                                        std::cerr << "sctp-server.cpp:164:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                        throw "what?";
+                                                }
                                             }
+                                            session->set(paddrinfo.spinfo_assoc_id);
+                                            acquire();
+                                            push_back(session);
+                                            release();
+                                            fn(error, session);
+                                            erase_pending_connect(session);
+                                            return;
                                         }
-                                        session->set(paddrinfo.spinfo_assoc_id);
-                                        acquire();
-                                        push_back(session);
-                                        release();
-                                        fn(error, session);
-                                        erase_pending_connect(session);
-                                        return;
-                                    }
-                                    default:
-                                        std::cerr << "sctp-server.cpp:177:connect() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                        error = boost::system::error_code(errno, boost::system::system_category());
-                                        fn(error, session);
-                                        erase_pending_connect(session);
-                                        return;
+                                        case EALREADY:
+                                            break;
+                                        default:
+                                            std::cerr << "sctp-server.cpp:177:connect() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                            error = boost::system::error_code(errno, boost::system::system_category());
+                                            fn(error, session);
+                                            erase_pending_connect(session);
+                                            return;
 
+                                    }
                                 }
+                            } else {
+                                std::cerr << "sctp-server.cpp:186:async_wait write failed:" << ec.message() << std::endl;
+                                fn(ec, session);
+                                erase_pending_connect(session);
                             }
-                        } else {
-                            std::cerr << "sctp-server.cpp:186:async_wait write failed:" << ec.message() << std::endl;
-                            fn(ec, session);
-                            erase_pending_connect(session);
+                            return;
                         }
-                        return;
-                    }
-                );
+                    );
+                }
             } else {
                 std::cerr << "sctp-server.cpp:194:getsockopt() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
             }
@@ -310,13 +321,17 @@ namespace sctp_transport{
                                         sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
                                         return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
                                     });
-                                    if(it != pending_connects_.end()){
+                                    while(it != pending_connects_.end()){
                                         /* This is a pending connection */
                                         const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
                                         sctp_session->set(association);
                                         push_back(sctp_session);
                                         it->cb(error, sctp_session);
                                         pending_connects_.erase(it);
+                                        it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                            sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                            return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                        });
                                     }
                                 } catch (std::bad_weak_ptr& e){
                                     std::cerr << "sctp-server.cpp:322:std::bad_weak_ptr thrown:" << e.what() << std::endl;

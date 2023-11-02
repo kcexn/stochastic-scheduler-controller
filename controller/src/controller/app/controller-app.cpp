@@ -158,10 +158,6 @@ namespace app{
             io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
-            // if(status){
-            //     clock_gettime(CLOCK_REALTIME, &ts);
-            //     std::cout << "controller-app.cpp:153:loop started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-            // }
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
             if(thread_local_signal & ~CTL_TERMINATE_EVENT){
                 io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
@@ -404,8 +400,8 @@ namespace app{
                 }
             }
             // if(status){
-            //     clock_gettime(CLOCK_REALTIME, &ts);
-            //     std::cout << "controller-app.cpp:387:sched end processed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
+            //     clock_gettime(CLOCK_MONOTONIC, &ts[1]);
+            //     std::cout << "controller-app.cpp:407:loop time:" << (ts[1].tv_sec*1000000 + ts[1].tv_nsec/1000) - (ts[0].tv_sec*1000000 + ts[0].tv_nsec/1000) << std::endl;
             // }
         }
         return;
@@ -632,7 +628,7 @@ namespace app{
                                 });
                                 std::mutex wait_mtx_;
                                 std::unique_lock<std::mutex> lk(wait_mtx_);
-                                if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
+                                if(wait_cv_->wait_for(lk, std::chrono::milliseconds(10), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
                                     reschedule.join();
                                 } else {
                                     reschedule.detach();
@@ -1019,9 +1015,10 @@ namespace app{
                                             // Construct the curl command.
                                             const char* bin_curl = "/usr/bin/curl";
                                             std::vector<const char*> argv;
-                                            argv.reserve(9*concurrency+2);
+                                            argv.reserve(9*concurrency+3);
                                             argv.push_back(bin_curl);
-                                            argv.push_back("--parallel-immediate");
+                                            argv.push_back("--parallel-max");
+                                            argv.push_back("50");
                                             argv.push_back("-Z");
                                             argv.push_back("--no-progress-meter");
 
@@ -1097,7 +1094,22 @@ namespace app{
                                                     std::cerr << "fork cURL failed." << std::endl;
                                                     throw "what?";
                                                 default:
+                                                {
+                                                    struct timespec ts[2] = {};
+                                                    ts[0] = {0, 2000000};
+                                                    while(nanosleep(&ts[0], &ts[1]) < 0){
+                                                        switch(errno)
+                                                        {
+                                                            case EINTR:
+                                                                ts[0] = ts[1];
+                                                                break;
+                                                            default:
+                                                                std::cerr << "controller-app.cpp:1110:nanosleep() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                                                throw "what?";
+                                                        }
+                                                    }
                                                     break;
+                                                }
                                             }
                                         }
                                         // waitpid is handled by trapping SIGCHLD.
@@ -1361,7 +1373,7 @@ namespace app{
                                             });
                                             std::mutex wait_mtx_;
                                             std::unique_lock lk(wait_mtx_);
-                                            if(wait_cv_->wait_for(lk, std::chrono::milliseconds(2), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
+                                            if(wait_cv_->wait_for(lk, std::chrono::milliseconds(10), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
                                                 reschedule.join();
                                             } else {
                                                 reschedule.detach();

@@ -7,9 +7,9 @@
 #include <charconv>
 
 // Global Scheduler Signals.
-std::shared_ptr<std::mutex> SIGNAL_MTX_PTR;
-std::shared_ptr<std::atomic<std::uint16_t> > SIGNAL_PTR;
-std::shared_ptr<std::condition_variable> SIGNAL_CV_PTR;
+std::shared_ptr<std::mutex> SIGNAL_MTX_PTR = std::make_shared<std::mutex>();
+std::shared_ptr<std::atomic<std::uint16_t> > SIGNAL_PTR = std::make_shared<std::atomic<std::uint16_t> >();
+std::shared_ptr<std::condition_variable> SIGNAL_CV_PTR = std::make_shared<std::condition_variable>();
 
 extern "C"{
     void handler(int signum){
@@ -57,11 +57,7 @@ int main(int argc, char* argv[])
         std::cerr << std::make_error_code(fcres.ec).message() << std::endl;
         throw "This should never happen.";
     }
-
-    SIGNAL_MTX_PTR = std::make_shared<std::mutex>();
-    SIGNAL_PTR = std::make_shared<std::atomic<std::uint16_t> >();
-    SIGNAL_CV_PTR = std::make_shared<std::condition_variable>();
-
+    
     struct sigaction new_action = {};
     new_action.sa_handler = handler;
     sigemptyset(&(new_action.sa_mask));
