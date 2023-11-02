@@ -233,8 +233,8 @@ static void populate_request_data(boost::json::object& jctx, const std::shared_p
 
 static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val){
     std::size_t concurrency = ctxp->manifest().concurrency();
-    std::size_t manifest_size = ctxp->manifest().size();
     if(concurrency > 1){
+        std::size_t manifest_size = ctxp->manifest().size();
         const char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
         if(__OW_ACTION_NAME == nullptr){
             std::cerr << "controller-app.cpp:240:__OW_ACTION_NAME envvar is not set!" << std::endl;
