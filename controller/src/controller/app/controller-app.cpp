@@ -331,19 +331,28 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
         if(num_running_handles > 0){
             try{
                 std::thread curl([&](int num_running_handles, struct curl_slist* slist, CURLM* mhnd, FILE* writedata){
+                    // After the API requests have been made, I really don't care when or how long it takes for the 
+                    // Openwhisk servers to respond. The only responsibility this thread has is to gracefully release all of the
+                    // resources that were created to make the HTTP requests. Since this is the case, we are going to 
+                    // add a nice value to this thread so that it doesn't take up as much of the scheduler time shares.
+                    errno = 0;
+                    if(nice(10) == -1 && errno > 0){
+                        std::cerr << "controller-app.cpp:340:nice() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "what?";
+                    }
                     int numfds = 0;
                     struct CURLMsg* m = nullptr;
                     CURLMcode mstatus;
                     do{
                         mstatus = curl_multi_poll(mhnd, nullptr, 0, 1000, &numfds);
                         if(mstatus != CURLM_OK){
-                            std::cerr << "controller-app.cpp:340:curl_multi_poll failed:" << mstatus << std::endl;
+                            std::cerr << "controller-app.cpp:349:curl_multi_poll failed:" << mstatus << std::endl;
                             throw "what?";
                         }
                         if(numfds > 0){
                             mstatus = curl_multi_perform(mhnd, &num_running_handles);
                             if(mstatus != CURLM_OK){
-                                std::cerr << "controller-app.cpp:346:curl_multi_perform failed:" << mstatus << std::endl;
+                                std::cerr << "controller-app.cpp:355:curl_multi_perform failed:" << mstatus << std::endl;
                                 throw "what?";
                             }
                             int msgq = 0;
@@ -356,7 +365,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                                         case CURLM_OK:
                                             break;
                                         default:
-                                            std::cerr << "controller-app.cpp:359:curl_multi_remove_handle() failed." << std::endl;
+                                            std::cerr << "controller-app.cpp:368:curl_multi_remove_handle() failed." << std::endl;
                                             throw "what?";
                                     }
                                     curl_easy_cleanup(hnd);
@@ -369,7 +378,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                         case CURLM_OK:
                             break;
                         default:
-                            std::cerr << "controller-app.cpp:372:curl_multi_cleanup() failed." << std::endl;
+                            std::cerr << "controller-app.cpp:381:curl_multi_cleanup() failed." << std::endl;
                             throw "what?";
                     }
                     curl_slist_free_all(slist);
@@ -378,7 +387,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                 }, num_running_handles, slist, mhnd, devnull);
                 curl.detach();
             } catch(std::system_error& e){
-                std::cerr << "controller-app.cpp:381:curl thread failed to start." << std::endl;
+                std::cerr << "controller-app.cpp:390:curl thread failed to start." << std::endl;
                 throw e;
             }
         } else {
@@ -393,7 +402,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                         case CURLM_OK:
                             break;
                         default:
-                            std::cerr << "controller-app.cpp:396:curl_multi_remove_handle() failed." << std::endl;
+                            std::cerr << "controller-app.cpp:405:curl_multi_remove_handle() failed." << std::endl;
                             throw "what?";
                     }
                     curl_easy_cleanup(hnd);
@@ -404,7 +413,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                 case CURLM_OK:
                     break;
                 default:
-                    std::cerr << "controller-app.cpp:407:curl_multi_cleanup() failed." << std::endl;
+                    std::cerr << "controller-app.cpp:416:curl_multi_cleanup() failed." << std::endl;
                     throw "what?";
             }
             curl_slist_free_all(slist);
@@ -426,7 +435,7 @@ namespace app{
     {
         CURLcode status = curl_global_init(CURL_GLOBAL_NOTHING); // Don't plan on using SSL support.
         if(status != CURLE_OK){
-            std::cerr << "controller-app.cpp:429:libcurl global initialization failed with error code:" << status << std::endl;
+            std::cerr << "controller-app.cpp:438:libcurl global initialization failed with error code:" << status << std::endl;
             throw "what?";
         }
         try{
@@ -436,7 +445,7 @@ namespace app{
             tid_ = application.native_handle();
             application.detach();
         } catch (std::system_error& e){
-            std::cerr << "controller-app.cpp:439:application failed to start with error:" << e.what() << std::endl;
+            std::cerr << "controller-app.cpp:448:application failed to start with error:" << e.what() << std::endl;
             throw e;
         }
     }
@@ -450,7 +459,7 @@ namespace app{
     {
         CURLcode status = curl_global_init(CURL_GLOBAL_NOTHING); // Don't plan on using SSL support.
         if(status != CURLE_OK){
-            std::cerr << "controller-app.cpp:453:libcurl global initialization failed with error code:" << status << std::endl;
+            std::cerr << "controller-app.cpp:462:libcurl global initialization failed with error code:" << status << std::endl;
             throw "what?";
         }
         try{
@@ -460,7 +469,7 @@ namespace app{
             tid_ = application.native_handle();
             application.detach();
         } catch (std::system_error& e){
-            std::cerr << "controller-app.cpp:463:application failed to start with error:" << e.what() << std::endl;
+            std::cerr << "controller-app.cpp:472:application failed to start with error:" << e.what() << std::endl;
             throw e;
         }
     }
@@ -666,7 +675,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(f_val, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:669:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                            std::cerr << "controller-app.cpp:678:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jo.emplace(f_key, jv);
@@ -761,7 +770,7 @@ namespace app{
                 while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:764:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:773:json_obj_str is empty" << std::endl;
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -777,7 +786,7 @@ namespace app{
                                         thread_control.stop_thread();
                                     });
                                 } catch (std::system_error& e){
-                                    std::cerr << "controller-app.cpp:780:stop thread failed to start with error:" << e.what() << std::endl;
+                                    std::cerr << "controller-app.cpp:789:stop thread failed to start with error:" << e.what() << std::endl;
                                     throw e;
                                 }
                             }
@@ -812,7 +821,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:815:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:824:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
                         throw "this shouldn't happen.";
                     }
                     auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -958,7 +967,7 @@ namespace app{
                                     reschedule.detach();
                                 }
                             } catch (std::system_error& e){
-                                std::cerr << "controller-app.cpp:961:reschedule failed to start with error:" << e.what() << std::endl;
+                                std::cerr << "controller-app.cpp:970:reschedule failed to start with error:" << e.what() << std::endl;
                                 throw e;
                             }
                         }
@@ -1077,7 +1086,7 @@ namespace app{
                                         thread_control.stop_thread();
                                     });
                                 } catch(std::system_error& e){
-                                    std::cerr << "controller-app.cpp:1080:stops thread failed to start with error:" << e.what() << std::endl;
+                                    std::cerr << "controller-app.cpp:1089:stops thread failed to start with error:" << e.what() << std::endl;
                                     throw e;
                                 }
                             }
@@ -1107,7 +1116,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:1110:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:1119:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                         throw "Json Parsing failed.";
                     }
 
@@ -1204,7 +1213,7 @@ namespace app{
                                         return rel->key() == start->key();
                                     });
                                     if (start_it == ctx_ptr->manifest().end()){
-                                        std::cerr << "controller-app.cpp:1207:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
+                                        std::cerr << "controller-app.cpp:1216:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
                                         // If the start key is past the end of the manifest, that means that
                                         // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -1277,7 +1286,7 @@ namespace app{
                                                         );
                                                         executor.detach();
                                                     } catch (std::system_error& e){
-                                                        std::cerr << "controller-app.cpp:1280:executor failed to start with error:" << e.what() << std::endl;
+                                                        std::cerr << "controller-app.cpp:1289:executor failed to start with error:" << e.what() << std::endl;
                                                         throw e;
                                                     }
                                                 }
@@ -1296,7 +1305,7 @@ namespace app{
                                         }
                                         slk.unlock();
                                     } catch(std::system_error& e){
-                                        std::cerr << "controller-app.cpp:1299:initializer failed to start with error:" << e.what() << std::endl;
+                                        std::cerr << "controller-app.cpp:1308:initializer failed to start with error:" << e.what() << std::endl;
                                         throw e;
                                     }
                                     /* Initialize the http client sessions */
@@ -1356,7 +1365,7 @@ namespace app{
                                 }
                             } else {
                                 // invalidate the fibers.
-                                std::cerr << "controller-app.cpp:1359:/run route reached before initialization." << std::endl;
+                                std::cerr << "controller-app.cpp:1368:/run route reached before initialization." << std::endl;
                                 http::HttpReqRes rr;
                                 while(ctx_ptr->sessions().size() > 0)
                                 {
@@ -1415,7 +1424,7 @@ namespace app{
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);
                                             if(ec){
-                                                std::cerr << "controller-app.cpp:1418:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                std::cerr << "controller-app.cpp:1427:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                 throw "This shouldn't be possible.";
                                             }
                                             ro.emplace(relation->key(), jv);
@@ -1572,7 +1581,7 @@ namespace app{
                                                 reschedule.detach();
                                             }
                                         } catch(std::system_error& e){
-                                            std::cerr << "controller-app.cpp:1575:reschedule failed to start with error:" << e.what() << std::endl;
+                                            std::cerr << "controller-app.cpp:1584:reschedule failed to start with error:" << e.what() << std::endl;
                                             throw e;
                                         }
                                     }
@@ -1689,7 +1698,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1692:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1701:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);
