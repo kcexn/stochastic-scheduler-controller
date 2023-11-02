@@ -7,102 +7,416 @@
 #include <charconv>
 #include <transport-servers/sctp-server/sctp-session.hpp>
 #include <sys/wait.h>
+#include <curl/curl.h>
 
 #define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
-namespace controller{
-namespace app{
-    static std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
-        std::string_view obj;
-        // Count the number of unclosed braces.
-        std::size_t brace_count = 0;
-        // Count the number of opened square brackets '['.
-        int bracket_count = 0;
-        // Track the start and end positions of 
-        // the top level javascript object.
-        std::size_t next_opening_brace = 0;
-        std::size_t next_closing_brace = 0;
-        for(; pos < data.size(); ++pos){
-            const char& c = data[pos];
-            switch(c)
+static std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
+    std::string_view obj;
+    // Count the number of unclosed braces.
+    std::size_t brace_count = 0;
+    // Count the number of opened square brackets '['.
+    int bracket_count = 0;
+    // Track the start and end positions of 
+    // the top level javascript object.
+    std::size_t next_opening_brace = 0;
+    std::size_t next_closing_brace = 0;
+    for(; pos < data.size(); ++pos){
+        const char& c = data[pos];
+        switch(c)
+        {
+            case '}':
             {
-                case '}':
-                {
-                    // track the last found closing brace as we go through the loop.
-                    if(brace_count == 0){
-                        // ignore spurious closing braces.
-                        continue;
-                    }
-                    --brace_count;
-                    if(brace_count == 0){
-                        next_closing_brace = pos;
-                    }
-                    break;
+                // track the last found closing brace as we go through the loop.
+                if(brace_count == 0){
+                    // ignore spurious closing braces.
+                    continue;
                 }
-                case '{':
-                {
-                    if(brace_count == 0){
-                        next_opening_brace = pos;
-                    }
-                    ++brace_count;
-                    break;
+                --brace_count;
+                if(brace_count == 0){
+                    next_closing_brace = pos;
                 }
-                case ',':
-                {
-                    if(next_closing_brace > next_opening_brace){
-                        // Once we find a trailing top level comma, then we know that we have reached the end of 
-                        // a javascript object.
-                        goto exit_loop;
-                    }
-                    break;
+                break;
+            }
+            case '{':
+            {
+                if(brace_count == 0){
+                    next_opening_brace = pos;
                 }
-                case ']':
-                {
-                    --bracket_count;
-                    if(next_closing_brace >= next_opening_brace && brace_count == 0 && bracket_count <= 0){
-                        /* Function is complete. Terminate the execution context */
-                        obj = std::string_view(&c, 1);
-                        return obj;
-                    }
-                    break;
+                ++brace_count;
+                break;
+            }
+            case ',':
+            {
+                if(next_closing_brace > next_opening_brace){
+                    // Once we find a trailing top level comma, then we know that we have reached the end of 
+                    // a javascript object.
+                    goto exit_loop;
                 }
-                case '[':
-                {
-                    ++bracket_count;
-                    break;
+                break;
+            }
+            case ']':
+            {
+                --bracket_count;
+                if(next_closing_brace >= next_opening_brace && brace_count == 0 && bracket_count <= 0){
+                    /* Function is complete. Terminate the execution context */
+                    obj = std::string_view(&c, 1);
+                    return obj;
                 }
+                break;
+            }
+            case '[':
+            {
+                ++bracket_count;
+                break;
             }
         }
-        exit_loop: ;
-        if(next_closing_brace > next_opening_brace){
-            std::size_t sz = next_closing_brace - next_opening_brace + 1;
-            obj = std::string_view(&data[next_opening_brace], sz);
-        }
-        return obj;
+    }
+    exit_loop: ;
+    if(next_closing_brace > next_opening_brace){
+        std::size_t sz = next_closing_brace - next_opening_brace + 1;
+        obj = std::string_view(&data[next_opening_brace], sz);
+    }
+    return obj;
+}
+
+static std::string rtostr(const server::Remote& raddr){
+    std::array<char,5> pbuf;
+    std::string port;
+    std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(raddr.ipv4_addr.address.sin_port), 10);
+    if(tcres.ec == std::errc()){
+        std::ptrdiff_t size = tcres.ptr - pbuf.data();
+        port = std::string(pbuf.data(), size);
+    } else {
+        std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
+        throw "This shouldn't be possible.";
     }
 
-    static std::string rtostr(const server::Remote& raddr){
-        std::array<char,5> pbuf;
-        std::string port;
-        std::to_chars_result tcres = std::to_chars(pbuf.data(), pbuf.data()+pbuf.size(), ntohs(raddr.ipv4_addr.address.sin_port), 10);
-        if(tcres.ec == std::errc()){
-            std::ptrdiff_t size = tcres.ptr - pbuf.data();
-            port = std::string(pbuf.data(), size);
+    std::array<char, INET_ADDRSTRLEN> inbuf;
+    const char* addr = inet_ntop(AF_INET, &raddr.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
+
+    std::string pstr(addr);
+    pstr.reserve(pstr.size() + port.size() + 1);
+    pstr.push_back(':');
+    pstr.insert(pstr.end(), port.begin(), port.end());  
+    return pstr;
+}
+
+static void set_common_curl_handle_options(CURL* hnd, const std::string& url, const std::string& __OW_API_KEY, struct curl_slist* slist, FILE* writedata) {
+    auto it = std::find(__OW_API_KEY.begin(), __OW_API_KEY.end(), ':');
+    if(it == __OW_API_KEY.end()){
+        std::cerr << "controller-app.cpp:108:delimiter ':' wasn't found." << std::endl;
+        throw "what?";
+    }
+    std::string username(__OW_API_KEY.begin(), it);
+    std::string password(++it, __OW_API_KEY.end());
+    CURLcode status;
+    switch(status = curl_easy_setopt(hnd, CURLOPT_HTTPHEADER, slist))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:119:setting CURLOPT_HTTPHEADER failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_URL, url.c_str()))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:127:setting CURLOPT_URL failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_USERNAME, username.c_str()))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:135:setting CURLOPT_USERNAME failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_PASSWORD, password.c_str()))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:143:setting CURLOPT_PASSWORD failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_2TLS))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:151:setting CURLOPT_HTTP_VERSION failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_POST, 1))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:159:setting CURLOPT_POST failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_USERAGENT, "curl/7.88.1"))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:167:setting CURLOPT_USERAGENT failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_WRITEDATA, writedata))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:175:setting CURLOPT_WRITEDATA failed:" << status << std::endl;
+            throw "what?";
+    }
+    return;
+}
+
+static void set_curl_handle_options(CURL* hnd, const std::string& data){
+    CURLcode status;
+    switch(status = curl_easy_setopt(hnd, CURLOPT_COPYPOSTFIELDS, data.c_str()))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:188:setting CURLOPT_COPYPOSTFIELDS failed:" << status << std::endl;
+            throw "what?";
+    }
+    switch(status = curl_easy_setopt(hnd, CURLOPT_POSTFIELDSIZE, data.size()))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:196:setting CURLOPT_POSTFIELDSIZE failed:" << status << std::endl;
+            throw "what?";
+    }
+    return;
+}
+
+static void populate_indices(std::vector<std::size_t>& indices, std::size_t manifest_size, std::size_t concurrency){
+    indices.reserve(concurrency);
+    if(manifest_size < concurrency){
+        for (std::size_t i = 0; i < concurrency; ++i){
+            indices.push_back(i);
+        }
+    } else {
+        for (std::size_t i = 0; i < concurrency; ++i){
+            indices.push_back(i*(manifest_size/concurrency));
+        }
+    }
+    return;
+}
+
+static void populate_request_data(boost::json::object& jctx, const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val, const std::vector<std::size_t>& indices){
+    boost::json::object jo;
+    std::stringstream uuid;
+    uuid << ctxp->execution_context_id();
+    jo.emplace("uuid", boost::json::string(uuid.str()));
+    std::vector<server::Remote> peers = ctxp->peer_addresses();
+    boost::json::array ja;
+    for(auto& peer: peers){
+        ja.push_back(boost::json::string(rtostr(peer)));
+    }
+    jo.emplace("peers", ja);
+    jo.emplace("value", val.at("value").as_object());
+    // Emplace the first context index.
+    jo.emplace("idx", indices[1]);
+    jctx.emplace("execution_context", jo);
+    return;
+}
+
+static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val){
+    std::size_t concurrency = ctxp->manifest().concurrency();
+    std::size_t manifest_size = ctxp->manifest().size();
+    if(concurrency > 1){
+        const char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
+        if(__OW_ACTION_NAME == nullptr){
+            std::cerr << "controller-app.cpp:240:__OW_ACTION_NAME envvar is not set!" << std::endl;
+            throw "what?";
+        }
+        const char* __OW_API_HOST = getenv("__OW_API_HOST");
+        if (__OW_API_HOST == nullptr){
+            std::cerr << "controller-app.cpp:245:__OW_API_HOST envvar is not set!" << std::endl;
+            throw "what?";
+        }
+        std::string __OW_API_KEY = ctxp->env()["__OW_API_KEY"];
+        if(__OW_API_KEY.empty()){
+            std::cerr << "controller-app.cpp:250:__OW_API_KEY envvar is not set!" << std::endl;
+            throw "what?";
+        }
+        // Compute the index for each subsequent context by partitioning the manifest.
+        std::vector<std::size_t> indices;
+        populate_indices(indices, manifest_size, concurrency);
+
+        // Initialize the request data for the context.
+        boost::json::object jctx;
+        populate_request_data(jctx, ctxp, val, indices);
+
+        // Allocate space for the data in each subsequent request.
+        std::vector<std::string> data_vec;
+        data_vec.reserve(concurrency);
+        data_vec.emplace_back(boost::json::serialize(jctx));
+
+        // Construct the URL for the API requests.
+        std::filesystem::path action_name(__OW_ACTION_NAME);
+        std::string url(__OW_API_HOST);
+        url.append("/api/v1/namespaces/");
+        url.append(action_name.relative_path().begin()->string());
+        url.append("/actions/");
+        url.append(action_name.filename().string());
+
+        // Construct the HTTP headers for the API requests.
+        struct curl_slist* slist = nullptr;
+        slist = curl_slist_append(slist, "Content-Type: application/json");
+        slist = curl_slist_append(slist, "Accept: application/json");
+
+        // We don't care about anything in the API responses so we will route everything to /dev/null.
+        FILE* devnull = fopen("/dev/null", "w");
+        if(devnull == nullptr){
+            std::cerr << "controller-app.cpp:282:/dev/null failed to open for writing." << std::endl;
+            throw "what?";
+        }
+
+        int num_running_handles = 0;
+        CURLMcode mstatus;
+        CURLM* mhnd = curl_multi_init();
+        if(mhnd == nullptr){
+            std::cerr << "controller-app.cpp:290:CURL multi init failed." << std::endl;
+            throw "what?";
+        }
+
+        CURL* handle = curl_easy_init();
+        if(handle){
+            set_common_curl_handle_options(handle, url, __OW_API_KEY, slist, devnull);
         } else {
-            std::cerr << std::make_error_code(tcres.ec).message() << std::endl;
-            throw "This shouldn't be possible.";
+            std::cerr << "controller-app.cpp:298:curl_easy_init() failed." << std::endl;
+            throw "what?";
         }
-
-        std::array<char, INET_ADDRSTRLEN> inbuf;
-        const char* addr = inet_ntop(AF_INET, &raddr.ipv4_addr.address.sin_addr.s_addr, inbuf.data(), inbuf.size());
-
-        std::string pstr(addr);
-        pstr.reserve(pstr.size() + port.size() + 1);
-        pstr.push_back(':');
-        pstr.insert(pstr.end(), port.begin(), port.end());  
-        return pstr;
+        for(std::size_t i = 2; i < concurrency; ++i){
+            CURL* hnd = curl_easy_duphandle(handle);
+            if(hnd){
+                jctx["execution_context"].get_object()["idx"] = indices[i];
+                data_vec.emplace_back(boost::json::serialize(jctx));
+                set_curl_handle_options(hnd, data_vec.back());
+                if(curl_multi_add_handle(mhnd, hnd) != CURLM_OK){
+                    std::cerr << "controller-app.cpp:308:curl_multi_add_handle failed." << std::endl;
+                    throw "what?";
+                }
+                mstatus = curl_multi_perform(mhnd, &num_running_handles);
+                if(mstatus != CURLM_OK){
+                    std::cerr << "controller-app.cpp:313:curl_multi_perform failed:" << mstatus << std::endl;
+                    throw "what?";
+                }
+            } else {
+                std::cerr << "controller-app.cpp:317:CURL easy handle initialization failed." << std::endl;
+                throw "what?";
+            }
+        }
+        set_curl_handle_options(handle, data_vec.front());
+        if(curl_multi_add_handle(mhnd, handle) != CURLM_OK){
+            std::cerr << "controller-app.cpp:323:curl_multi_add_handle failed." << std::endl;
+            throw "what?";
+        }
+        mstatus = curl_multi_perform(mhnd, &num_running_handles);
+        if(mstatus != CURLM_OK){
+            std::cerr << "controller-app.cpp:328:curl_multi_perform failed:" << mstatus << std::endl;
+            throw "what?";
+        }
+        if(num_running_handles > 0){
+            try{
+                std::thread curl([&](int num_running_handles, struct curl_slist* slist, CURLM* mhnd, FILE* writedata){
+                    int numfds = 0;
+                    struct CURLMsg* m = nullptr;
+                    CURLMcode mstatus;
+                    do{
+                        mstatus = curl_multi_poll(mhnd, nullptr, 0, 1000, &numfds);
+                        if(mstatus != CURLM_OK){
+                            std::cerr << "controller-app.cpp:340:curl_multi_poll failed:" << mstatus << std::endl;
+                            throw "what?";
+                        }
+                        if(numfds > 0){
+                            mstatus = curl_multi_perform(mhnd, &num_running_handles);
+                            if(mstatus != CURLM_OK){
+                                std::cerr << "controller-app.cpp:346:curl_multi_perform failed:" << mstatus << std::endl;
+                                throw "what?";
+                            }
+                            int msgq = 0;
+                            do{
+                                m = curl_multi_info_read(mhnd, &msgq);
+                                if(m && (m->msg == CURLMSG_DONE)){
+                                    CURL* hnd = m->easy_handle;
+                                    switch(curl_multi_remove_handle(mhnd, hnd))
+                                    {
+                                        case CURLM_OK:
+                                            break;
+                                        default:
+                                            std::cerr << "controller-app.cpp:359:curl_multi_remove_handle() failed." << std::endl;
+                                            throw "what?";
+                                    }
+                                    curl_easy_cleanup(hnd);
+                                }
+                            }while(msgq > 0);
+                        }
+                    }while(num_running_handles > 0);
+                    switch(curl_multi_cleanup(mhnd))
+                    {
+                        case CURLM_OK:
+                            break;
+                        default:
+                            std::cerr << "controller-app.cpp:372:curl_multi_cleanup() failed." << std::endl;
+                            throw "what?";
+                    }
+                    curl_slist_free_all(slist);
+                    fclose(writedata);
+                    return;
+                }, num_running_handles, slist, mhnd, devnull);
+                curl.detach();
+            } catch(std::system_error& e){
+                std::cerr << "controller-app.cpp:381:curl thread failed to start." << std::endl;
+                throw e;
+            }
+        } else {
+            struct CURLMsg* m = nullptr;
+            int msgq = 0;
+            do{
+                m = curl_multi_info_read(mhnd, &msgq);
+                if(m && (m->msg == CURLMSG_DONE)){
+                    CURL* hnd = m->easy_handle;
+                    switch(curl_multi_remove_handle(mhnd, hnd))
+                    {
+                        case CURLM_OK:
+                            break;
+                        default:
+                            std::cerr << "controller-app.cpp:396:curl_multi_remove_handle() failed." << std::endl;
+                            throw "what?";
+                    }
+                    curl_easy_cleanup(hnd);
+                }
+            }while(msgq > 0);
+            switch(curl_multi_cleanup(mhnd))
+            {
+                case CURLM_OK:
+                    break;
+                default:
+                    std::cerr << "controller-app.cpp:407:curl_multi_cleanup() failed." << std::endl;
+                    throw "what?";
+            }
+            curl_slist_free_all(slist);
+            fclose(devnull);
+        }
     }
+    return;
+}
 
+
+namespace controller{
+namespace app{
     Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc)
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
@@ -110,6 +424,11 @@ namespace app{
         io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc),
         ioc_(ioc)
     {
+        CURLcode status = curl_global_init(CURL_GLOBAL_NOTHING); // Don't plan on using SSL support.
+        if(status != CURLE_OK){
+            std::cerr << "controller-app.cpp:429:libcurl global initialization failed with error code:" << status << std::endl;
+            throw "what?";
+        }
         try{
             std::thread application(
                 &Controller::start, this
@@ -117,7 +436,7 @@ namespace app{
             tid_ = application.native_handle();
             application.detach();
         } catch (std::system_error& e){
-            std::cerr << "controller-app.cpp:118:application failed to start with error:" << e.what() << std::endl;
+            std::cerr << "controller-app.cpp:439:application failed to start with error:" << e.what() << std::endl;
             throw e;
         }
     }
@@ -129,6 +448,11 @@ namespace app{
         io_(io_mbox_ptr_, upath.string(), ioc, sport),
         ioc_(ioc)
     {
+        CURLcode status = curl_global_init(CURL_GLOBAL_NOTHING); // Don't plan on using SSL support.
+        if(status != CURLE_OK){
+            std::cerr << "controller-app.cpp:453:libcurl global initialization failed with error code:" << status << std::endl;
+            throw "what?";
+        }
         try{
             std::thread application(
                 &Controller::start, this
@@ -136,7 +460,7 @@ namespace app{
             tid_ = application.native_handle();
             application.detach();
         } catch (std::system_error& e){
-            std::cerr << "controller-app.cpp:137:application failed to start with error:" << e.what() << std::endl;
+            std::cerr << "controller-app.cpp:463:application failed to start with error:" << e.what() << std::endl;
             throw e;
         }
     }
@@ -342,7 +666,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(f_val, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:327:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                            std::cerr << "controller-app.cpp:669:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jo.emplace(f_key, jv);
@@ -437,7 +761,7 @@ namespace app{
                 while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:407:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:764:json_obj_str is empty" << std::endl;
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -453,7 +777,7 @@ namespace app{
                                         thread_control.stop_thread();
                                     });
                                 } catch (std::system_error& e){
-                                    std::cerr << "controller-app.cpp:460:stop thread failed to start with error:" << e.what() << std::endl;
+                                    std::cerr << "controller-app.cpp:780:stop thread failed to start with error:" << e.what() << std::endl;
                                     throw e;
                                 }
                             }
@@ -488,7 +812,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:455:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:815:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
                         throw "this shouldn't happen.";
                     }
                     auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -634,7 +958,7 @@ namespace app{
                                     reschedule.detach();
                                 }
                             } catch (std::system_error& e){
-                                std::cerr << "controller-app.cpp:631:reschedule failed to start with error:" << e.what() << std::endl;
+                                std::cerr << "controller-app.cpp:961:reschedule failed to start with error:" << e.what() << std::endl;
                                 throw e;
                             }
                         }
@@ -736,7 +1060,7 @@ namespace app{
                     // clock_gettime(CLOCK_MONOTONIC, &tjson[0]);
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:675:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:1063:json_obj_str is empty" << std::endl;
                         continue;
                     } else if(json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -753,7 +1077,7 @@ namespace app{
                                         thread_control.stop_thread();
                                     });
                                 } catch(std::system_error& e){
-                                    std::cerr << "controller-app.cpp:760:stops thread failed to start with error:" << e.what() << std::endl;
+                                    std::cerr << "controller-app.cpp:1080:stops thread failed to start with error:" << e.what() << std::endl;
                                     throw e;
                                 }
                             }
@@ -783,7 +1107,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:716:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:1110:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                         throw "Json Parsing failed.";
                     }
 
@@ -880,7 +1204,7 @@ namespace app{
                                         return rel->key() == start->key();
                                     });
                                     if (start_it == ctx_ptr->manifest().end()){
-                                        std::cerr << "controller-app.cpp:782:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
+                                        std::cerr << "controller-app.cpp:1207:there are no matches for rel->key() == start->key():start->key()=" << start->key() << std::endl;
                                         // If the start key is past the end of the manifest, that means that
                                         // there are no more relations to complete execution. Simply signal a SCHED_END condition and return from request routing.
                                         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -953,7 +1277,7 @@ namespace app{
                                                         );
                                                         executor.detach();
                                                     } catch (std::system_error& e){
-                                                        std::cerr << "controller-app.cpp:959:executor failed to start with error:" << e.what() << std::endl;
+                                                        std::cerr << "controller-app.cpp:1280:executor failed to start with error:" << e.what() << std::endl;
                                                         throw e;
                                                     }
                                                 }
@@ -972,7 +1296,7 @@ namespace app{
                                         }
                                         slk.unlock();
                                     } catch(std::system_error& e){
-                                        std::cerr << "controller-app.cpp:965:initializer failed to start with error:" << e.what() << std::endl;
+                                        std::cerr << "controller-app.cpp:1299:initializer failed to start with error:" << e.what() << std::endl;
                                         throw e;
                                     }
                                     /* Initialize the http client sessions */
@@ -981,138 +1305,7 @@ namespace app{
                                         // The primary context will have no client peer connections, only server peer connections.
                                         // The primary context must hit the OW API endpoint `concurrency' no. of times with the
                                         // a different execution context idx and the same execution context id each time.
-                                        std::size_t concurrency = ctx_ptr->manifest().concurrency();
-                                        if(concurrency > 1){
-                                            char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
-                                            char* __OW_API_HOST = getenv("__OW_API_HOST");
-                                            if(__OW_ACTION_NAME == nullptr){
-                                                std::cerr << "__OW_ACTION_NAME envvar is not set!" << std::endl;
-                                                throw "This shouldn't happen.";
-                                            } else if (__OW_API_HOST == nullptr){
-                                                std::cerr << "__OW_API_HOST envvar is not set!" << std::endl;
-                                                throw "This shouldn't happen.";
-                                            }
-
-                                            std::string __OW_API_KEY = env["__OW_API_KEY"];
-                                            if(__OW_API_KEY.empty()){
-                                                std::cerr << "__OW_API_KEY envvar is not set!" << std::endl;
-                                                throw "This shouldn't happen.";
-                                            }
-
-                                            // Wrap the json parameter value val in an execution context.
-                                            std::stringstream uuid;
-                                            uuid << ctx_ptr->execution_context_id();
-                                            boost::json::object jo;
-                                            jo.emplace("uuid", boost::json::string(uuid.str()));
-                                            std::vector<server::Remote> peers = ctx_ptr->peer_addresses();
-                                            boost::json::array ja;
-                                            for(auto& peer: peers){
-                                                ja.push_back(boost::json::string(rtostr(peer)));
-                                            }
-                                            jo.emplace("peers", ja);
-                                            jo.emplace("value", val.at("value").as_object());
-
-                                            // Construct the curl command.
-                                            const char* bin_curl = "/usr/bin/curl";
-                                            std::vector<const char*> argv;
-                                            argv.reserve(9*concurrency+3);
-                                            argv.push_back(bin_curl);
-                                            argv.push_back("--parallel-max");
-                                            argv.push_back("50");
-                                            argv.push_back("-Z");
-                                            argv.push_back("--no-progress-meter");
-
-                                            /*For each other concurrent invocation, hit the __OW_API_HOST actions endpoint at
-                                            $__OW_API_HOST/api/v1/$__OW_ACTION_NAME. With basic http authentication -u "$__OW_API_KEY".
-                                            */
-                                            // The arguments required for each request before passing cURL the --next flag.
-                                            // HTTP basic authentication
-                                            argv.push_back("-u");
-                                            argv.push_back(__OW_API_KEY.c_str());
-                                            std::vector<std::string> data_vec;
-                                            data_vec.reserve(concurrency);
-
-                                            // Compute the index for each subsequent context by partitioning the manifest.
-                                            std::size_t manifest_size = ctx_ptr->manifest().size();
-                                            std::vector<std::size_t> indices;
-                                            indices.reserve(concurrency);
-                                            if(manifest_size < concurrency){
-                                                for (std::size_t i = 0; i < concurrency; ++i){
-                                                    indices.push_back(i);
-                                                }
-                                            } else {
-                                                for (std::size_t i = 0; i < concurrency; ++i){
-                                                    indices.push_back(i*(manifest_size/concurrency));
-                                                }
-                                            }
-                                            // Emplace the first context index.
-                                            jo.emplace("idx", indices[1]);
-                                            boost::json::object jctx;
-                                            jctx.emplace("execution_context", jo);
-                                            data_vec.emplace_back(boost::json::serialize(jctx));
-
-                                            // provide the data for the first request.
-                                            argv.push_back("--json");
-                                            argv.push_back(data_vec.back().c_str());
-
-                                            // Fully qualified action names are given in terms of a filesystem path.
-                                            // of the form /{NAMESPACE}/{PACKAGE}/{ACTION_NAME}
-                                            std::filesystem::path action_name(__OW_ACTION_NAME);
-                                            std::string url(__OW_API_HOST);
-                                            url.append("/api/v1/namespaces/");
-                                            url.append(action_name.relative_path().begin()->string());
-                                            url.append("/actions/");
-                                            url.append(action_name.filename().string());
-                                            argv.push_back(url.c_str());
-                                            argv.push_back("-o");
-                                            argv.push_back("/dev/null");
-
-                                            for(std::size_t i = 2; i < concurrency; ++i){
-                                                /* For every subsequent request add --next and repeat the data with a modified index. */
-                                                argv.push_back("--next");
-                                                argv.push_back("--no-progress-meter");
-                                                argv.push_back("-u");
-                                                argv.push_back(__OW_API_KEY.c_str());
-                                                argv.push_back("--json");
-                                                jctx["execution_context"].get_object()["idx"] = indices[i];
-                                                data_vec.emplace_back(boost::json::serialize(jctx));
-                                                argv.push_back(data_vec.back().c_str());
-                                                argv.push_back(url.c_str());
-                                                argv.push_back("-o");
-                                                argv.push_back("/dev/null");
-                                            }
-                                            argv.push_back(nullptr);
-                                            switch(vfork())
-                                            {
-                                                case 0:
-                                                {
-                                                    execve(bin_curl, const_cast<char* const*>(argv.data()), environ);
-                                                    exit(1);
-                                                    break;
-                                                }
-                                                case -1:
-                                                    std::cerr << "fork cURL failed." << std::endl;
-                                                    throw "what?";
-                                                default:
-                                                {
-                                                    struct timespec ts[2] = {};
-                                                    ts[0] = {0, 2000000};
-                                                    while(nanosleep(&ts[0], &ts[1]) < 0){
-                                                        switch(errno)
-                                                        {
-                                                            case EINTR:
-                                                                ts[0] = ts[1];
-                                                                break;
-                                                            default:
-                                                                std::cerr << "controller-app.cpp:1110:nanosleep() failed with error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                                                                throw "what?";
-                                                        }
-                                                    }
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        // waitpid is handled by trapping SIGCHLD.
+                                        make_api_requests(ctx_ptr, val);
                                     } else {
                                         /* This is a secondary context */
                                         boost::json::object jo;
@@ -1163,7 +1356,7 @@ namespace app{
                                 }
                             } else {
                                 // invalidate the fibers.
-                                std::cerr << "controller-app.cpp:1062:/run route reached before initialization." << std::endl;
+                                std::cerr << "controller-app.cpp:1359:/run route reached before initialization." << std::endl;
                                 http::HttpReqRes rr;
                                 while(ctx_ptr->sessions().size() > 0)
                                 {
@@ -1222,7 +1415,7 @@ namespace app{
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);
                                             if(ec){
-                                                std::cerr << "controller-app.cpp:1115:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                std::cerr << "controller-app.cpp:1418:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                 throw "This shouldn't be possible.";
                                             }
                                             ro.emplace(relation->key(), jv);
@@ -1379,7 +1572,7 @@ namespace app{
                                                 reschedule.detach();
                                             }
                                         } catch(std::system_error& e){
-                                            std::cerr << "controller-app.cpp:1322:reschedule failed to start with error:" << e.what() << std::endl;
+                                            std::cerr << "controller-app.cpp:1575:reschedule failed to start with error:" << e.what() << std::endl;
                                             throw e;
                                         }
                                     }
@@ -1496,7 +1689,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1360:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1692:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);
@@ -1617,6 +1810,7 @@ namespace app{
     Controller::~Controller()
     {
         stop();
+        curl_global_cleanup();
     }
 }// namespace app
 }//namespace controller
