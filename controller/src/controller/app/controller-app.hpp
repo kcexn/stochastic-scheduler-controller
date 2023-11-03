@@ -6,6 +6,7 @@
 #include "../io/controller-io.hpp"
 #include <iostream>
 #include <filesystem>
+#include <curl/curl.h>
 
 
 /*Forward Declarations*/
@@ -18,6 +19,25 @@ namespace http{
     class HttpSession;
     class HttpClientSession;
     class HttpResponse;
+}
+
+namespace libcurl{
+    class CurlMultiHandle
+    {
+    public:
+        explicit CurlMultiHandle();
+        CURLM* get();
+        CURLMcode add_handle(CURL* easy_handle);
+        CURLMcode perform(int* nrhp);
+        CURLMcode poll(struct curl_waitfd* efds, unsigned int n_efds, int timeout_ms, int* numfds);
+        CURLMsg* info_read(int* msgq_len);
+        CURLMcode remove_handle(CURL* easy_handle);
+        ~CurlMultiHandle();
+    private:
+        std::mutex mtx_;
+        std::size_t polling_threads_;
+        CURLM* mhnd_;
+    };
 }
 
 namespace controller{
@@ -54,6 +74,7 @@ namespace app{
         // OpenWhisk Action Proxy Initialized.
         bool initialized_;
         // IO
+        std::shared_ptr<libcurl::CurlMultiHandle> curl_mhnd_ptr_;
         std::shared_ptr<controller::io::MessageBox> io_mbox_ptr_;
         controller::io::IO io_;
         boost::asio::io_context& ioc_;

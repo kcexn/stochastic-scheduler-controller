@@ -7,7 +7,6 @@
 #include <charconv>
 #include <transport-servers/sctp-server/sctp-session.hpp>
 #include <sys/wait.h>
-#include <curl/curl.h>
 
 #define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
@@ -231,7 +230,7 @@ static void populate_request_data(boost::json::object& jctx, const std::shared_p
     return;
 }
 
-static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val){
+static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val, const std::shared_ptr<libcurl::CurlMultiHandle> cmhp){
     std::size_t concurrency = ctxp->manifest().concurrency();
     if(concurrency > 1){
         std::size_t manifest_size = ctxp->manifest().size();
@@ -285,12 +284,6 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
 
         int num_running_handles = 0;
         CURLMcode mstatus;
-        CURLM* mhnd = curl_multi_init();
-        if(mhnd == nullptr){
-            std::cerr << "controller-app.cpp:290:CURL multi init failed." << std::endl;
-            throw "what?";
-        }
-
         CURL* handle = curl_easy_init();
         if(handle){
             set_common_curl_handle_options(handle, url, __OW_API_KEY, slist, devnull);
@@ -304,13 +297,13 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                 jctx["execution_context"].get_object()["idx"] = indices[i];
                 data_vec.emplace_back(boost::json::serialize(jctx));
                 set_curl_handle_options(hnd, data_vec.back());
-                if(curl_multi_add_handle(mhnd, hnd) != CURLM_OK){
+                if(cmhp->add_handle(hnd) != CURLM_OK){
                     std::cerr << "controller-app.cpp:308:curl_multi_add_handle failed." << std::endl;
                     throw "what?";
                 }
-                mstatus = curl_multi_perform(mhnd, &num_running_handles);
+                mstatus = cmhp->perform(&num_running_handles);
                 if(mstatus != CURLM_OK){
-                    std::cerr << "controller-app.cpp:313:curl_multi_perform failed:" << mstatus << std::endl;
+                    std::cerr << "controller-app.cpp:313:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
                     throw "what?";
                 }
             } else {
@@ -319,18 +312,18 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
             }
         }
         set_curl_handle_options(handle, data_vec.front());
-        if(curl_multi_add_handle(mhnd, handle) != CURLM_OK){
+        if(cmhp->add_handle(handle) != CURLM_OK){
             std::cerr << "controller-app.cpp:323:curl_multi_add_handle failed." << std::endl;
             throw "what?";
         }
-        mstatus = curl_multi_perform(mhnd, &num_running_handles);
+        mstatus = cmhp->perform(&num_running_handles);
         if(mstatus != CURLM_OK){
-            std::cerr << "controller-app.cpp:328:curl_multi_perform failed:" << mstatus << std::endl;
+            std::cerr << "controller-app.cpp:328:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
             throw "what?";
         }
         if(num_running_handles > 0){
             try{
-                std::thread curl([&](int num_running_handles, struct curl_slist* slist, CURLM* mhnd, FILE* writedata){
+                std::thread curl([&](int num_running_handles, struct curl_slist* slist, std::shared_ptr<libcurl::CurlMultiHandle> cmhp, FILE* writedata){
                     // After the API requests have been made, I really don't care when or how long it takes for the 
                     // Openwhisk servers to respond. The only responsibility this thread has is to gracefully release all of the
                     // resources that were created to make the HTTP requests. Since this is the case, we are going to 
@@ -341,86 +334,192 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                         throw "what?";
                     }
                     int numfds = 0;
-                    struct CURLMsg* m = nullptr;
                     CURLMcode mstatus;
                     do{
-                        mstatus = curl_multi_poll(mhnd, nullptr, 0, 1000, &numfds);
+                        mstatus = cmhp->poll(nullptr, 0, 1000, &numfds);
                         if(mstatus != CURLM_OK){
-                            std::cerr << "controller-app.cpp:349:curl_multi_poll failed:" << mstatus << std::endl;
+                            std::cerr << "controller-app.cpp:343:curl_multi_poll failed:" << curl_multi_strerror(mstatus) << std::endl;
                             throw "what?";
                         }
-                        if(numfds > 0){
-                            mstatus = curl_multi_perform(mhnd, &num_running_handles);
-                            if(mstatus != CURLM_OK){
-                                std::cerr << "controller-app.cpp:355:curl_multi_perform failed:" << mstatus << std::endl;
-                                throw "what?";
-                            }
-                            int msgq = 0;
-                            do{
-                                m = curl_multi_info_read(mhnd, &msgq);
-                                if(m && (m->msg == CURLMSG_DONE)){
-                                    CURL* hnd = m->easy_handle;
-                                    switch(curl_multi_remove_handle(mhnd, hnd))
-                                    {
-                                        case CURLM_OK:
-                                            break;
-                                        default:
-                                            std::cerr << "controller-app.cpp:368:curl_multi_remove_handle() failed." << std::endl;
-                                            throw "what?";
-                                    }
-                                    curl_easy_cleanup(hnd);
+                        mstatus = cmhp->perform(&num_running_handles);
+                        if(mstatus != CURLM_OK){
+                            std::cerr << "controller-app.cpp:355:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
+                            throw "what?";
+                        }
+                        int msgq_len = 0;
+                        do{
+                            CURLMsg* msg = cmhp->info_read(&msgq_len);
+                            if(msg){
+                                CURL* hnd = msg->easy_handle;
+                                mstatus = cmhp->remove_handle(hnd);
+                                switch(mstatus)
+                                {
+                                    case CURLM_OK:
+                                        curl_easy_cleanup(hnd);
+                                        break;
+                                    case CURLM_BAD_EASY_HANDLE:
+                                        break;
+                                    default:
+                                        std::cerr << "controller-app.cpp:363:curl_multi_remove_handle() failed:" << curl_multi_strerror(mstatus) << std::endl;
+                                        throw "what?";
                                 }
-                            }while(msgq > 0);
-                        }
+                            }
+                        }while(msgq_len > 0);
                     }while(num_running_handles > 0);
-                    switch(curl_multi_cleanup(mhnd))
-                    {
-                        case CURLM_OK:
-                            break;
-                        default:
-                            std::cerr << "controller-app.cpp:381:curl_multi_cleanup() failed." << std::endl;
-                            throw "what?";
-                    }
                     curl_slist_free_all(slist);
                     fclose(writedata);
                     return;
-                }, num_running_handles, slist, mhnd, devnull);
+                }, num_running_handles, slist, cmhp, devnull);
                 curl.detach();
             } catch(std::system_error& e){
-                std::cerr << "controller-app.cpp:390:curl thread failed to start." << std::endl;
+                std::cerr << "controller-app.cpp:378:curl thread failed to start." << std::endl;
                 throw e;
             }
         } else {
-            struct CURLMsg* m = nullptr;
-            int msgq = 0;
+            int msgq_len = 0;
             do{
-                m = curl_multi_info_read(mhnd, &msgq);
-                if(m && (m->msg == CURLMSG_DONE)){
-                    CURL* hnd = m->easy_handle;
-                    switch(curl_multi_remove_handle(mhnd, hnd))
+                CURLMsg* msg = cmhp->info_read(&msgq_len);
+                if(msg){
+                    CURL* hnd = msg->easy_handle;
+                    mstatus = cmhp->remove_handle(hnd);
+                    switch(mstatus)
                     {
                         case CURLM_OK:
+                            curl_easy_cleanup(hnd);
                             break;
                         default:
-                            std::cerr << "controller-app.cpp:405:curl_multi_remove_handle() failed." << std::endl;
-                            throw "what?";
+                            break;
                     }
-                    curl_easy_cleanup(hnd);
                 }
-            }while(msgq > 0);
-            switch(curl_multi_cleanup(mhnd))
-            {
-                case CURLM_OK:
-                    break;
-                default:
-                    std::cerr << "controller-app.cpp:416:curl_multi_cleanup() failed." << std::endl;
-                    throw "what?";
-            }
+            }while(msgq_len > 0);
             curl_slist_free_all(slist);
             fclose(devnull);
         }
     }
     return;
+}
+
+namespace libcurl{
+    CurlMultiHandle::CurlMultiHandle()
+      : polling_threads_{0}
+    {
+        mhnd_ = curl_multi_init();
+        if(mhnd_ == nullptr){
+            std::cerr << "controller-app.cpp:407:curl_multi_init() failed." << std::endl;
+            throw "what?";
+        }
+    }
+
+    CURLM* CurlMultiHandle::get(){
+        return mhnd_;
+    }
+
+    CURLMcode CurlMultiHandle::add_handle(CURL* easy_handle){
+        std::lock_guard<std::mutex> lk(mtx_);
+        if(polling_threads_ > 0){
+            CURLMcode status = curl_multi_wakeup(mhnd_);
+            switch(status)
+            {
+                case CURLM_OK:
+                    break;
+                default:
+                    std::cerr << "controller-app.cpp:429:curl_multi_wakeup() failed:" << curl_multi_strerror(status) << std::endl;
+                    throw "what?";
+            }
+        }
+        return curl_multi_add_handle(mhnd_, easy_handle);
+    }
+
+    CURLMcode CurlMultiHandle::perform(int* nrhp){
+        std::lock_guard<std::mutex> lk(mtx_);
+        if(polling_threads_ > 0){
+            CURLMcode status = curl_multi_wakeup(mhnd_);
+            switch(status)
+            {
+                case CURLM_OK:
+                    break;
+                default:
+                    std::cerr << "controller-app.cpp:429:curl_multi_wakeup() failed:" << curl_multi_strerror(status) << std::endl;
+                    throw "what?";
+            }
+        }
+        return curl_multi_perform(mhnd_, nrhp);
+    }
+
+    CURLMcode CurlMultiHandle::poll(struct curl_waitfd* efds, unsigned int n_efds, int timeout_ms, int* numfds){
+        CURLMcode status = CURLM_OK;
+        std::unique_lock<std::mutex> lk(mtx_);
+        if(polling_threads_ == 0){
+            ++polling_threads_;
+            lk.unlock();
+            status = curl_multi_poll(mhnd_, efds, n_efds, timeout_ms, numfds);
+            lk.lock();
+            --polling_threads_;
+            lk.unlock();
+        } else {
+            lk.unlock();
+            int seconds = timeout_ms/1000;
+            int remaining_milliseconds = timeout_ms % 1000;
+            int remaining_nanoseconds = remaining_milliseconds * 1000000;
+            struct timespec ts[2] = {};
+            ts[0] = {seconds, remaining_nanoseconds};
+            while(nanosleep(&ts[0], &ts[1]) < 0){
+                switch(errno)
+                {
+                    case EINTR:
+                        ts[0] = ts[1];
+                        break;
+                    default:
+                        std::cerr << "controller-app.cpp:473:nanosleep() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        throw "what?";
+                }
+            }
+        }
+        return status;
+    }
+
+    CURLMsg* CurlMultiHandle::info_read(int* msgq_len){
+        std::lock_guard<std::mutex> lk(mtx_);
+        if(polling_threads_ > 0){
+            CURLMcode status = curl_multi_wakeup(mhnd_);
+            switch(status)
+            {
+                case CURLM_OK:
+                    break;
+                default:
+                    std::cerr << "controller-app.cpp:479:curl_multi_wakeup() failed:" << curl_multi_strerror(status) << std::endl;
+                    throw "what?";
+            }
+        }
+        return curl_multi_info_read(mhnd_, msgq_len);
+    }
+
+    CURLMcode CurlMultiHandle::remove_handle(CURL* easy_handle){
+        std::lock_guard<std::mutex> lk(mtx_);
+        if(polling_threads_ > 0){
+            CURLMcode status = curl_multi_wakeup(mhnd_);
+            switch(status)
+            {
+                case CURLM_OK:
+                    break;
+                default:
+                    std::cerr << "controller-app.cpp:495:curl_multi_wakeup() failed:" << curl_multi_strerror(status) << std::endl;
+                    throw "what?";
+            }
+        }
+        return curl_multi_remove_handle(mhnd_, easy_handle);
+    }
+
+    CurlMultiHandle::~CurlMultiHandle(){
+        CURLMcode status = curl_multi_cleanup(mhnd_);
+        switch(status)
+        {
+            case CURLM_OK:
+                break;
+            default:
+                std::cerr << "controller-app.cpp:423:curl_multi_cleanup() failed:" << status << std::endl;
+        }
+    }
 }
 
 
@@ -429,6 +528,7 @@ namespace app{
     Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc)
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
+        curl_mhnd_ptr_(std::make_shared<libcurl::CurlMultiHandle>()),
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
         io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc),
         ioc_(ioc)
@@ -453,6 +553,7 @@ namespace app{
     Controller::Controller(std::shared_ptr<controller::io::MessageBox> mbox_ptr, boost::asio::io_context& ioc, const std::filesystem::path& upath, std::uint16_t sport)
       : controller_mbox_ptr_(mbox_ptr),
         initialized_{false},
+        curl_mhnd_ptr_(std::make_shared<libcurl::CurlMultiHandle>()),
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
         io_(io_mbox_ptr_, upath.string(), ioc, sport),
         ioc_(ioc)
@@ -1314,7 +1415,7 @@ namespace app{
                                         // The primary context will have no client peer connections, only server peer connections.
                                         // The primary context must hit the OW API endpoint `concurrency' no. of times with the
                                         // a different execution context idx and the same execution context id each time.
-                                        make_api_requests(ctx_ptr, val);
+                                        make_api_requests(ctx_ptr, val, curl_mhnd_ptr_);
                                     } else {
                                         /* This is a secondary context */
                                         boost::json::object jo;
