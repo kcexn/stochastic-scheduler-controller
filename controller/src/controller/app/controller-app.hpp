@@ -33,7 +33,10 @@ namespace libcurl{
         CURLMsg* info_read(int* msgq_len);
         CURLMcode remove_handle(CURL* easy_handle);
         ~CurlMultiHandle();
+        struct curl_slist* slist;
+        FILE* write_stream;
     private:
+        std::vector<CURL*> easy_handles_;
         std::mutex mtx_;
         std::size_t polling_threads_;
         CURLM* mhnd_;
