@@ -422,6 +422,52 @@ static void initialize_executor(
     }
 }
 
+static void reschedule_actions(
+    controller::app::ThreadControls& thread,
+    controller::app::ActionManifest& manifest,
+    std::shared_ptr<controller::app::ExecutionContext> ctxp,
+    std::shared_ptr<controller::io::MessageBox> mbox
+)
+{
+    std::size_t manifest_size = manifest.size();
+    auto execution_idxs = thread.stop_thread();
+    for(auto& i: execution_idxs){
+        // Get the starting relation.
+        auto& relation = manifest[i % manifest_size];
+        std::string start_key(relation->key());
+        std::shared_ptr<controller::app::Relation> start = manifest.next(start_key, i);
+        if(start->key().empty()){
+            // If the start key is empty, that means that all tasks in the schedule are complete.
+            auto& thread_controls = ctxp->thread_controls();
+            for(auto& thread_control: thread_controls){
+                thread_control.stop_thread();
+            }
+            for(auto& rel: manifest){
+                auto& value = rel->acquire_value();
+                if(value.empty()){
+                    value = "{}";
+                }
+                rel->release_value();
+            }
+            mbox->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+            mbox->sched_signal_cv_ptr->notify_one();
+            return;
+        } else {
+            // Find the index in the manifest of the starting relation.
+            auto start_it = std::find_if(manifest.begin(), manifest.end(), [&](auto& rel){
+                return rel->key() == start->key();
+            });
+            if(start_it == manifest.end()){
+                std::cerr << "controller-app.cpp:460:Relation doesn't exist in the manifest???" << std::endl;
+                throw "what?";
+            }
+            std::ptrdiff_t start_idx = start_it - manifest.begin();
+            auto& thread_controls = ctxp->thread_controls();
+            thread_controls[start_idx].notify(i);
+        }                 
+    }
+}
+
 namespace libcurl{
     CurlMultiHandle::CurlMultiHandle()
       : slist{nullptr},
@@ -814,8 +860,6 @@ namespace app{
                     });
                     // invalidate the thread.
                     std::vector<std::size_t> execution_context_idxs = stopped_thread->pop_idxs();
-                    // Do the subsequent steps only if there are execution idxs that exited normally.
-                    // get the index of the stopped thread.
                     std::ptrdiff_t idx = stopped_thread - ctxp->thread_controls().begin();
                     
                     /* For every peer in the peer table notify them with a state update */
@@ -1066,64 +1110,15 @@ namespace app{
 
                             auto& ctxp = *ctx;
                             std::ptrdiff_t idx = rel - (ctxp)->manifest().begin();
-                            std::size_t manifest_size = ctxp->manifest().size();
-                            std::shared_ptr<std::condition_variable> wait_cv_ = std::make_shared<std::condition_variable>();
-                            std::shared_ptr<std::atomic<bool> > wflag = std::make_shared<std::atomic<bool> >();
-                            wflag->store(false, std::memory_order::memory_order_relaxed);
-                            try{
-                                std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_, wflag](){
-                                    auto& thread = ctxp->thread_controls()[idx];
-                                    // This operation can block.
-                                    auto execution_idxs = thread.stop_thread();
-                                    /* Reschedule if necessary */
-                                    for(auto& i: execution_idxs){
-                                        // Get the starting relation.
-                                        std::string start_key(ctxp->manifest()[i % manifest_size]->key());
-                                        std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
-                                        if(start->key().empty()){
-                                            // If the start key is empty, that means that all tasks in the schedule are complete.
-                                            for(auto& thread_control: ctxp->thread_controls()){
-                                                thread_control.stop_thread();
-                                            }
-                                            for(auto& rel: ctxp->manifest()){
-                                                auto& value = rel->acquire_value();
-                                                if(value.empty()){
-                                                    value = "{}";
-                                                }
-                                                rel->release_value();
-                                            }
-                                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                            wait_cv_->notify_one();
-                                            return;
-                                        } else {
-                                            // Find the index in the manifest of the starting relation.
-                                            auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
-                                                return rel->key() == start->key();
-                                            });
-                                            if(start_it == ctxp->manifest().end()){
-                                                std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                throw "This shouldn't be possible";
-                                            }
-                                            std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
-                                            ctxp->thread_controls()[start_idx].notify(i);
-                                        }                 
-                                    }
-                                    wflag->store(true, std::memory_order::memory_order_relaxed);
-                                    wait_cv_->notify_one();
-                                    return;
-                                });
-                                std::mutex wait_mtx_;
-                                std::unique_lock<std::mutex> lk(wait_mtx_);
-                                if(wait_cv_->wait_for(lk, std::chrono::milliseconds(10), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
-                                    reschedule.join();
-                                } else {
-                                    reschedule.detach();
-                                }
-                            } catch (std::system_error& e){
-                                std::cerr << "controller-app.cpp:1071:reschedule failed to start with error:" << e.what() << std::endl;
-                                throw e;
-                            }
+                            auto& thread_controls = ctxp->thread_controls();
+                            auto& manifest = ctxp->manifest();
+                            auto& thread = thread_controls[idx];
+                            reschedule_actions(
+                                thread,
+                                manifest,
+                                ctxp,
+                                io_mbox_ptr_
+                            );
                         }
                     }
 
@@ -1654,63 +1649,16 @@ namespace app{
 
                                         /* Trigger rescheduling if necessary */
                                         auto& ctxp = *server_ctx;
-                                        std::ptrdiff_t idx = relation - ctxp->manifest().begin();
-                                        std::size_t manifest_size = ctxp->manifest().size();
-                                        std::shared_ptr<std::condition_variable> wait_cv_ = std::make_shared<std::condition_variable>();
-                                        std::shared_ptr<std::atomic<bool> > wflag = std::make_shared<std::atomic<bool> >();
-                                        wflag->store(false, std::memory_order::memory_order_relaxed);
-                                        try{
-                                            std::thread reschedule([&, ctxp, idx, manifest_size, wait_cv_, wflag](){
-                                                auto& thread = ctxp->thread_controls()[idx];    
-                                                auto execution_idxs = thread.stop_thread();
-                                                for(auto& i: execution_idxs){
-                                                    // Get the starting relation.
-                                                    std::string start_key(ctxp->manifest()[i % manifest_size]->key());
-                                                    std::shared_ptr<Relation> start = ctxp->manifest().next(start_key, i);
-                                                    if(start->key().empty()){
-                                                        // If the start key is empty, that means that all tasks in the schedule are complete.
-                                                        for(auto& thread_control: ctxp->thread_controls()){
-                                                            thread_control.stop_thread();
-                                                        }
-                                                        for(auto& rel: ctxp->manifest()){
-                                                            auto& value = rel->acquire_value();
-                                                            if(value.empty()){
-                                                                value = "{}";
-                                                            }
-                                                            rel->release_value();
-                                                        }
-                                                        io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                        io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                                        wait_cv_->notify_one();
-                                                        return;
-                                                    } else {
-                                                        // Find the index in the manifest of the starting relation.
-                                                        auto start_it = std::find_if(ctxp->manifest().begin(), ctxp->manifest().end(), [&](auto& rel){
-                                                            return rel->key() == start->key();
-                                                        });
-                                                        if(start_it == ctxp->manifest().end()){
-                                                            std::cerr << "Relation does not exist in the active manifest." << std::endl;
-                                                            throw "This shouldn't be possible";
-                                                        }
-                                                        std::ptrdiff_t start_idx = start_it - ctxp->manifest().begin();
-                                                        ctxp->thread_controls()[start_idx].notify(i);
-                                                    }             
-                                                }
-                                                wflag->store(true, std::memory_order::memory_order_relaxed);
-                                                wait_cv_->notify_one();
-                                                return;
-                                            });
-                                            std::mutex wait_mtx_;
-                                            std::unique_lock lk(wait_mtx_);
-                                            if(wait_cv_->wait_for(lk, std::chrono::milliseconds(10), [&](){return wflag->load(std::memory_order::memory_order_relaxed);})){
-                                                reschedule.join();
-                                            } else {
-                                                reschedule.detach();
-                                            }
-                                        } catch(std::system_error& e){
-                                            std::cerr << "controller-app.cpp:1676:reschedule failed to start with error:" << e.what() << std::endl;
-                                            throw e;
-                                        }
+                                        std::ptrdiff_t idx = relation - (ctxp)->manifest().begin();
+                                        auto& thread_controls = ctxp->thread_controls();
+                                        auto& manifest = ctxp->manifest();
+                                        auto& thread = thread_controls[idx];
+                                        reschedule_actions(
+                                            thread,
+                                            manifest,
+                                            ctxp,
+                                            io_mbox_ptr_
+                                        );
                                     }
                                 }
                             }

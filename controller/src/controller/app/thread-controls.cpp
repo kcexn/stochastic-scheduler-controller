@@ -375,7 +375,7 @@ namespace app{
         ctx_mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
         ThreadControls::thread_sched_yield();
-        cv_->notify_all();
+        cv_->notify_one();
         return;
     }  
 
@@ -387,7 +387,7 @@ namespace app{
         if(!is_stopped()){
             // we must guarantee that the thread is unblocked (started) before it can be preempted.
             signal_->fetch_or(CTL_IO_SCHED_START_EVENT | CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-            cv_->notify_all();
+            cv_->notify_one();
         }
         return tmp;
     }
