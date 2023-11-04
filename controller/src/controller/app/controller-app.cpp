@@ -337,6 +337,91 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
     return;
 }
 
+static void initialize_executor(
+    controller::app::ThreadControls& thread_control, 
+    std::shared_ptr<controller::io::MessageBox> mbox_ptr, 
+    std::shared_ptr<controller::app::ExecutionContext> ctx_ptr,
+    std::size_t manifest_size,
+    std::size_t idx,
+    std::ptrdiff_t offset
+)
+{
+    // Fork exec the executor subprocess.
+    if(thread_control.thread_continue()){
+        if(thread_control.is_stopped()){
+            thread_control.cleanup();
+            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+            mbox_ptr->sched_signal_cv_ptr->notify_one();
+            return;
+        }
+        std::condition_variable sync;
+        std::atomic<bool> sflag;
+        sflag.store(false, std::memory_order::memory_order_relaxed);
+        try{
+            std::thread executor(
+                [&, ctx_ptr, idx, manifest_size, offset, mbox_ptr](){
+                    auto& thread_controls = ctx_ptr->thread_controls();
+                    auto& thread_control = thread_controls[(idx + offset) % manifest_size];
+                    // The first continue synchronizes the controller with the exec'd launcher.
+                    if(thread_control.thread_continue()){
+                        sflag.store(true, std::memory_order::memory_order_relaxed);
+                        sync.notify_one();
+                        if(thread_control.is_stopped()){
+                            thread_control.cleanup();
+                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                            return;
+                        } else {
+                            // After we are synchronized with the exec'd launcher, we send a SIGSTOP to the subprocess group, and 
+                            // block the executor thread until further notice.
+                            thread_control.wait();
+                            if(thread_control.is_stopped()){
+                                thread_control.cleanup();
+                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                return;
+                            }
+                            // After the thread is unblocked continue running until the function has completed, or until
+                            // we are preempted.
+                            while(thread_control.thread_continue()){
+                                if(thread_control.is_stopped()){
+                                    thread_control.cleanup();
+                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                    return;
+                                }
+                            }
+                            thread_control.signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                            return;
+                        }
+                    } else {
+                        thread_control.cleanup();
+                        sflag.store(true, std::memory_order::memory_order_relaxed);
+                        sync.notify_one();
+                    }
+                    return;
+                }
+            );
+            executor.detach();
+        } catch (std::system_error& e){
+            std::cerr << "controller-app.cpp:1390:executor failed to start with error:" << e.what() << std::endl;
+            throw e;
+        }
+        std::mutex smtx;
+        std::unique_lock<std::mutex> lk(smtx);
+        if(!sync.wait_for(lk, std::chrono::seconds(50), [&](){return sflag.load(std::memory_order::memory_order_relaxed); })){
+            std::cerr << "controller-app.cpp:415:synchronization with executor timed out after waiting 50 seconds." << std::endl;
+            throw "what?";
+        }
+        lk.unlock();
+    } else {
+        thread_control.cleanup();
+        return;
+    }
+}
+
 namespace libcurl{
     CurlMultiHandle::CurlMultiHandle()
       : slist{nullptr},
@@ -1345,13 +1430,12 @@ namespace app{
                                         return;
                                     }
                                     std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
-                                    std::shared_ptr<std::condition_variable> sync_ = std::make_shared<std::condition_variable>();
-                                    std::shared_ptr<std::atomic<bool> > sflag = std::make_shared<std::atomic<bool> >();
-                                    sflag->store(false, std::memory_order::memory_order_relaxed);
                                     try{
                                         std::thread initializer(
-                                            [&, ctx_ptr, manifest_size, start_idx, run, sync_, sflag](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                            [&, ctx_ptr, manifest_size, start_idx, run](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
                                                 auto& thread_controls = ctx_ptr->thread_controls();
+                                                std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
+                                                std::chrono::time_point<std::chrono::steady_clock> finish;
                                                 for(std::size_t i=0; i < manifest_size; ++i){
                                                     auto& thread_control = thread_controls[(i+start_idx) % manifest_size];
                                                     if(thread_control.is_stopped()){
@@ -1359,97 +1443,48 @@ namespace app{
                                                         mbox_ptr->sched_signal_cv_ptr->notify_one();
                                                         continue;
                                                     }
-                                                    // Fork exec the executor subprocess.
-                                                    if(thread_control.thread_continue()){
-                                                        if(thread_control.is_stopped()){
-                                                            thread_control.cleanup();
-                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                            continue;
-                                                        }
-                                                        std::condition_variable sync;
-                                                        std::atomic<bool> sflag;
-                                                        sflag.store(false, std::memory_order::memory_order_relaxed);
-                                                        try{
-                                                            std::thread executor(
-                                                                [&, ctx_ptr, i, manifest_size, start_idx, mbox_ptr](){
-                                                                    auto& thread_controls = ctx_ptr->thread_controls();
-                                                                    auto& thread_control = thread_controls[(i+start_idx) % manifest_size];
-                                                                    // The first continue synchronizes the controller with the exec'd launcher.
-                                                                    if(thread_control.thread_continue()){
-                                                                        sflag.store(true, std::memory_order::memory_order_relaxed);
-                                                                        sync.notify_one();
-                                                                        if(thread_control.is_stopped()){
-                                                                            thread_control.cleanup();
-                                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                                            return;
-                                                                        } else {
-                                                                            // After we are synchronized with the exec'd launcher, we send a SIGSTOP to the subprocess group, and 
-                                                                            // block the executor thread until further notice.
-                                                                            thread_control.wait();
-                                                                            if(thread_control.is_stopped()){
-                                                                                thread_control.cleanup();
-                                                                                mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                                                mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                                                return;
-                                                                            }
-                                                                            // After the thread is unblocked continue running until the function has completed, or until
-                                                                            // we are preempted.
-                                                                            while(thread_control.thread_continue()){
-                                                                                if(thread_control.is_stopped()){
-                                                                                    thread_control.cleanup();
-                                                                                    mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                                                    mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                                                    return;
-                                                                                }
-                                                                            }
-                                                                            thread_control.signal().fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                                            return;
-                                                                        }
-                                                                    } else {
-                                                                        thread_control.cleanup();
-                                                                        sflag.store(true, std::memory_order::memory_order_relaxed);
-                                                                        sync.notify_one();
-                                                                    }
-                                                                    return;
-                                                                }
+                                                    if(thread_control.state() == 0){
+                                                        initialize_executor(
+                                                            thread_control,
+                                                            mbox_ptr,
+                                                            ctx_ptr,
+                                                            manifest_size,
+                                                            i,
+                                                            start_idx
+                                                        );
+                                                    }
+                                                    finish = std::chrono::steady_clock::now();
+                                                    if((finish - start) > controller::app::ThreadControls::THREAD_SCHED_TIME_SLICE_MS){
+                                                        controller::app::ThreadControls::thread_sched_yield();
+                                                        start = std::chrono::steady_clock::now();
+                                                        auto thread_it = std::find_if(thread_controls.begin(), thread_controls.end(), [&](auto& thread){
+                                                            // Find a thread that has been notified to start but has not yet been initialized.
+                                                            return (thread.is_started() && !thread.is_stopped() && (thread.state() == 0));
+                                                        });
+                                                        if(thread_it != thread_controls.end()){
+                                                            std::size_t idx = thread_it - thread_controls.begin();
+                                                            auto& thread = *thread_it;
+                                                            initialize_executor(
+                                                                thread,
+                                                                mbox_ptr,
+                                                                ctx_ptr,
+                                                                manifest_size,
+                                                                idx,
+                                                                0
                                                             );
-                                                            executor.detach();
-                                                        } catch (std::system_error& e){
-                                                            std::cerr << "controller-app.cpp:1390:executor failed to start with error:" << e.what() << std::endl;
-                                                            throw e;
                                                         }
-                                                        std::mutex smtx;
-                                                        std::unique_lock<std::mutex> lk(smtx);
-                                                        if(!sync.wait_for(lk, std::chrono::seconds(50), [&](){return sflag.load(std::memory_order::memory_order_relaxed); })){
-                                                            std::cerr << "controller-app.cpp:1428:synchronization with executor timed out after waiting 50 seconds." << std::endl;
-                                                            throw "what?";
-                                                        }
-                                                        lk.unlock();
-                                                    } else {
-                                                        thread_control.cleanup();
-                                                        continue;
                                                     }
                                                 }
-                                                sflag->store(true, std::memory_order::memory_order_relaxed);
-                                                sync_->notify_one();
+                                                controller::app::ThreadControls::sched_flag_.store(true, std::memory_order::memory_order_relaxed);
+                                                controller::app::ThreadControls::sched_.notify_one();
                                                 return;
                                             }, io_mbox_ptr_
                                         );
                                         auto& thread_controls = ctx_ptr->thread_controls();
                                         auto& thread = thread_controls[start_idx];
-                                        std::mutex smtx;
-                                        std::unique_lock<std::mutex> slk(smtx);
-                                        if(sync_->wait_for(slk, std::chrono::milliseconds(100), [&](){ return sflag->load(std::memory_order::memory_order_relaxed); })){
-                                            initializer.join();
-                                        } else {
-                                            initializer.detach();
-                                        }
+                                        controller::app::ThreadControls::thread_sched_yield();
+                                        initializer.detach();
                                         thread.notify(execution_idx);
-                                        slk.unlock();
                                     } catch(std::system_error& e){
                                         std::cerr << "controller-app.cpp:1454:initializer failed to start with error:" << e.what() << std::endl;
                                         throw e;

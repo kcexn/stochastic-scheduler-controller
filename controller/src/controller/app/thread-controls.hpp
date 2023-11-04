@@ -24,9 +24,14 @@ namespace app{
             cv_(std::make_unique<std::condition_variable>()), 
             signal_(std::make_unique<std::atomic<std::uint16_t> >()),
             ctx_cv_(std::make_unique<std::condition_variable>()),
-            state_{0},
+            state_(std::make_unique<std::atomic<std::size_t> >(0)),
             pipe_{}
         {}
+        static constexpr std::chrono::milliseconds THREAD_SCHED_TIME_SLICE_MS = std::chrono::milliseconds(50);
+        static std::atomic<bool> sched_flag_;
+        static std::condition_variable sched_;
+        static std::mutex sched_mtx_;
+
         boost::json::object params;
         std::map<std::string, std::string> env;
         std::shared_ptr<Relation> relation;
@@ -35,6 +40,7 @@ namespace app{
         void notify(std::size_t idx);
         bool is_started() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_START_EVENT) != 0);}
         bool is_stopped() const { return ((signal_->load(std::memory_order::memory_order_relaxed) & CTL_IO_SCHED_END_EVENT) != 0); }
+        std::size_t state() const { return state_->load(std::memory_order::memory_order_relaxed); }
         bool has_pending_idxs() const { ctx_mtx_->lock(); std::size_t len = execution_context_idxs_.size(); ctx_mtx_->unlock(); return (len > 0);}
         std::vector<std::size_t> pop_idxs() { ctx_mtx_->lock(); std::vector<std::size_t> tmp(execution_context_idxs_.begin(), execution_context_idxs_.end()); execution_context_idxs_.clear(); ctx_mtx_->unlock(); return tmp; }
         std::vector<std::size_t> stop_thread();
@@ -43,6 +49,16 @@ namespace app{
         pid_t& pid() { return pid_; }
         void cleanup();
         bool thread_continue();
+
+        static void thread_sched_yield()
+        {
+            if(!sched_flag_.load(std::memory_order::memory_order_relaxed)){
+                sched_.notify_one();
+                std::unique_lock<std::mutex> lk(sched_mtx_);
+                sched_.wait(lk);
+                lk.unlock();
+            }
+        }
     private:
         pid_t pid_;
         std::unique_ptr<std::mutex> mtx_;
@@ -50,7 +66,7 @@ namespace app{
         std::unique_ptr<std::condition_variable> cv_;
         std::unique_ptr<std::atomic<std::uint16_t> > signal_;
         std::unique_ptr<std::condition_variable> ctx_cv_;
-        std::size_t state_;
+        std::unique_ptr<std::atomic<std::size_t> > state_;
         std::array<int, 2> pipe_;
         std::vector<std::size_t> execution_context_idxs_;
     };

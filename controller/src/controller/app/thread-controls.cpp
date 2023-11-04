@@ -253,7 +253,7 @@ static bool write_params_to_subprocess(std::shared_ptr<controller::app::Relation
     return true;
 }
 
-static bool wait_for_result_from_subprocess(std::array<int, 2>& pipe, std::size_t& state){
+static bool wait_for_result_from_subprocess(std::array<int, 2>& pipe, std::unique_ptr<std::atomic<std::size_t> >& state){
     struct pollfd pfd ={
         pipe[0],
         POLLIN,
@@ -275,14 +275,14 @@ static bool wait_for_result_from_subprocess(std::array<int, 2>& pipe, std::size_
             return true;
         } else {
             if(pfd.revents & (POLLIN | POLLHUP)){
-                ++state;
+                state->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return true;
             } else {
                 return false;
             }
         }
     }while(nfds < 0);
-    ++state;
+    state->fetch_add(1, std::memory_order::memory_order_relaxed);
     return true;
 }
 
@@ -357,6 +357,9 @@ static void close_pipe(std::array<int, 2>& pipe){
 
 namespace controller{
 namespace app{
+    std::atomic<bool> ThreadControls::sched_flag_;
+    std::condition_variable ThreadControls::sched_;
+    std::mutex ThreadControls::sched_mtx_;
 
     // Thread Controls
     void ThreadControls::wait(){
@@ -371,6 +374,7 @@ namespace app{
         execution_context_idxs_.push_back(idx);
         ctx_mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
+        ThreadControls::thread_sched_yield();
         cv_->notify_all();
         return;
     }  
@@ -396,27 +400,27 @@ namespace app{
     }
 
     bool ThreadControls::thread_continue(){
-        switch(state_)
+        switch(state_->load(std::memory_order::memory_order_relaxed))
         {
             case 0:
-                ++state_;
+                state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return fork_exec(pipe_, pid_, relation, env);
             case 1:
-                ++state_;
+                state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return wait_for_launcher(pipe_);
             case 2:
-                ++state_;
+                state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return subprocess_pause(pid_);
             case 3:
-                ++state_;
+                state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return subprocess_continue(pid_);
             case 4:
-                ++state_;
+                state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return write_params_to_subprocess(relation, pipe_, boost::json::serialize(params));
             case 5:
                 return wait_for_result_from_subprocess(pipe_, state_);
             case 6:
-                ++state_;
+                state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return read_result_from_subprocess(relation, pipe_);
             default:
                 close_pipe(pipe_);
