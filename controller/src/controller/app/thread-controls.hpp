@@ -36,11 +36,14 @@ namespace app{
             state_(std::make_unique<std::atomic<std::size_t> >(0)),
             pipe_{}
         {}
-        static constexpr std::chrono::milliseconds THREAD_SCHED_TIME_SLICE_MS = std::chrono::milliseconds(50);
+        static constexpr std::chrono::milliseconds THREAD_SCHED_TIME_SLICE_MS = std::chrono::milliseconds(20);
+        static std::chrono::time_point<std::chrono::steady_clock> start_timer_;
         static std::mutex sched_mtx_;
         static std::deque<std::shared_ptr<ThreadSchedHandle> > sched_handles_;
-        static std::shared_ptr<ThreadSchedHandle> thread_sched_push();
+        static void set_start_time();
+        static std::chrono::time_point<std::chrono::steady_clock> get_start_time();
         static std::chrono::milliseconds thread_sched_time_slice();
+        static std::shared_ptr<ThreadSchedHandle> thread_sched_push();
         static void thread_sched_yield();
 
         boost::json::object params;

@@ -1411,11 +1411,12 @@ namespace app{
                                     }
                                     std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
                                     auto handle = controller::app::ThreadControls::thread_sched_push();
+                                    controller::app::ThreadControls::set_start_time();
                                     try{
                                         std::thread initializer(
                                             [&, ctx_ptr, manifest_size, start_idx, run, handle](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                                std::chrono::time_point<std::chrono::steady_clock> start = controller::app::ThreadControls::get_start_time();
                                                 auto& thread_controls = ctx_ptr->thread_controls();
-                                                std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
                                                 std::chrono::time_point<std::chrono::steady_clock> finish;
                                                 for(std::size_t i=0; i < manifest_size; ++i){
                                                     if(ctx_ptr->is_stopped()){
@@ -1440,7 +1441,7 @@ namespace app{
                                                     finish = std::chrono::steady_clock::now();
                                                     while((finish - start) > controller::app::ThreadControls::thread_sched_time_slice()){
                                                         controller::app::ThreadControls::thread_sched_yield();
-                                                        start = std::chrono::steady_clock::now();
+                                                        start = controller::app::ThreadControls::get_start_time();
                                                         if(ctx_ptr->is_stopped()){
                                                             break;
                                                         }

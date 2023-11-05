@@ -358,8 +358,21 @@ static void close_pipe(std::array<int, 2>& pipe){
 namespace controller{
 namespace app{
     /* Class Static Members */
+    std::chrono::time_point<std::chrono::steady_clock> ThreadControls::start_timer_;
     std::mutex ThreadControls::sched_mtx_;
     std::deque<std::shared_ptr<ThreadSchedHandle> > ThreadControls::sched_handles_;
+    void ThreadControls::set_start_time()
+    {
+        std::unique_lock<std::mutex> lk(ThreadControls::sched_mtx_);
+        ThreadControls::start_timer_ = std::chrono::steady_clock::now();
+    }
+
+    std::chrono::time_point<std::chrono::steady_clock> ThreadControls::get_start_time()
+    {
+        std::unique_lock<std::mutex> lk(ThreadControls::sched_mtx_);
+        return ThreadControls::start_timer_;
+    }
+
     std::chrono::milliseconds ThreadControls::thread_sched_time_slice()
     {
         std::unique_lock<std::mutex> lk (ThreadControls::sched_mtx_);
@@ -388,11 +401,13 @@ namespace app{
             bool finished = handle->finished.load(std::memory_order::memory_order_relaxed);
             if(finished){
                 lk.unlock();
+                ThreadControls::set_start_time();
                 handle->cv.notify_one();
             } else {
                 sched_handles_.push_back(handle);
                 lk.unlock();
                 std::unique_lock<std::mutex> handle_lock(handle->mtx);
+                ThreadControls::set_start_time();
                 handle->cv.notify_one();
                 handle->cv.wait(handle_lock);
                 handle_lock.unlock();
