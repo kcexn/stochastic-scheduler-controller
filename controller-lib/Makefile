@@ -31,7 +31,7 @@ REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 REL_TESTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(TESTS)))
 
 # SHARED LIBRARY SETTINGS
-SHARED_CXX_FLAGS = -O3 -g -D NDEBUG -fpic \
+SHARED_CXX_FLAGS = -O3 -D NDEBUG -fpic \
 	-flto=auto \
 	-fuse-linker-plugin \
 	-fmodulo-sched \
