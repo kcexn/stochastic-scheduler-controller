@@ -2,6 +2,7 @@
 #define THREAD_CONTROLS_HPP
 #include <thread>
 #include <cstring>
+#include <deque>
 #include <atomic>
 #include <memory>
 #include <vector>
@@ -14,6 +15,14 @@
 
 namespace controller{
 namespace app{
+
+    struct ThreadSchedHandle
+    {
+        std::mutex mtx;
+        std::condition_variable cv;
+        std::atomic<bool> finished;
+    };
+
     class ThreadControls
     {
     public:
@@ -28,9 +37,11 @@ namespace app{
             pipe_{}
         {}
         static constexpr std::chrono::milliseconds THREAD_SCHED_TIME_SLICE_MS = std::chrono::milliseconds(50);
-        static std::atomic<bool> sched_flag_;
-        static std::condition_variable sched_;
         static std::mutex sched_mtx_;
+        static std::deque<std::shared_ptr<ThreadSchedHandle> > sched_handles_;
+        static std::shared_ptr<ThreadSchedHandle> thread_sched_push();
+        static std::chrono::milliseconds thread_sched_time_slice();
+        static void thread_sched_yield();
 
         boost::json::object params;
         std::map<std::string, std::string> env;
@@ -49,16 +60,6 @@ namespace app{
         pid_t& pid() { return pid_; }
         void cleanup();
         bool thread_continue();
-
-        static void thread_sched_yield()
-        {
-            if(!sched_flag_.load(std::memory_order::memory_order_relaxed)){
-                sched_.notify_one();
-                std::unique_lock<std::mutex> lk(sched_mtx_);
-                sched_.wait(lk);
-                lk.unlock();
-            }
-        }
     private:
         pid_t pid_;
         std::unique_ptr<std::mutex> mtx_;

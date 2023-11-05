@@ -357,9 +357,53 @@ static void close_pipe(std::array<int, 2>& pipe){
 
 namespace controller{
 namespace app{
-    std::atomic<bool> ThreadControls::sched_flag_;
-    std::condition_variable ThreadControls::sched_;
+    /* Class Static Members */
     std::mutex ThreadControls::sched_mtx_;
+    std::deque<std::shared_ptr<ThreadSchedHandle> > ThreadControls::sched_handles_;
+    std::chrono::milliseconds ThreadControls::thread_sched_time_slice()
+    {
+        std::unique_lock<std::mutex> lk (ThreadControls::sched_mtx_);
+        if(ThreadControls::sched_handles_.empty()){
+            std::cerr << "thread-controls.cpp:367:Timeslices shouldn't be requested when there are no thread handles to schedule." << std::endl;
+            throw "what?";
+        } else {
+            return ThreadControls::THREAD_SCHED_TIME_SLICE_MS/ThreadControls::sched_handles_.size();
+        }
+    }
+
+    std::shared_ptr<ThreadSchedHandle> ThreadControls::thread_sched_push()
+    {
+        std::unique_lock<std::mutex> lk(ThreadControls::sched_mtx_);
+        std::shared_ptr<ThreadSchedHandle> handle = std::make_shared<ThreadSchedHandle>();
+        sched_handles_.push_front(handle);
+        return handle;
+    }
+
+    void ThreadControls::thread_sched_yield()
+    {
+        std::unique_lock<std::mutex> lk(ThreadControls::sched_mtx_);
+        if(!ThreadControls::sched_handles_.empty()){
+            auto handle = ThreadControls::sched_handles_.front();
+            ThreadControls::sched_handles_.pop_front();
+            bool finished = handle->finished.load(std::memory_order::memory_order_relaxed);
+            if(finished){
+                lk.unlock();
+                handle->cv.notify_one();
+            } else {
+                sched_handles_.push_back(handle);
+                lk.unlock();
+                std::unique_lock<std::mutex> handle_lock(handle->mtx);
+                handle->cv.notify_one();
+                handle->cv.wait(handle_lock);
+                handle_lock.unlock();
+            }
+        } else {
+            lk.unlock();
+        }
+        return;
+    }
+    // End of Static Members
+
 
     // Thread Controls
     void ThreadControls::wait(){

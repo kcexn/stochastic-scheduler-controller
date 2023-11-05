@@ -431,6 +431,8 @@ static void reschedule_actions(
 {
     std::size_t manifest_size = manifest.size();
     auto execution_idxs = thread.stop_thread();
+    mbox->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+    mbox->sched_signal_cv_ptr->notify_one();
     for(auto& i: execution_idxs){
         // Get the starting relation.
         auto& relation = manifest[i % manifest_size];
@@ -442,6 +444,8 @@ static void reschedule_actions(
             for(auto& thread_control: thread_controls){
                 thread_control.stop_thread();
             }
+            // Yield to the initializer thread here to clean up the initializer.
+            controller::app::ThreadControls::thread_sched_yield();
             for(auto& rel: manifest){
                 auto& value = rel->acquire_value();
                 if(value.empty()){
@@ -449,8 +453,6 @@ static void reschedule_actions(
                 }
                 rel->release_value();
             }
-            mbox->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-            mbox->sched_signal_cv_ptr->notify_one();
             return;
         } else {
             // Find the index in the manifest of the starting relation.
@@ -464,7 +466,7 @@ static void reschedule_actions(
             std::ptrdiff_t start_idx = start_it - manifest.begin();
             auto& thread_controls = ctxp->thread_controls();
             thread_controls[start_idx].notify(i);
-        }                 
+        }
     }
 }
 
@@ -977,20 +979,12 @@ namespace app{
                             return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
                         });
                         if(server_ctx != ctx_ptrs.end()){
-                            std::vector<std::thread> stops;
-                            for(auto& thread_control: (*server_ctx)->thread_controls()){
-                                try{
-                                    stops.emplace_back([&](){
-                                        thread_control.stop_thread();
-                                    });
-                                } catch (std::system_error& e){
-                                    std::cerr << "controller-app.cpp:890:stop thread failed to start with error:" << e.what() << std::endl;
-                                    throw e;
-                                }
+                            auto& ctxp = *server_ctx;
+                            auto& thread_controls = ctxp->thread_controls();
+                            for(auto& thread_control: thread_controls){
+                                thread_control.stop_thread();
                             }
-                            for(auto& stop: stops){
-                                stop.join();
-                            }
+                            controller::app::ThreadControls::thread_sched_yield();
                             for(auto& rel: (*server_ctx)->manifest()){
                                 auto& value = rel->acquire_value();
                                 if(value.empty()){
@@ -1228,27 +1222,18 @@ namespace app{
                         });
                         if(server_ctx != ctx_ptrs.end()){
                             auto& ctxp = *server_ctx;
-                            std::vector<std::thread> stops;
-                            for(auto& thread_control: ctxp->thread_controls()){
-                                try{
-                                    stops.emplace_back([&](){
-                                        thread_control.stop_thread();
-                                    });
-                                } catch(std::system_error& e){
-                                    std::cerr << "controller-app.cpp:1190:stops thread failed to start with error:" << e.what() << std::endl;
-                                    throw e;
-                                }
+                            auto& thread_controls = ctxp->thread_controls();
+                            for(auto& thread_control: thread_controls){
+                                thread_control.stop_thread();
                             }
-                            for(auto& stop: stops){
-                                stop.join();
-                            }
-                            for (auto& rel: ctxp->manifest()){
+                            controller::app::ThreadControls::thread_sched_yield();
+                            for(auto& rel: (*server_ctx)->manifest()){
                                 auto& value = rel->acquire_value();
                                 if(value.empty()){
                                     value = "{}";
                                 }
                                 rel->release_value();
-                            } 
+                            }
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                             // clock_gettime(CLOCK_MONOTONIC, &tjson[1]);
@@ -1425,13 +1410,17 @@ namespace app{
                                         return;
                                     }
                                     std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
+                                    auto handle = controller::app::ThreadControls::thread_sched_push();
                                     try{
                                         std::thread initializer(
-                                            [&, ctx_ptr, manifest_size, start_idx, run](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                            [&, ctx_ptr, manifest_size, start_idx, run, handle](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
                                                 auto& thread_controls = ctx_ptr->thread_controls();
                                                 std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
                                                 std::chrono::time_point<std::chrono::steady_clock> finish;
                                                 for(std::size_t i=0; i < manifest_size; ++i){
+                                                    if(ctx_ptr->is_stopped()){
+                                                        break;
+                                                    }
                                                     auto& thread_control = thread_controls[(i+start_idx) % manifest_size];
                                                     if(thread_control.is_stopped()){
                                                         mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
@@ -1449,9 +1438,12 @@ namespace app{
                                                         );
                                                     }
                                                     finish = std::chrono::steady_clock::now();
-                                                    if((finish - start) > controller::app::ThreadControls::THREAD_SCHED_TIME_SLICE_MS){
+                                                    while((finish - start) > controller::app::ThreadControls::thread_sched_time_slice()){
                                                         controller::app::ThreadControls::thread_sched_yield();
                                                         start = std::chrono::steady_clock::now();
+                                                        if(ctx_ptr->is_stopped()){
+                                                            break;
+                                                        }
                                                         auto thread_it = std::find_if(thread_controls.begin(), thread_controls.end(), [&](auto& thread){
                                                             // Find a thread that has been notified to start but has not yet been initialized.
                                                             return (thread.is_started() && !thread.is_stopped() && (thread.state() == 0));
@@ -1468,16 +1460,16 @@ namespace app{
                                                                 0
                                                             );
                                                         }
+                                                        finish = std::chrono::steady_clock::now();
                                                     }
                                                 }
-                                                controller::app::ThreadControls::sched_flag_.store(true, std::memory_order::memory_order_relaxed);
-                                                controller::app::ThreadControls::sched_.notify_one();
+                                                handle->finished.store(true, std::memory_order::memory_order_relaxed);
+                                                controller::app::ThreadControls::thread_sched_yield();
                                                 return;
                                             }, io_mbox_ptr_
                                         );
                                         auto& thread_controls = ctx_ptr->thread_controls();
                                         auto& thread = thread_controls[start_idx];
-                                        controller::app::ThreadControls::thread_sched_yield();
                                         initializer.detach();
                                         thread.notify(execution_idx);
                                     } catch(std::system_error& e){
