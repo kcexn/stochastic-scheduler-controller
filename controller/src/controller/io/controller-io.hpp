@@ -11,6 +11,10 @@ namespace asio{
 }
 }
 
+namespace libcurl{
+    class CurlMultiHandle;
+}
+
 namespace controller{
 namespace io{
     struct MessageBox{
@@ -52,8 +56,8 @@ namespace io{
     class IO
     {
     public:
-        IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc);
-        IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport);
+        IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, int* num_running_multi_handles, std::shared_ptr<libcurl::CurlMultiHandle> cmhp);
+        IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport, int* num_running_multi_handles, std::shared_ptr<libcurl::CurlMultiHandle> cmhp);
         void start();
         void stop();
 
@@ -73,6 +77,9 @@ namespace io{
         
         // Unix Socket Server
         UnixServer::unix_server us_;
+
+        int* num_running_multi_handles_;
+        std::shared_ptr<libcurl::CurlMultiHandle> cmhp_;
 
         std::atomic<bool> stopped_;
         std::mutex stop_;

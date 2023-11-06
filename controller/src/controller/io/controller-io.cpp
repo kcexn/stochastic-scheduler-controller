@@ -1,4 +1,5 @@
 #include "controller-io.hpp"
+#include "../app/controller-app.hpp"
 #include "../controller-events.hpp"
 #include <transport-servers/sctp-server/sctp-session.hpp>
 #include <ifaddrs.h>
@@ -9,11 +10,13 @@
 
 namespace controller{
 namespace io{
-    IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc)
+    IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, int* num_running_multi_handles, std::shared_ptr<libcurl::CurlMultiHandle> cmhp)
       : mbox_ptr_(mbox),
         ioc_(ioc),
         ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), SCTP_PORT)),
         us_(ioc, boost::asio::local::stream_protocol::endpoint(local_endpoint)),
+        num_running_multi_handles_{num_running_multi_handles},
+        cmhp_{cmhp},
         stopped_{false}
     { 
         /* Identify the local sctp server address. */
@@ -74,11 +77,13 @@ namespace io{
         }
     }
 
-    IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport)
+    IO::IO(std::shared_ptr<MessageBox> mbox, const std::string& local_endpoint, boost::asio::io_context& ioc, std::uint16_t sport, int* num_running_multi_handles, std::shared_ptr<libcurl::CurlMultiHandle> cmhp)
       : mbox_ptr_(mbox),
         ioc_(ioc),
         ss_(ioc, transport::protocols::sctp::endpoint(transport::protocols::sctp::v4(), sport)),
         us_(ioc, boost::asio::local::stream_protocol::endpoint(local_endpoint)),
+        num_running_multi_handles_{num_running_multi_handles},
+        cmhp_{cmhp},
         stopped_{false}
     { 
         /* Identify the local sctp server address. */
@@ -238,6 +243,11 @@ namespace io{
         std::chrono::milliseconds wake_period(10);
         while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run_for(wake_period);
+            // Strictly speaking there is a race condition here I think. But I don't think it's very important so I'll worry about it later.
+            // TODO: make access and modification to the num_running_multi_handles_ value threadsafe.
+            if(*num_running_multi_handles_ != 0){
+                cmhp_->perform(num_running_multi_handles_);
+            }
         }
         // std::cout << "controller-io.cpp:204:IO thread exiting" << std::endl;
         stopped_.store(true, std::memory_order::memory_order_relaxed);

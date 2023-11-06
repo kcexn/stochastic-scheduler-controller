@@ -640,7 +640,7 @@ namespace app{
         initialized_{false},
         curl_mhnd_ptr_(std::make_shared<libcurl::CurlMultiHandle>()),
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
-        io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc),
+        io_(io_mbox_ptr_, "/run/controller/controller.sock", ioc, &num_running_multi_handles_, curl_mhnd_ptr_),
         ioc_(ioc)
     {
         try{
@@ -660,7 +660,7 @@ namespace app{
         initialized_{false},
         curl_mhnd_ptr_(std::make_shared<libcurl::CurlMultiHandle>()),
         io_mbox_ptr_(std::make_shared<controller::io::MessageBox>()),
-        io_(io_mbox_ptr_, upath.string(), ioc, sport),
+        io_(io_mbox_ptr_, upath.string(), ioc, sport, &num_running_multi_handles_, curl_mhnd_ptr_),
         ioc_(ioc)
     {
         try{
@@ -689,7 +689,7 @@ namespace app{
         while(true){
             server_session = std::shared_ptr<server::Session>();
             lk.lock();
-            io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(100), [&]{ 
+            io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
@@ -930,13 +930,6 @@ namespace app{
                     
                     // clock_gettime(CLOCK_REALTIME, &ts);
                     // std::cout << "controller-app.cpp:393:stopped thread processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-                }
-            }
-            if(num_running_multi_handles_ > 0){
-                CURLMcode mstatus = curl_mhnd_ptr_->perform(&num_running_multi_handles_);
-                if(mstatus != CURLM_OK){
-                    std::cerr << "controller-app.cpp:952:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
-                    throw "what?";
                 }
             }
             // if(status){
