@@ -358,9 +358,13 @@ namespace sctp_transport{
                                     sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
                                     return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
                                 });
-                                if(it != pending_connects_.end()){
+                                while(it != pending_connects_.end()){
                                     /* This is a pending connection */
                                     pending_connects_.erase(it);
+                                    it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                        sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    });
                                 }
                                 release();
                                 break;
@@ -370,16 +374,20 @@ namespace sctp_transport{
                                 std::cerr << "sctp-server.cpp:355:SCTP_CANT_STR_ASSOC EVENT" << std::endl;
                                 /* Search for the association in the pending connects table */
                                 acquire();
-                                auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](const auto& pending_connection){
+                                auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                     sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
                                     return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
                                 });
-                                if(it != pending_connects_.cend()){
+                                while(it != pending_connects_.cend()){
                                     /* This is a pending connection */
                                     boost::system::error_code error(ECONNREFUSED, boost::system::system_category());
                                     const std::shared_ptr<SctpSession>& sctp_session = std::static_pointer_cast<SctpSession>(it->session);
                                     it->cb(error, sctp_session);
                                     pending_connects_.erase(it);
+                                    it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                        sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    });
                                 }
                                 release();
                                 break;
@@ -413,12 +421,12 @@ namespace sctp_transport{
                     throw "what?";
                 }
                 acquire();
-                auto it = std::find_if(cbegin(), cend(), [&](auto& ptr){
+                auto it = std::find_if(begin(), end(), [&](auto& ptr){
                     return *(std::static_pointer_cast<sctp_transport::SctpSession>(ptr)) == stream_id;
                 });
                 release();
                 std::shared_ptr<sctp_transport::SctpSession> sctp_session;
-                if(it == cend()){
+                if(it == end()){
                     // Create a new session.
                     sctp_session = std::make_shared<sctp_transport::SctpSession>(*this, stream_id, socket_);
                     acquire();
