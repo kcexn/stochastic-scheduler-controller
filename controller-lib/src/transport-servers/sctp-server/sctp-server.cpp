@@ -342,11 +342,42 @@ namespace sctp_transport{
                                 break;
                             }
                             case SCTP_COMM_LOST:
-                                // std::cerr << "sctp-server.cpp:330:SCTP_COMM_LOST EVENT" << std::endl;
+                            {
+                                acquire();
+                                auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                    sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                });
+                                while(it != pending_connects_.end()){
+                                    /* This is a pending connection */
+                                    pending_connects_.erase(it);
+                                    it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                        sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    });
+                                }
+                                release();
                                 break;
+                            }
                             case SCTP_RESTART:
+                            {
+                                acquire();
+                                auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                    sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                });
+                                while(it != pending_connects_.end()){
+                                    /* This is a pending connection */
+                                    pending_connects_.erase(it);
+                                    it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
+                                        sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
+                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    });
+                                }
+                                release();
                                 std::cerr << "sctp-server.cpp:333:SCTP_RESTART EVENT" << std::endl;
                                 break;
+                            }
                             case SCTP_SHUTDOWN_COMP:
                             {
                                 // struct timespec ts = {};
