@@ -231,9 +231,11 @@ static void populate_request_data(boost::json::object& jctx, const std::shared_p
     return;
 }
 
-static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val, const std::shared_ptr<libcurl::CurlMultiHandle> cmhp){
-    std::size_t concurrency = ctxp->manifest().concurrency();
+static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val, const std::shared_ptr<libcurl::CurlMultiHandle> cmhp, int* num_running_handles){
+    auto& manifest = ctxp->manifest();
+    std::size_t concurrency = manifest.concurrency();
     if(concurrency > 1){
+        CURLMcode mstatus;
         int msgq_len = 0;
         std::vector<CURL*> reusable_handles;
         // Since after we make the API requests we do not care if or when the API responses are returned.
@@ -242,7 +244,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
             CURLMsg* msg = cmhp->info_read(&msgq_len);
             if(msg){
                 CURL* hnd = msg->easy_handle;
-                CURLMcode mstatus = cmhp->remove_handle(hnd);
+                mstatus = cmhp->remove_handle(hnd);
                 switch(mstatus)
                 {
                     case CURLM_OK:
@@ -257,7 +259,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
             }
         }while(msgq_len > 0);
 
-        std::size_t manifest_size = ctxp->manifest().size();
+        std::size_t manifest_size = manifest.size();
         const char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
         if(__OW_ACTION_NAME == nullptr){
             std::cerr << "controller-app.cpp:263:__OW_ACTION_NAME envvar is not set!" << std::endl;
@@ -293,8 +295,6 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
         url.append("/actions/");
         url.append(action_name.filename().string());
 
-        int num_running_handles = 0;
-        CURLMcode mstatus;
         std::vector<CURL*> handles;
         handles.reserve(concurrency);
         if(reusable_handles.empty()){
@@ -323,15 +323,15 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                     std::cerr << "controller-app.cpp:323:curl_multi_add_handle failed." << std::endl;
                     throw "what?";
                 }
+                mstatus = cmhp->perform(num_running_handles);
+                if(mstatus != CURLM_OK){
+                    std::cerr << "controller-app.cpp:342:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
+                    throw "what?";
+                }
             } else {
                 std::cerr << "controller-app.cpp:327:CURL easy handle initialization failed." << std::endl;
                 throw "what?";
             }
-        }
-        mstatus = cmhp->perform(&num_running_handles);
-        if(mstatus != CURLM_OK){
-            std::cerr << "controller-app.cpp:333:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
-            throw "what?";
         }
     }
     return;
@@ -445,7 +445,7 @@ static void reschedule_actions(
                 thread_control.stop_thread();
             }
             // Yield to the initializer thread here to clean up the initializer.
-            controller::app::ThreadControls::thread_sched_yield();
+            controller::app::ThreadControls::thread_sched_yield(false);
             for(auto& rel: manifest){
                 auto& value = rel->acquire_value();
                 if(value.empty()){
@@ -689,7 +689,7 @@ namespace app{
         while(true){
             server_session = std::shared_ptr<server::Session>();
             lk.lock();
-            io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
+            io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(100), [&]{ 
                 return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
             });
             thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
@@ -932,6 +932,13 @@ namespace app{
                     // std::cout << "controller-app.cpp:393:stopped thread processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                 }
             }
+            if(num_running_multi_handles_ > 0){
+                CURLMcode mstatus = curl_mhnd_ptr_->perform(&num_running_multi_handles_);
+                if(mstatus != CURLM_OK){
+                    std::cerr << "controller-app.cpp:952:curl_multi_perform failed:" << curl_multi_strerror(mstatus) << std::endl;
+                    throw "what?";
+                }
+            }
             // if(status){
             //     clock_gettime(CLOCK_MONOTONIC, &ts[1]);
             //     std::cout << "controller-app.cpp:407:loop time:" << (ts[1].tv_sec*1000000 + ts[1].tv_nsec/1000) - (ts[0].tv_sec*1000000 + ts[0].tv_nsec/1000) << std::endl;
@@ -984,7 +991,7 @@ namespace app{
                             for(auto& thread_control: thread_controls){
                                 thread_control.stop_thread();
                             }
-                            controller::app::ThreadControls::thread_sched_yield();
+                            controller::app::ThreadControls::thread_sched_yield(false);
                             for(auto& rel: (*server_ctx)->manifest()){
                                 auto& value = rel->acquire_value();
                                 if(value.empty()){
@@ -1226,7 +1233,7 @@ namespace app{
                             for(auto& thread_control: thread_controls){
                                 thread_control.stop_thread();
                             }
-                            controller::app::ThreadControls::thread_sched_yield();
+                            controller::app::ThreadControls::thread_sched_yield(false);
                             for(auto& rel: (*server_ctx)->manifest()){
                                 auto& value = rel->acquire_value();
                                 if(value.empty()){
@@ -1342,7 +1349,7 @@ namespace app{
                                         // The primary context will have no client peer connections, only server peer connections.
                                         // The primary context must hit the OW API endpoint `concurrency' no. of times with the
                                         // a different execution context idx and the same execution context id each time.
-                                        make_api_requests(ctx_ptr, val, curl_mhnd_ptr_);
+                                        make_api_requests(ctx_ptr, val, curl_mhnd_ptr_, &num_running_multi_handles_);
                                     } else {
                                         /* This is a secondary context */
                                         boost::json::object jo;
@@ -1410,37 +1417,51 @@ namespace app{
                                         return;
                                     }
                                     std::ptrdiff_t start_idx = start_it - ctx_ptr->manifest().begin();
-                                    auto handle = controller::app::ThreadControls::thread_sched_push();
+                                    controller::app::ThreadControls::thread_sched_push();
                                     controller::app::ThreadControls::set_start_time();
                                     try{
                                         std::thread initializer(
-                                            [&, ctx_ptr, manifest_size, start_idx, run, handle](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                            [&, ctx_ptr, manifest_size, start_idx, run](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
                                                 std::chrono::time_point<std::chrono::steady_clock> start = controller::app::ThreadControls::get_start_time();
                                                 auto& thread_controls = ctx_ptr->thread_controls();
-                                                std::chrono::time_point<std::chrono::steady_clock> finish;
+                                                std::chrono::time_point<std::chrono::steady_clock> finish;  
+
+                                                std::chrono::time_point<std::chrono::steady_clock> exec_timer_start;
+                                                std::chrono::time_point<std::chrono::steady_clock> exec_timer_finish;
+                                                std::chrono::nanoseconds exec_time = std::chrono::nanoseconds(0);
+
                                                 for(std::size_t i=0; i < manifest_size; ++i){
+                                                    if(exec_time == std::chrono::nanoseconds(0)){
+                                                        exec_timer_start = std::chrono::steady_clock::now();
+                                                    }
                                                     if(ctx_ptr->is_stopped()){
                                                         break;
+                                                    } else {
+                                                        auto& thread_control = thread_controls[(i+start_idx) % manifest_size];
+                                                        if(thread_control.is_stopped()){
+                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                            continue;
+                                                        } else {
+                                                            if(thread_control.state() == 0){
+                                                                initialize_executor(
+                                                                    thread_control,
+                                                                    mbox_ptr,
+                                                                    ctx_ptr,
+                                                                    manifest_size,
+                                                                    i,
+                                                                    start_idx
+                                                                );
+                                                            }
+                                                        }
                                                     }
-                                                    auto& thread_control = thread_controls[(i+start_idx) % manifest_size];
-                                                    if(thread_control.is_stopped()){
-                                                        mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                        mbox_ptr->sched_signal_cv_ptr->notify_one();
-                                                        continue;
-                                                    }
-                                                    if(thread_control.state() == 0){
-                                                        initialize_executor(
-                                                            thread_control,
-                                                            mbox_ptr,
-                                                            ctx_ptr,
-                                                            manifest_size,
-                                                            i,
-                                                            start_idx
-                                                        );
+                                                    if(exec_time == std::chrono::nanoseconds(0)){
+                                                        exec_timer_finish = std::chrono::steady_clock::now();
+                                                        exec_time = exec_timer_finish - exec_timer_start;
                                                     }
                                                     finish = std::chrono::steady_clock::now();
-                                                    while((finish - start) > controller::app::ThreadControls::thread_sched_time_slice()){
-                                                        controller::app::ThreadControls::thread_sched_yield();
+                                                    while((finish - start + exec_time) > controller::app::ThreadControls::thread_sched_time_slice()){
+                                                        controller::app::ThreadControls::thread_sched_yield(false);
                                                         start = controller::app::ThreadControls::get_start_time();
                                                         if(ctx_ptr->is_stopped()){
                                                             break;
@@ -1464,8 +1485,7 @@ namespace app{
                                                         finish = std::chrono::steady_clock::now();
                                                     }
                                                 }
-                                                handle->finished.store(true, std::memory_order::memory_order_relaxed);
-                                                controller::app::ThreadControls::thread_sched_yield();
+                                                controller::app::ThreadControls::thread_sched_yield(true);
                                                 return;
                                             }, io_mbox_ptr_
                                         );

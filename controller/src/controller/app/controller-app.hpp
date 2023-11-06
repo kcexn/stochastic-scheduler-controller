@@ -77,6 +77,7 @@ namespace app{
         // OpenWhisk Action Proxy Initialized.
         bool initialized_;
         // IO
+        int num_running_multi_handles_;
         std::shared_ptr<libcurl::CurlMultiHandle> curl_mhnd_ptr_;
         std::shared_ptr<controller::io::MessageBox> io_mbox_ptr_;
         controller::io::IO io_;

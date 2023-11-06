@@ -392,13 +392,12 @@ namespace app{
         return handle;
     }
 
-    void ThreadControls::thread_sched_yield()
+    void ThreadControls::thread_sched_yield(bool finished)
     {
         std::unique_lock<std::mutex> lk(ThreadControls::sched_mtx_);
         if(!ThreadControls::sched_handles_.empty()){
             auto handle = ThreadControls::sched_handles_.front();
             ThreadControls::sched_handles_.pop_front();
-            bool finished = handle->finished.load(std::memory_order::memory_order_relaxed);
             if(finished){
                 lk.unlock();
                 ThreadControls::set_start_time();
@@ -433,7 +432,7 @@ namespace app{
         execution_context_idxs_.push_back(idx);
         ctx_mtx_->unlock();
         signal_->fetch_or(CTL_IO_SCHED_START_EVENT, std::memory_order::memory_order_relaxed);
-        ThreadControls::thread_sched_yield();
+        ThreadControls::thread_sched_yield(false);
         cv_->notify_one();
         return;
     }  
