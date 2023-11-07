@@ -210,9 +210,17 @@ namespace sctp_transport{
             /* Look for the next available stream*/
             std::vector<transport::protocols::sctp::sid_t> used_stream_nums;
             acquire();
+            // Append all of the streams in the server.
             for(auto& session_ptr: *this){
-                if(std::static_pointer_cast<SctpSession>(session_ptr)->assoc() == assoc_id){
-                    used_stream_nums.push_back(std::static_pointer_cast<SctpSession>(session_ptr)->sid());
+                if(std::static_pointer_cast<SctpSession>(session_ptr)->get_assoc() == assoc_id){
+                    used_stream_nums.push_back(std::static_pointer_cast<SctpSession>(session_ptr)->get_sid());
+                }
+            }
+            // Also append all of the streams in pending connects.
+            for(auto& pc: pending_connects_){
+                auto addr_in = (struct sockaddr_in*)(&pc.addr);
+                if(rmt.ipv4_addr.address.sin_addr.s_addr == addr_in->sin_addr.s_addr && rmt.ipv4_addr.address.sin_port == addr_in->sin_port){
+                    used_stream_nums.push_back(pc.session->get_sid());
                 }
             }
             release();
@@ -373,7 +381,7 @@ namespace sctp_transport{
                                     });
                                 }
                                 release();
-                                std::cerr << "sctp-server.cpp:376:SCTP COMM LOST:" << std::endl;
+                                // std::cerr << "sctp-server.cpp:376:SCTP COMM LOST:" << std::endl;
                                 break;
                             }
                             case SCTP_RESTART:
@@ -407,7 +415,7 @@ namespace sctp_transport{
                                     });
                                 }
                                 release();
-                                std::cerr << "sctp-server.cpp:333:SCTP_RESTART EVENT" << std::endl;
+                                // std::cerr << "sctp-server.cpp:333:SCTP_RESTART EVENT" << std::endl;
                                 break;
                             }
                             case SCTP_SHUTDOWN_COMP:
@@ -445,12 +453,12 @@ namespace sctp_transport{
                                     });
                                 }
                                 release();
-                                std::cerr << "sctp-server.cpp:448:SCTP SHUTDOWN COMP:" << std::endl;
+                                // std::cerr << "sctp-server.cpp:448:SCTP SHUTDOWN COMP:" << std::endl;
                                 break;
                             }
                             case SCTP_CANT_STR_ASSOC:
                             {
-                                std::cerr << "sctp-server.cpp:355:SCTP_CANT_STR_ASSOC EVENT" << std::endl;
+                                // std::cerr << "sctp-server.cpp:355:SCTP_CANT_STR_ASSOC EVENT" << std::endl;
                                 /* Search for the association in the pending connects table */
                                 acquire();
                                 auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){

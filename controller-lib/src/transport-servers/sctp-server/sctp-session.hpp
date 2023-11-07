@@ -20,6 +20,7 @@ namespace sctp_transport{
         void set(const transport::protocols::sctp::assoc_t& assoc_id ) { acquire(); id_.assoc = assoc_id; release(); return; }
         transport::protocols::sctp::assoc_t get_assoc() { acquire(); transport::protocols::sctp::assoc_t tmp = id_.assoc; release(); return tmp; }
         const transport::protocols::sctp::assoc_t& assoc() const { return id_.assoc; }
+        transport::protocols::sctp::sid_t get_sid() { acquire(); auto tmp = id_.sid; release(); return tmp; }
         transport::protocols::sctp::sid_t& sid() { return id_.sid; }
         const transport::protocols::sctp::socket& socket() const { return socket_; }
 
