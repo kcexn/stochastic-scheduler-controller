@@ -101,7 +101,7 @@ static std::string rtostr(const server::Remote& raddr){
     return pstr;
 }
 
-static void set_common_curl_handle_options(CURL* hnd, const std::string& url, const std::string& __OW_API_KEY, struct curl_slist* slist, FILE* writedata) {
+static void set_common_curl_handle_options(CURL* hnd, const std::string& __OW_API_KEY, struct curl_slist* slist, FILE* writedata) {
     auto it = std::find(__OW_API_KEY.begin(), __OW_API_KEY.end(), ':');
     if(it == __OW_API_KEY.end()){
         std::cerr << "controller-app.cpp:107:delimiter ':' wasn't found." << std::endl;
@@ -116,14 +116,6 @@ static void set_common_curl_handle_options(CURL* hnd, const std::string& url, co
             break;
         default:
             std::cerr << "controller-app.cpp:118:setting CURLOPT_HTTPHEADER failed:" << curl_easy_strerror(status) << std::endl;
-            throw "what?";
-    }
-    switch(status = curl_easy_setopt(hnd, CURLOPT_URL, url.c_str()))
-    {
-        case CURLE_OK:
-            break;
-        default:
-            std::cerr << "controller-app.cpp:126:setting CURLOPT_URL failed:" << curl_easy_strerror(status) << std::endl;
             throw "what?";
     }
     switch(status = curl_easy_setopt(hnd, CURLOPT_USERNAME, username.c_str()))
@@ -177,8 +169,16 @@ static void set_common_curl_handle_options(CURL* hnd, const std::string& url, co
     return;
 }
 
-static void set_curl_handle_options(CURL* hnd, const std::string& data){
+static void set_curl_handle_options(CURL* hnd, const std::string& data, const std::string& url){
     CURLcode status;
+    switch(status = curl_easy_setopt(hnd, CURLOPT_URL, url.c_str()))
+    {
+        case CURLE_OK:
+            break;
+        default:
+            std::cerr << "controller-app.cpp:126:setting CURLOPT_URL failed:" << curl_easy_strerror(status) << std::endl;
+            throw "what?";
+    }
     switch(status = curl_easy_setopt(hnd, CURLOPT_POSTFIELDSIZE, data.size()))
     {
         case CURLE_OK:
@@ -300,7 +300,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
         if(reusable_handles.empty()){
             CURL* handle = curl_easy_init();
             if(handle){
-                set_common_curl_handle_options(handle, url, __OW_API_KEY, cmhp->slist, cmhp->write_stream);
+                set_common_curl_handle_options(handle, __OW_API_KEY, cmhp->slist, cmhp->write_stream);
                 handles.push_back(handle);
             } else {
                 std::cerr << "controller-app.cpp:306:curl_easy_init() failed." << std::endl;
@@ -317,8 +317,12 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
             CURL* hnd = handles[i];
             if(hnd){
                 jctx["execution_context"].get_object()["idx"] = indices[i];
+                std::stringstream suffix;
+                std::string url_replica(url);
                 data_vec.emplace_back(boost::json::serialize(jctx));
-                set_curl_handle_options(hnd, data_vec.back());
+                suffix << '-' << (i+1);
+                url_replica.append(suffix.str());
+                set_curl_handle_options(hnd, data_vec.back(), url_replica);
                 if(cmhp->add_handle(hnd) != CURLM_OK){
                     std::cerr << "controller-app.cpp:323:curl_multi_add_handle failed." << std::endl;
                     throw "what?";

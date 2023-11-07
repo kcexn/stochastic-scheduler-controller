@@ -319,7 +319,7 @@ namespace sctp_transport{
                                 try{
                                     auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                         sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                        return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                     });
                                     while(it != pending_connects_.end()){
                                         /* This is a pending connection */
@@ -330,7 +330,7 @@ namespace sctp_transport{
                                         pending_connects_.erase(it);
                                         it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                             sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                            return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                            return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                         });
                                     }
                                 } catch (std::bad_weak_ptr& e){
@@ -344,19 +344,36 @@ namespace sctp_transport{
                             case SCTP_COMM_LOST:
                             {
                                 acquire();
+                                // Remove all pending connects from the pending connects table.
                                 auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                     sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                 });
                                 while(it != pending_connects_.end()){
                                     /* This is a pending connection */
                                     pending_connects_.erase(it);
                                     it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                         sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                        return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
+                                    });
+                                }
+
+                                // Remove all sessions with this association from the sessions table.
+                                auto session_it = std::find_if(begin(), end(), [&](auto& sp){
+                                    auto assoc = std::static_pointer_cast<SctpSession>(sp)->get_assoc();
+                                    return assoc == association;
+                                });
+                                while(session_it != end()){
+                                    auto& sp = *session_it;
+                                    sp->cancel();
+                                    erase(session_it);
+                                    session_it = std::find_if(begin(), end(), [&](auto& sp){
+                                        auto assoc = std::static_pointer_cast<SctpSession>(sp)->get_assoc();
+                                        return assoc == association;
                                     });
                                 }
                                 release();
+                                std::cerr << "sctp-server.cpp:376:SCTP COMM LOST:" << std::endl;
                                 break;
                             }
                             case SCTP_RESTART:
@@ -364,14 +381,29 @@ namespace sctp_transport{
                                 acquire();
                                 auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                     sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                 });
                                 while(it != pending_connects_.end()){
                                     /* This is a pending connection */
                                     pending_connects_.erase(it);
                                     it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                         sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                        return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
+                                    });
+                                }
+
+                                // Remove all sessions with this association from the sessions table.
+                                auto session_it = std::find_if(begin(), end(), [&](auto& sp){
+                                    auto assoc = std::static_pointer_cast<SctpSession>(sp)->get_assoc();
+                                    return assoc == association;
+                                });
+                                while(session_it != end()){
+                                    auto& sp = *session_it;
+                                    sp->cancel();
+                                    erase(session_it);
+                                    session_it = std::find_if(begin(), end(), [&](auto& sp){
+                                        auto assoc = std::static_pointer_cast<SctpSession>(sp)->get_assoc();
+                                        return assoc == association;
                                     });
                                 }
                                 release();
@@ -387,17 +419,33 @@ namespace sctp_transport{
                                 acquire();
                                 auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                     sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                 });
                                 while(it != pending_connects_.end()){
                                     /* This is a pending connection */
                                     pending_connects_.erase(it);
                                     it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                         sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                        return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
+                                    });
+                                }
+
+                                // Remove all sessions with this association from the sessions table.
+                                auto session_it = std::find_if(begin(), end(), [&](auto& sp){
+                                    auto assoc = std::static_pointer_cast<SctpSession>(sp)->get_assoc();
+                                    return assoc == association;
+                                });
+                                while(session_it != end()){
+                                    auto& sp = *session_it;
+                                    sp->cancel();
+                                    erase(session_it);
+                                    session_it = std::find_if(begin(), end(), [&](auto& sp){
+                                        auto assoc = std::static_pointer_cast<SctpSession>(sp)->get_assoc();
+                                        return assoc == association;
                                     });
                                 }
                                 release();
+                                std::cerr << "sctp-server.cpp:448:SCTP SHUTDOWN COMP:" << std::endl;
                                 break;
                             }
                             case SCTP_CANT_STR_ASSOC:
@@ -407,7 +455,7 @@ namespace sctp_transport{
                                 acquire();
                                 auto it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                     sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                    return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                    return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                 });
                                 while(it != pending_connects_.cend()){
                                     /* This is a pending connection */
@@ -417,7 +465,7 @@ namespace sctp_transport{
                                     pending_connects_.erase(it);
                                     it = std::find_if(pending_connects_.begin(), pending_connects_.end(), [&](auto& pending_connection){
                                         sctp::sockaddr_in* paddr = (sctp::sockaddr_in*)(&pending_connection.addr);
-                                        return paddr->sin_addr.s_addr == addr.sin_addr.s_addr;
+                                        return (paddr->sin_addr.s_addr == addr.sin_addr.s_addr && paddr->sin_port == addr.sin_port);
                                     });
                                 }
                                 release();

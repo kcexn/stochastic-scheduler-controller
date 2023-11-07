@@ -8,13 +8,17 @@ namespace sctp_transport{
     }
 
     void SctpSession::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) {
+        auto self = shared_from_this();
         std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
         std::memcpy(write_data_ptr->data(), write_buffer.data(), write_buffer.size());
         socket_.async_wait(
             transport::protocols::sctp::socket::wait_type::wait_write,
-            [&, write_data_ptr, fn](const boost::system::error_code& ec){
-                write_(write_data_ptr, fn, ec);
-            }
+            boost::asio::bind_cancellation_slot(
+                stop_signal_.slot(),
+                [&, write_data_ptr, fn, self](const boost::system::error_code& ec){
+                    write_(write_data_ptr, fn, ec);
+                }
+            )
         );
     }
 
@@ -57,24 +61,14 @@ namespace sctp_transport{
                 case SCTP_COOKIE_WAIT:
                 {
                     // std::cerr << "sctp-session.cpp:54:SCTP_COOKIE_WAIT" << std::endl;
-                    socket_.async_wait(
-                        transport::protocols::sctp::socket::wait_type::wait_write,
-                        [&, write_data, fn](const boost::system::error_code& ec){
-                            write_(write_data, fn, ec);
-                        }
-                    );
-                    return;
+                    boost::asio::const_buffer buf(write_data->data(), write_data->size());
+                    return async_write(buf, fn);
                 }
                 case SCTP_COOKIE_ECHOED:
                 {
                     // std::cerr << "sctp-session.cpp:64:SCTP_COOKIE_ECHOED" << std::endl;
-                    socket_.async_wait(
-                        transport::protocols::sctp::socket::wait_type::wait_write,
-                        [&, write_data, fn](const boost::system::error_code& ec){
-                            write_(write_data, fn, ec);
-                        }
-                    );                   
-                    return;
+                    boost::asio::const_buffer buf(write_data->data(), write_data->size());
+                    return async_write(buf, fn);               
                 }
                 case SCTP_ESTABLISHED:
                     break;
@@ -124,23 +118,13 @@ namespace sctp_transport{
                 {
                     case EWOULDBLOCK:
                     {
-                        socket_.async_wait(
-                            transport::protocols::sctp::socket::wait_type::wait_write,
-                            [&, write_data, fn](const boost::system::error_code& ec){
-                                write_(write_data, fn, ec);
-                            }
-                        );
-                        return;
+                        boost::asio::const_buffer buf(write_data->data(), write_data->size());
+                        return async_write(buf, fn);
                     }
                     case EINTR:
                     {
-                        socket_.async_wait(
-                            transport::protocols::sctp::socket::wait_type::wait_write,
-                            [&, write_data, fn](const boost::system::error_code& ec){
-                                write_(write_data, fn, ec);
-                            }
-                        );
-                        return;
+                        boost::asio::const_buffer buf(write_data->data(), write_data->size());
+                        return async_write(buf, fn);
                     }
                     case EINVAL:
                         return;
@@ -161,15 +145,8 @@ namespace sctp_transport{
             } else {
                 std::size_t remaining_bytes = write_data->size() - len;
                 if(remaining_bytes > 0){
-                    std::shared_ptr<std::vector<char> > buf_ptr = std::make_shared<std::vector<char> >(remaining_bytes);
-                    std::memcpy(buf_ptr->data(), write_data->data() + len, remaining_bytes);
-                    socket_.async_wait(
-                        transport::protocols::sctp::socket::wait_type::wait_write,
-                        [&, buf_ptr, fn](const boost::system::error_code& ec){
-                            write_(buf_ptr, fn, ec);
-                        }
-                    );
-                    return;
+                    boost::asio::const_buffer buf(write_data->data() + len, remaining_bytes);
+                    return async_write(buf, fn);
                 } else {
                     fn();
                 }
