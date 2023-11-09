@@ -26,6 +26,7 @@ namespace server
         boost::asio::const_buffer& read_buf() { return data_; }
         std::stringstream& acquire_stream(){ mtx_.lock(); return stream_; }
         void release_stream(){ mtx_.unlock(); }
+        bool is_in_server();
         void cancel() { 
             stop_signal_.emit(boost::asio::cancellation_type::total);
         }

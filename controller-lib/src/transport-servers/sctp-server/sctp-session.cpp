@@ -16,7 +16,12 @@ namespace sctp_transport{
             boost::asio::bind_cancellation_slot(
                 stop_signal_.slot(),
                 [&, write_data_ptr, fn, self](const boost::system::error_code& ec){
-                    write_(write_data_ptr, fn, ec);
+                    if(self->is_in_server()){
+                        write_(write_data_ptr, fn, ec);
+                    } else {
+                        boost::system::error_code err{boost::system::errc::connection_reset, boost::system::generic_category()};
+                        write_(write_data_ptr, fn, err);
+                    }
                 }
             )
         );

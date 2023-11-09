@@ -49,6 +49,7 @@ namespace server
         Server(boost::asio::io_context& ioc): ioc_(ioc){}
         void run();
         void rm(const std::shared_ptr<Session>&);
+        bool has(const std::shared_ptr<Session>&);
 
         // Servers must implement a connect interface that returns a client 
         // session.

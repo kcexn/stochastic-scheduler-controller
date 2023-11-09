@@ -693,23 +693,26 @@ namespace app{
         while(true){
             server_session = std::shared_ptr<server::Session>();
             lk.lock();
-            io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
-                return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
-            });
-            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            if(thread_local_signal & ~CTL_TERMINATE_EVENT){
-                io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
+            if(io_.mq_is_empty()){
+                io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
+                    return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
+                });
             }
+            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
+            io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             if(io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)){
-                io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
-                server_session = io_mbox_ptr_->session;
+                auto msg = io_.mq_pull();
+                if(io_.mq_is_empty()){
+                    io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
+                }
+                server_session = msg->session;
+                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
             }
             // if(status){
             //     clock_gettime(CLOCK_REALTIME, &ts);
             //     std::cout << "controller-app.cpp:165:msg_flag read:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
             // }
-            lk.unlock();
-            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+            lk.unlock();           
             if(server_session){
                 // clock_gettime(CLOCK_MONOTONIC, &troute[0]);
                 std::shared_ptr<http::HttpSession> http_session_ptr;
