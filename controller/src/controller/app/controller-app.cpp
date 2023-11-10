@@ -1429,6 +1429,9 @@ namespace app{
                                     try{
                                         std::thread initializer(
                                             [&, ctx_ptr, manifest_size, start_idx, run](std::shared_ptr<controller::io::MessageBox> mbox_ptr){
+                                                auto signalp = mbox_ptr->sched_signal_ptr;
+                                                auto cvp = mbox_ptr->sched_signal_cv_ptr;
+                                                auto mtxp = mbox_ptr->sched_signal_mtx_ptr;
                                                 std::chrono::time_point<std::chrono::steady_clock> start = controller::app::ThreadControls::get_start_time();
                                                 auto& thread_controls = ctx_ptr->thread_controls();
                                                 std::chrono::time_point<std::chrono::steady_clock> finish;  
@@ -1446,8 +1449,8 @@ namespace app{
                                                     } else {
                                                         auto& thread_control = thread_controls[(i+start_idx) % manifest_size];
                                                         if(thread_control.is_stopped()){
-                                                            mbox_ptr->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                                            mbox_ptr->sched_signal_cv_ptr->notify_one();
+                                                            signalp->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                            cvp->notify_one();
                                                             continue;
                                                         } else {
                                                             if(thread_control.state() == 0){
