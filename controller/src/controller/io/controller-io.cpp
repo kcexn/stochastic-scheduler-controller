@@ -152,22 +152,26 @@ namespace io{
 
     void IO::start(){
         std::shared_ptr<MessageBox> mbox = mbox_ptr_;
+        auto mtxp = mbox->sched_signal_mtx_ptr;
+        auto cvp = mbox->sched_signal_cv_ptr;
+        auto signalp = mbox->sched_signal_ptr;
         us_.accept([&, mbox](const boost::system::error_code& ec, std::shared_ptr<UnixServer::unix_session> session){
             if (!ec){
                 /* Callbacks are registered once with the session. The session will ensure that the callback is called everytime there is a read event
                    on the socket until the transport session is ultimately closed. */
-                session->async_read([&, session, mbox](boost::system::error_code ec, std::size_t length){
+                session->async_read([&, session, mbox, mtxp, cvp, signalp](boost::system::error_code ec, std::size_t length){
                     if(!ec){
                         // struct timespec ts[2] = {};
                         // clock_gettime(CLOCK_REALTIME, &ts[0]);
                         // std::cout << "controller-io.cpp:149:" << (ts[0].tv_sec*1000 + ts[0].tv_nsec/1000000) << ":us_.session->async_read() started." << std::endl;
                         session->acquire_stream().write(session->buf().data(), length);
                         session->release_stream();
-                        std::unique_lock<std::mutex> lk(*(mbox->sched_signal_mtx_ptr));
-                        mbox->sched_signal_cv_ptr->wait(lk, [&](){ return !mq_is_full(); });
+                        auto& mtx = *mtxp;
+                        std::unique_lock<std::mutex> lk(mtx);
+                        cvp->wait(lk, [&](){ return !mq_is_full(); });
                         lk.unlock();
                         mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                        mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                        signalp->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
                         std::shared_ptr<MessageBox> msg = std::make_shared<MessageBox>();
                         msg->session = session;
                         mq_push(msg);
@@ -185,16 +189,17 @@ namespace io{
             }
         });
 
-        ss_.init([&, mbox](const boost::system::error_code& ec,  std::shared_ptr<sctp_transport::SctpSession> session){
+        ss_.init([&, mbox, mtxp, cvp, signalp](const boost::system::error_code& ec,  std::shared_ptr<sctp_transport::SctpSession> session){
             if(!ec){
                 // struct timespec ts[2] = {};
                 // clock_gettime(CLOCK_REALTIME, &ts[0]);
                 // std::cout << "controller-io.cpp:198:" << (ts[0].tv_sec*1000 + ts[0].tv_nsec/1000000) << ":ss_ callback started." << std::endl;
-                std::unique_lock<std::mutex> lk(*(mbox->sched_signal_mtx_ptr));
-                mbox->sched_signal_cv_ptr->wait(lk, [&](){ return !mq_is_full(); });
+                auto& mtx = *mtxp;
+                std::unique_lock<std::mutex> lk(mtx);
+                cvp->wait(lk, [&](){ return !mq_is_full(); });
                 lk.unlock();
                 mbox->msg_flag.store(true, std::memory_order::memory_order_relaxed);
-                mbox->sched_signal_ptr->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
+                signalp->fetch_or(CTL_IO_READ_EVENT, std::memory_order::memory_order_relaxed);
                 std::shared_ptr<MessageBox> msg = std::make_shared<MessageBox>();
                 msg->session = session;
                 mq_push(msg);
@@ -207,7 +212,7 @@ namespace io{
             }
         });
         std::chrono::milliseconds wake_period(10);
-        while(!(mbox->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
+        while(!(signalp->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run_for(wake_period);
             // Strictly speaking there is a race condition here I think. But I don't think it's very important so I'll worry about it later.
             // TODO: make access and modification to the num_running_multi_handles_ value threadsafe.

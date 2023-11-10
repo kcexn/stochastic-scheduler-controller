@@ -681,7 +681,14 @@ namespace app{
 
     void Controller::start(){
         // Initialize resources I might need.
-        std::unique_lock<std::mutex> lk(*(io_mbox_ptr_->sched_signal_mtx_ptr), std::defer_lock);
+        auto io_mtxp = io_mbox_ptr_->sched_signal_mtx_ptr;
+        auto& io_mtx = *io_mtxp;
+        auto io_cvp = io_mbox_ptr_->sched_signal_cv_ptr;
+        auto io_signalp = io_mbox_ptr_->sched_signal_ptr;
+
+        auto controller_signalp = controller_mbox_ptr_->sched_signal_cv_ptr;
+
+        std::unique_lock<std::mutex> lk(io_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
         std::shared_ptr<server::Session> server_session;
         // struct timespec troute[2] = {};
@@ -694,19 +701,19 @@ namespace app{
             server_session = std::shared_ptr<server::Session>();
             lk.lock();
             if(io_.mq_is_empty()){
-                io_mbox_ptr_->sched_signal_cv_ptr->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
-                    return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
+                io_cvp->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
+                    return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_signalp->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
                 });
             }
-            thread_local_signal = io_mbox_ptr_->sched_signal_ptr->load(std::memory_order::memory_order_relaxed);
-            io_mbox_ptr_->sched_signal_ptr->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
+            thread_local_signal = io_signalp->load(std::memory_order::memory_order_relaxed);
+            io_signalp->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
             if(io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)){
                 auto msg = io_.mq_pull();
                 if(io_.mq_is_empty()){
                     io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
                 }
                 server_session = msg->session;
-                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                io_cvp->notify_one();
             }
             // if(status){
             //     clock_gettime(CLOCK_REALTIME, &ts);
@@ -767,7 +774,7 @@ namespace app{
             // }
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 if(hs_.empty() && ctx_ptrs.empty() && hcs_.empty()){
-                    controller_mbox_ptr_->sched_signal_cv_ptr->notify_all();
+                    controller_signalp->notify_all();
                     break;
                 }
             }
