@@ -20,6 +20,7 @@ namespace app{
     {
         std::mutex mtx;
         std::condition_variable cv;
+        std::atomic<bool> flag;
     };
 
     class ThreadControls

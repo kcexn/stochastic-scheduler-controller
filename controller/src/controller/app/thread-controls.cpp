@@ -406,9 +406,11 @@ namespace app{
                 sched_handles_.push_back(handle);
                 lk.unlock();
                 std::unique_lock<std::mutex> handle_lock(handle->mtx);
+                bool flag = handle->flag.load(std::memory_order::memory_order_relaxed);
                 ThreadControls::set_start_time();
                 handle->cv.notify_one();
-                handle->cv.wait(handle_lock);
+                handle->flag.store(!flag, std::memory_order::memory_order_relaxed);
+                handle->cv.wait(handle_lock, [&](){ return (handle->flag.load(std::memory_order::memory_order_relaxed) == flag); });
                 handle_lock.unlock();
             }
         } else {
