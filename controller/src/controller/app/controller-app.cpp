@@ -702,17 +702,16 @@ namespace app{
             lk.lock();
             if(io_.mq_is_empty()){
                 io_cvp->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
-                    return (io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed) || (io_signalp->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
+                    return (!io_.mq_is_empty() || (io_signalp->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
                 });
             }
             thread_local_signal = io_signalp->load(std::memory_order::memory_order_relaxed);
             io_signalp->fetch_and(~(thread_local_signal & ~CTL_TERMINATE_EVENT), std::memory_order::memory_order_relaxed);
-            if(io_mbox_ptr_->msg_flag.load(std::memory_order::memory_order_relaxed)){
+            if(!io_.mq_is_empty()){
                 auto msg = io_.mq_pull();
-                if(io_.mq_is_empty()){
-                    io_mbox_ptr_->msg_flag.store(false, std::memory_order::memory_order_relaxed);
+                if(msg){
+                    server_session = msg->session;
                 }
-                server_session = msg->session;
                 io_cvp->notify_one();
             }
             // if(status){
@@ -805,7 +804,7 @@ namespace app{
                         std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
                         next_session->set(rr);
                         next_session->write(
-                            [&, next_session](){
+                            [&, next_session](const std::error_code&){
                                 next_session->close();
                             }
                         );
@@ -822,7 +821,7 @@ namespace app{
                         res.chunks.back().chunk_data = "]"; // Close the JSON stream array.
                         res.chunks.emplace_back(); // Close the HTTP stream.
                         next_session->set(rr);
-                        next_session->write([&,next_session](){
+                        next_session->write([&,next_session](const std::error_code&){
                             next_session->close();
                         });
                         ctxp->peer_server_sessions().pop_back();
@@ -836,7 +835,10 @@ namespace app{
                         req.chunks.back().chunk_data = "]"; // Close the JSON stream array.
                         req.chunks.emplace_back(); // Close the HTTP stream.
                         next_session->set(rr);
-                        next_session->write([&,next_session](){
+                        next_session->write([&,next_session](const std::error_code& ec){
+                            if(ec){
+                                next_session->close();
+                            }
                             return;
                         });
                         ctxp->peer_client_sessions().pop_back();
@@ -907,7 +909,12 @@ namespace app{
                             chunk.chunk_data = data;
                             req.chunks.push_back(chunk);
                             peer_session->set(rr);
-                            peer_session->write([&, peer_session](){return;});
+                            peer_session->write([&, peer_session](const std::error_code& ec){
+                                if(ec){
+                                    peer_session->close();
+                                }
+                                return;
+                            });
                         }
                         for(auto& peer_session: ctxp->peer_server_sessions()){
                             /* Update peers */
@@ -918,7 +925,12 @@ namespace app{
                             chunk.chunk_data = data;
                             res.chunks.push_back(chunk);
                             peer_session->set(rr);
-                            peer_session->write([&, peer_session](){return;});
+                            peer_session->write([&, peer_session](const std::error_code& ec){
+                                if(ec){
+                                    peer_session->close();
+                                }
+                                return;
+                            });
                         }
                     }    
                     // Get the key of the action at this index+1 (mod thread_controls.size())
@@ -1092,7 +1104,12 @@ namespace app{
                                             hcs_.push_back(client_session);
                                             ctx_ptr->peer_client_sessions().push_back(client_session);  
                                             std::get<http::HttpRequest>(*client_session) = nreq;                                         
-                                            client_session->write([&, client_session](){ return; });
+                                            client_session->write([&, client_session](const std::error_code& ec){ 
+                                                if(ec){
+                                                    client_session->close();
+                                                }
+                                                return; 
+                                            });
                                         }
                                     });
                                 }
@@ -1398,7 +1415,12 @@ namespace app{
                                                         hcs_.push_back(client_session);
                                                         ctx_ptr->peer_client_sessions().push_back(client_session);
                                                         std::get<http::HttpRequest>(*client_session) = nreq;
-                                                        client_session->write([&, client_session](){ return; });
+                                                        client_session->write([&, client_session](const std::error_code& ec){
+                                                            if(ec){
+                                                                client_session->close();
+                                                            }
+                                                            return;
+                                                        });
                                                     }
                                                 });
                                             }
@@ -1518,7 +1540,7 @@ namespace app{
                                     std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr);
                                     next_session->write(
                                         rr,
-                                        [&, next_session](){
+                                        [&, next_session](const std::error_code&){
                                             next_session->close();
                                         }
                                     );
@@ -1599,7 +1621,12 @@ namespace app{
                                     };
                                     std::get<http::HttpResponse>(rr) = nres;
                                     session->set(rr);
-                                    session->write([&, session](){ return; });
+                                    session->write([&, session](const std::error_code& ec){ 
+                                        if(ec){
+                                            session->close();
+                                        }
+                                        return;
+                                    });
                                 } else {
                                     /* An error condition, no execution context with this ID exists. */
                                     // This condition can occur under at least two different scenarios.
@@ -1627,7 +1654,7 @@ namespace app{
                                     };
                                     std::get<http::HttpResponse>(rr) = nres;
                                     session->set(rr);
-                                    session->write([&,session](){
+                                    session->write([&,session](const std::error_code&){
                                         session->close();
                                     });
                                 }
@@ -1647,7 +1674,7 @@ namespace app{
                                     res.chunks.back().chunk_data = "]";
                                     res.chunks.emplace_back();
                                     session->set(rr);
-                                    session->write([&,session](){
+                                    session->write([&,session](const std::error_code&){
                                         session->close();
                                     });
                                 } else {
@@ -1716,7 +1743,7 @@ namespace app{
                         }
                         session->write(
                             req_res,
-                            [&, session](){
+                            [&, session](const std::error_code&){
                                 session->close();
                             }
                         );
@@ -1749,7 +1776,7 @@ namespace app{
             std::get<http::HttpResponse>(rr) = res;
             session->write(
                 rr,
-                [&, session](){
+                [&, session](const std::error_code&){
                     session->close();
                 }
             );

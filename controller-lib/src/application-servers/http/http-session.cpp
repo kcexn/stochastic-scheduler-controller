@@ -22,7 +22,7 @@ namespace http{
         release_lock();
     }
 
-    void HttpSession::write(const std::function<void()>& fn)
+    void HttpSession::write(const std::function<void(const std::error_code& ec)>& fn)
     {
         std::stringstream ss;
         acquire_lock();
@@ -44,7 +44,7 @@ namespace http{
         );
     }
 
-    void HttpSession::write(const HttpReqRes& req_res, const std::function<void()>& fn)
+    void HttpSession::write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn)
     {
         std::stringstream ss;
         ss << std::get<HttpResponse>(req_res);
@@ -83,7 +83,7 @@ namespace http{
         return;
     }
 
-    void HttpClientSession::write(const std::function<void()>& fn)
+    void HttpClientSession::write(const std::function<void(const std::error_code& ec)>& fn)
     {
         std::stringstream ss;
         acquire_lock();
@@ -105,7 +105,7 @@ namespace http{
         );
     }
     
-    void HttpClientSession::write(const HttpReqRes& req_res, const std::function<void()>& fn)
+    void HttpClientSession::write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn)
     {
         std::stringstream ss;
         ss << std::get<HttpRequest>(req_res);

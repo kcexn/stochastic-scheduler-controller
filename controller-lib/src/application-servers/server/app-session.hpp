@@ -1,5 +1,6 @@
 #ifndef APP_SESSION_HPP
 #define APP_SESSION_HPP
+#include <system_error>
 #include "../../transport-servers/server/session.hpp"
 #include <iostream>
 
@@ -49,8 +50,8 @@ namespace app_server{
         std::shared_ptr<server::Session>& transport() { return t_session_; }
 
         virtual void read() = 0;
-        virtual void write(const std::function<void()>& fn) = 0;
-        virtual void write(const std::tuple<Types...>& t, const std::function<void()>& fn) = 0;
+        virtual void write(const std::function<void(const std::error_code& ec)>& fn) = 0;
+        virtual void write(const std::tuple<Types...>& t, const std::function<void(const std::error_code& ec)>& fn) = 0;
         virtual void close() = 0;
 
         Session& operator=(const std::tuple<Types...>& other){ std::tuple<Types...>::operator=(other); return *this; }

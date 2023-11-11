@@ -74,7 +74,16 @@ namespace io{
 
         bool mq_is_empty() { std::unique_lock<std::mutex> lk(mq_mtx_); return mq_.empty(); }
         bool mq_is_full() { std::unique_lock<std::mutex> lk(mq_mtx_); return (mq_.size() >= MAX_QUEUE_LENGTH); }
-        std::shared_ptr<MessageBox> mq_pull(){ std::unique_lock<std::mutex> lk(mq_mtx_); auto head = mq_.front(); mq_.pop_front(); return head; }
+        std::shared_ptr<MessageBox> mq_pull(){ 
+            std::unique_lock<std::mutex> lk(mq_mtx_);
+            if(!mq_.empty()){
+                auto head = mq_.front();
+                mq_.pop_front();
+                return head;
+            } else {
+                return std::shared_ptr<MessageBox>();
+            }
+        }
         void mq_push(const std::shared_ptr<MessageBox>& msg) { std::unique_lock<std::mutex> lk(mq_mtx_); mq_.push_back(msg); return; }
 
         /* Async Connect routes the connection request based on the address information in server::Remote */

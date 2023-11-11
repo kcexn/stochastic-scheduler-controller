@@ -1,5 +1,6 @@
 #ifndef OWLIB_HTTP_SESSION_HPP
 #define OWLIB_HTTP_SESSION_HPP
+#include <system_error>
 #include "http-requests.hpp"
 #include "../server/app-session.hpp"
 #include "http-server.hpp"
@@ -17,14 +18,14 @@ namespace http{
         HttpSession(HttpServer& server, const std::shared_ptr<server::Session>& t_session_ptr): http_session(server, t_session_ptr) {}
 
         void read() override;
-        void write(const std::function<void()>& fn) override;
-        void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
+        void write(const std::function<void(const std::error_code& ec)>& fn) override;
+        void write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn) override;
         
         void close() override;
 
         ~HttpSession() {
             if(t_session_){
-                t_session_->erase();
+                t_session_->close();
             }
         }
     };
@@ -37,8 +38,8 @@ namespace http{
         HttpClientSession(HttpServer& server, const std::shared_ptr<server::Session>& t_session_ptr): http_session(server, t_session_ptr) {}
 
         void read() override;
-        void write(const std::function<void()>& fn) override;
-        void write(const HttpReqRes& req_res, const std::function<void()>& fn) override;
+        void write(const std::function<void(const std::error_code& ec)>& fn) override;
+        void write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn) override;
         void close() override;
 
         ~HttpClientSession() {             

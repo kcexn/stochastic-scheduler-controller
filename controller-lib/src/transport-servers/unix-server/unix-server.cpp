@@ -25,7 +25,7 @@ namespace UnixServer{
         );
     }
 
-    void unix_session::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn){
+    void unix_session::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void(const std::error_code& ec)>& fn){
             std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
             std::memcpy(write_data_ptr->data(), write_buffer.data(), write_data_ptr->size());
             boost::asio::const_buffer buf(write_data_ptr->data(), write_data_ptr->size());
@@ -40,7 +40,8 @@ namespace UnixServer{
                         } else {
                             // Once the write is complete execute the completion
                             // handler.
-                            fn();
+                            std::error_code err;
+                            fn(err);
                         }
                     } else if (ec == boost::asio::error::would_block){
                         async_write(buf,fn);
@@ -48,6 +49,7 @@ namespace UnixServer{
                         /* I'm not sure that this is recoverable since it is likely caused by an NGINX gateway timeout.*/
                         throw boost::asio::error::broken_pipe;
                     } else {
+                        std::error_code err(ec.value(), std::system_category());
                         struct timespec ts = {};
                         int status = clock_gettime(CLOCK_REALTIME, &ts);
                         if(status == -1){

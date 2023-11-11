@@ -7,7 +7,7 @@ namespace sctp_transport{
         // read_fn_ = std::move(fn);
     }
 
-    void SctpSession::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) {
+    void SctpSession::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void(const std::error_code& ec)>& fn) {
         auto self = shared_from_this();
         std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
         std::memcpy(write_data_ptr->data(), write_buffer.data(), write_buffer.size());
@@ -27,7 +27,7 @@ namespace sctp_transport{
         );
     }
 
-    void SctpSession::write_(std::shared_ptr<std::vector<char> > write_data, const std::function<void()> fn, const boost::system::error_code& ec){
+    void SctpSession::write_(std::shared_ptr<std::vector<char> > write_data, const std::function<void(const std::error_code& ec)> fn, const boost::system::error_code& ec){
         if(!ec){
             using namespace transport::protocols;
             sctp::iov iobuf= {
@@ -153,11 +153,14 @@ namespace sctp_transport{
                     boost::asio::const_buffer buf(write_data->data() + len, remaining_bytes);
                     return async_write(buf, fn);
                 } else {
-                    fn();
+                    std::error_code err;
+                    fn(err);
                 }
             }
         } else {
             std::cerr << "sctp-session.cpp:214:sctp_session async wait_write error:" << ec.message() << std::endl;
+            std::error_code err(ec.value(), std::generic_category());
+            fn(err);
         }
     }
 

@@ -1,5 +1,6 @@
 #ifndef SESSION_HPP
 #define SESSION_HPP
+#include <system_error>
 #include <boost/asio.hpp>
 #include <functional>
 #define SERVER_SESSION_MAX_BUFLEN 65535
@@ -33,7 +34,7 @@ namespace server
         void erase();
 
         virtual void async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn) =0;
-        virtual void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void()>& fn) =0;
+        virtual void async_write(const boost::asio::const_buffer& write_buffer, const std::function<void(const std::error_code& ec)>& fn) =0;
         virtual void close() =0;
 
         bool operator==(const Session& other) { return this == &other; }
