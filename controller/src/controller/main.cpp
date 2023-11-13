@@ -73,6 +73,11 @@ int main(int argc, char* argv[])
         std::cerr << "controller-app.cpp:83:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         throw "what?";
     }
+    status = sigaddset(&sigmask, SIGCHLD);
+    if(status == -1){
+        std::cerr << "controller-app.cpp:83:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
     status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
     if(status == -1){
         std::cerr << "controller-app.cpp:88:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
@@ -84,6 +89,11 @@ int main(int argc, char* argv[])
         upath,
         sport
     );
+    status = sigdelset(&sigmask, SIGCHLD);
+     if(status == -1){
+        std::cerr << "controller-app.cpp:88:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }   
     status = sigprocmask(SIG_UNBLOCK, &sigmask, nullptr);
     if(status == -1){
         std::cerr << "controller-app.cpp:99:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
