@@ -82,6 +82,9 @@ namespace app{
         std::shared_ptr<controller::io::MessageBox> io_mbox_ptr_;
         controller::io::IO io_;
         boost::asio::io_context& ioc_;
+
+        // Synchronization Flag for the destructor.
+        std::atomic<bool> destruct_;
     };
 
 }// namespace app

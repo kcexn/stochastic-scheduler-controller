@@ -6,18 +6,14 @@
 #include <iostream>
 #include <charconv>
 
-// Global Scheduler Signals.
-std::shared_ptr<std::mutex> SIGNAL_MTX_PTR = std::make_shared<std::mutex>();
-std::shared_ptr<std::atomic<std::uint16_t> > SIGNAL_PTR = std::make_shared<std::atomic<std::uint16_t> >();
-std::shared_ptr<std::condition_variable> SIGNAL_CV_PTR = std::make_shared<std::condition_variable>();
+volatile bool TERMINATED_ = false;
 
 extern "C"{
     void handler(int signum){
         switch(signum){
             case SIGTERM:
             {
-                SIGNAL_PTR->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
-                SIGNAL_CV_PTR->notify_all();
+                TERMINATED_ = true;
                 break;
             }
         }
@@ -63,38 +59,40 @@ int main(int argc, char* argv[])
     sigemptyset(&(new_action.sa_mask));
     new_action.sa_flags=0;
     sigaction(SIGTERM, &new_action, NULL);
-
+    
+    boost::asio::io_context ioc;
+    std::shared_ptr<controller::io::MessageBox> mbx = std::make_shared<controller::io::MessageBox>();
     sigset_t sigmask = {};
     int status = sigemptyset(&sigmask);
     if(status == -1){
-        std::cerr << "controller-app.cpp:147:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        std::cerr << "controller-app.cpp:78:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         throw "what?";
     }
-    status = sigaddset(&sigmask, SIGCHLD);
+    status = sigaddset(&sigmask, SIGTERM);
     if(status == -1){
-        std::cerr << "controller-app.cpp:152:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        std::cerr << "controller-app.cpp:83:sigaddmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         throw "what?";
     }
     status = sigprocmask(SIG_BLOCK, &sigmask, nullptr);
     if(status == -1){
-        std::cerr << "controller-app.cpp:157:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        std::cerr << "controller-app.cpp:88:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         throw "what?";
     }
-    
-    boost::asio::io_context ioc;
-    std::shared_ptr<controller::io::MessageBox> mbx = std::make_shared<controller::io::MessageBox>();
-    mbx->sched_signal_mtx_ptr = SIGNAL_MTX_PTR;
-    mbx->sched_signal_ptr = SIGNAL_PTR;
-    mbx->sched_signal_cv_ptr = SIGNAL_CV_PTR;
     controller::app::Controller controller(
         mbx,
         ioc,
         upath,
         sport
     );
-    std::unique_lock<std::mutex> lk(*SIGNAL_MTX_PTR);
-    SIGNAL_CV_PTR->wait(lk, [&]{ return (SIGNAL_PTR->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT); });
-    lk.unlock();
-    // std::cout << "main.cpp:112:application exited normally." << std::endl;
+    status = sigprocmask(SIG_UNBLOCK, &sigmask, nullptr);
+    if(status == -1){
+        std::cerr << "controller-app.cpp:99:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "What?";
+    }
+
+    struct timespec ts = {1,0};
+    while(!TERMINATED_){
+        nanosleep(&ts, nullptr);
+    }
     return 0;
 }

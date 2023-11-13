@@ -718,7 +718,14 @@ namespace app{
             //     clock_gettime(CLOCK_REALTIME, &ts);
             //     std::cout << "controller-app.cpp:165:msg_flag read:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
             // }
-            lk.unlock();           
+            lk.unlock();   
+            if(thread_local_signal & CTL_TERMINATE_EVENT){
+                if(hs_.empty() && ctx_ptrs.empty() && hcs_.empty()){
+                    destruct_.store(true, std::memory_order::memory_order_relaxed);
+                    controller_signalp->notify_all();
+                    break;
+                }
+            }        
             if(server_session){
                 // clock_gettime(CLOCK_MONOTONIC, &troute[0]);
                 std::shared_ptr<http::HttpSession> http_session_ptr;
@@ -767,20 +774,9 @@ namespace app{
                     }
                 }
             }
+
             // if(status){
-            //     clock_gettime(CLOCK_REALTIME, &ts);
-            //     std::cout << "controller-app.cpp:219:http streams routed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-            // }
-            if(thread_local_signal & CTL_TERMINATE_EVENT){
-                if(hs_.empty() && ctx_ptrs.empty() && hcs_.empty()){
-                    controller_signalp->notify_all();
-                    break;
-                }
-            }
-            // if(status){
-            //     clock_gettime(CLOCK_REALTIME, &ts);
-            //     std::cout << "controller-app.cpp:229:terminate processed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-            // }
+
             if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
                 // clock_gettime(CLOCK_REALTIME, &ts);
                 // std::cout << "controller-app.cpp:233:sched end processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
@@ -1938,7 +1934,7 @@ namespace app{
         io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
 
         std::unique_lock<std::mutex> lk(*(controller_mbox_ptr_->sched_signal_mtx_ptr));
-        controller_mbox_ptr_->sched_signal_cv_ptr->wait(lk);
+        controller_mbox_ptr_->sched_signal_cv_ptr->wait(lk, [&](){ return destruct_.load(std::memory_order::memory_order_relaxed); });
     }
 
     Controller::~Controller()
