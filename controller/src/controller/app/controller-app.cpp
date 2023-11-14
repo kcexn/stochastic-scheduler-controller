@@ -294,8 +294,6 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
         url.append(action_name.relative_path().begin()->string());
         url.append("/actions/");
         url.append(action_name.filename().string());
-        //perhaps the db poll adversely affects performance.
-        url.append("?blocking=true");
 
         std::vector<CURL*> handles;
         handles.reserve(concurrency);

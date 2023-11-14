@@ -68,10 +68,10 @@ namespace run{
                 (*it)->push_execution_idx(req.idx());
                 return std::shared_ptr<controller::app::ExecutionContext>(*it);
             }else{
-                ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run, req.execution_context_id(), req.idx(), req.peers());
+                ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run, req.execution_context_id(), req.idx(), req.peers(), req.env());
             }
         } else {
-            ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run);
+            ctx_ptr = std::make_shared<controller::app::ExecutionContext>(controller::app::ExecutionContext::run, req.env());
         }
         for (auto& relation: ctx_ptr->manifest()){
             ctx_ptr->thread_controls().emplace_back();

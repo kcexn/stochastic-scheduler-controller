@@ -15,11 +15,12 @@ namespace app{
         route_{controller::resources::Routes::INIT}
     {}
 
-    ExecutionContext::ExecutionContext(ExecutionContext::Run)
+    ExecutionContext::ExecutionContext(ExecutionContext::Run, const std::map<std::string, std::string>& env)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
         execution_context_idx_stack_{0},
         execution_context_idx_array_{0},
-        route_{controller::resources::Routes::RUN}
+        route_{controller::resources::Routes::RUN},
+        env_(env)        
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
@@ -96,14 +97,27 @@ namespace app{
             // By default, the entry point has no dependencies.
             manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
         }
+
+        // Create a temporary directory for scripting convenience in /tmp/ACTIVATION_ID
+        std::filesystem::path tmp_dir("/tmp");
+        std::string __OW_ACTIVATION_ID = env.at("__OW_ACTIVATION_ID");
+        tmp_dir /= __OW_ACTIVATION_ID;
+        std::error_code err;
+        if(!std::filesystem::create_directory(tmp_dir, err)){
+            if(err){
+                std::cerr << "execution-context.cpp:108:failed to create directory at /tmp/ACTIVATION_ID" << std::endl;
+                throw err;
+            }
+        }
         sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 
-    ExecutionContext::ExecutionContext(ExecutionContext::Run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers)
+    ExecutionContext::ExecutionContext(ExecutionContext::Run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers, const std::map<std::string, std::string>& env)
       : execution_context_id_(uuid),
         execution_context_idx_stack_{idx},
         execution_context_idx_array_{idx},
-        route_{controller::resources::Routes::RUN}
+        route_{controller::resources::Routes::RUN},
+        env_(env)
     {
         /* Construct the peer table */
         for(auto& peer: peers){
@@ -213,6 +227,18 @@ namespace app{
             // By default, the entry point has no dependencies.
             manifest_.push_back( std::make_shared<Relation>(std::move(entrypoint), std::move(fn_path), std::vector<std::shared_ptr<Relation> >()));
         }
+
+        // Create a temporary directory for scripting convenience in /tmp/ACTIVATION_ID
+        std::filesystem::path tmp_dir("/tmp");
+        std::string __OW_ACTIVATION_ID = env.at("__OW_ACTIVATION_ID");
+        tmp_dir /= __OW_ACTIVATION_ID;
+        std::error_code err;
+        if(!std::filesystem::create_directory(tmp_dir, err)){
+            if(err){
+                std::cerr << "execution-context.cpp:108:failed to create directory at /tmp/ACTIVATION_ID" << std::endl;
+                throw err;
+            }
+        }
         sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 
@@ -281,6 +307,20 @@ namespace app{
     void ExecutionContext::push_execution_idx(std::size_t idx){
         execution_context_idx_stack_.push_back(idx);
         return;
+    }
+
+    ExecutionContext::~ExecutionContext() {
+        // Cleanup the temporary directory associated to this execution context.
+        if(route_ == controller::resources::Routes::RUN){
+            std::string __OW_ACTIVATION_ID = env_.at("__OW_ACTIVATION_ID");
+            std::filesystem::path tmp_dir("/tmp");
+            tmp_dir /= __OW_ACTIVATION_ID;
+            std::error_code err;
+            std::filesystem::remove_all(tmp_dir, err);
+            if(err){
+                std::cerr << "execution-context.cpp:320:failed to remove temporary directory at /tmp/" << __OW_ACTIVATION_ID << std::endl;
+            }
+        }
     }
 } //namespace app
 } //namespace controller

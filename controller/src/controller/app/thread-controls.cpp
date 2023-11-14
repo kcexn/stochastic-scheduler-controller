@@ -64,24 +64,6 @@ static void subprocess(int* downstream, int* upstream, int efd, std::vector<cons
             std::cerr << "thread-controls.cpp:57:Exporting environment variable failed: " << std::make_error_code(std::errc(errno)).message() << std::endl;
         }
     }
-
-    // Create a temporary directory for scripting convenience in /tmp/ACTIVATION_ID
-    std::filesystem::path tmp_dir("/tmp");
-    const char* __OW_ACTIVATION_ID = getenv("__OW_ACTIVATION_ID");
-    if(__OW_ACTIVATION_ID){
-        tmp_dir /= __OW_ACTIVATION_ID;
-    } else {
-        std::cerr << "thread-controls.cpp:74:__OW_ACTIVATION_ID envvar is not defined." << std::endl;
-        throw "what?";
-    }
-    std::error_code err;
-    if(!std::filesystem::create_directory(tmp_dir, err)){
-        if(err){
-            std::cerr << "thread-controls.cpp:80:failed to create directory at /tmp/ACTIVATION_ID" << std::endl;
-            throw err;
-        }
-    }
-
     execve(__OW_ACTION_BIN, const_cast<char* const*>(argv.data()), environ);
     exit(1);
     return; 
@@ -361,28 +343,13 @@ static void kill_subprocesses(pid_t pid){
     return;
 }
 
-static void close_pipe(std::array<int, 2>& pipe, const std::map<std::string, std::string>& env){
+static void close_pipe(std::array<int, 2>& pipe){
     if(close(pipe[0]) == -1){
         std::cerr << "thread-controls.cpp:213:close(pipe[0]) failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
         throw "what?";
     }
     if(close(pipe[1]) == -1){
         std::cerr << "thread-controls.cpp:217:close(pipe[1]) failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-        throw "what?";
-    }
-    // Cleanup the temporary directory associated to this execution context.
-    std::string __OW_ACTIVATION_ID = env.at("__OW_ACTIVATION_ID");
-    if(!__OW_ACTIVATION_ID.empty()){
-        std::filesystem::path tmp_dir("/tmp");
-        tmp_dir /= __OW_ACTIVATION_ID;
-        std::error_code err;
-        std::filesystem::remove_all(tmp_dir, err);
-        if(err){
-            std::cerr << "thread-controls.cpp:381:failed to remove temporary directory at /tmp/" << __OW_ACTIVATION_ID << std::endl;
-            throw err;
-        }
-    } else {
-        std::cerr << "thread-controls.cpp:385:__OW_ACTIVATION_ID envvar isn't set." << std::endl;
         throw "what?";
     }
     return;
@@ -492,7 +459,7 @@ namespace app{
     void ThreadControls::cleanup(){
         if(state_ > 0){
             kill_subprocesses(pid_);
-            close_pipe(pipe_, env);
+            close_pipe(pipe_);
         }
     }
 
@@ -520,7 +487,7 @@ namespace app{
                 state_->fetch_add(1, std::memory_order::memory_order_relaxed);
                 return read_result_from_subprocess(relation, pipe_);
             default:
-                close_pipe(pipe_, env);
+                close_pipe(pipe_);
                 return false;
         }
     }

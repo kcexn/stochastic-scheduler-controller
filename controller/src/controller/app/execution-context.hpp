@@ -29,11 +29,11 @@ namespace app{
     public:
         constexpr static struct Init{} init{};
         constexpr static struct Run{} run{};
-        
+       
         ExecutionContext(): execution_context_id_(UUID::Uuid(UUID::Uuid::v4)), execution_context_idx_stack_{0} {}
         explicit ExecutionContext(Init init);
-        explicit ExecutionContext(Run run);
-        explicit ExecutionContext(Run run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers);
+        explicit ExecutionContext(Run run, const std::map<std::string, std::string>& env);
+        explicit ExecutionContext(Run run, const UUID::Uuid& uuid, std::size_t idx, const std::vector<std::string>& peers, const std::map<std::string, std::string>& env);
         bool is_stopped();
 
         std::vector<std::shared_ptr<http::HttpSession> >& sessions() { return http_session_ptrs_; }
@@ -59,6 +59,8 @@ namespace app{
         void release(){sync_.unlock(); return;}
 
         std::map<std::string, std::string>& env(){ return env_; }
+
+        ~ExecutionContext(); 
 
     private:
         /* ow invoker server sessions are kept as http_session_ptrs_ for backwards compatibility. */
