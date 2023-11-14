@@ -211,7 +211,7 @@ namespace io{
                 std::cerr << "Error in ss_.init()" << ec.message() << std::endl;
             }
         });
-        std::chrono::milliseconds wake_period(10);
+        std::chrono::milliseconds wake_period(20);
         while(!(signalp->load(std::memory_order::memory_order_relaxed) & CTL_TERMINATE_EVENT)){
             ioc_.run_for(wake_period);
             // Strictly speaking there is a race condition here I think. But I don't think it's very important so I'll worry about it later.
