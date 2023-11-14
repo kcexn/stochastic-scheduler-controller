@@ -23,7 +23,6 @@ static int open_readdata_from_file(lua_State* L){
     path = lua_tolstring(L,1,NULL);
     stream = fopen(path, "r");
     if(!stream){
-        perror("lua-easy-curl.c:26:fopen");
         lua_pushnil(L);
         return 1;
     }
