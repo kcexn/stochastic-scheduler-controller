@@ -35,8 +35,7 @@ namespace UnixServer{
                     if (!ec){
                         std::size_t remaining_bytes = write_data_ptr->size() - bytes_transferred;
                         if ( remaining_bytes > 0 ){
-                            boost::asio::const_buffer buf = buf + bytes_transferred;
-                            async_write(buf, fn);
+                            async_write(buf + bytes_transferred, fn);
                         } else {
                             // Once the write is complete execute the completion
                             // handler.

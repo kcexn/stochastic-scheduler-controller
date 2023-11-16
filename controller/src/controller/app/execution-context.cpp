@@ -20,7 +20,7 @@ namespace app{
         execution_context_idx_stack_{0},
         execution_context_idx_array_{0},
         route_{controller::resources::Routes::RUN},
-        env_(env)        
+        env_(env)
     {
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
@@ -109,6 +109,9 @@ namespace app{
                 throw err;
             }
         }
+		std::stringstream ss;
+		ss << execution_context_id_;
+		env_["__OW_EXECUTION_CONTEXT_ID"] = ss.str();
         sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 
@@ -239,6 +242,9 @@ namespace app{
                 throw err;
             }
         }
+		std::stringstream ss;
+		ss << execution_context_id_;
+		env_["__OW_EXECUTION_CONTEXT_ID"] = ss.str();
         sync_counter_.store(manifest_.size(), std::memory_order::memory_order_relaxed);
     }
 

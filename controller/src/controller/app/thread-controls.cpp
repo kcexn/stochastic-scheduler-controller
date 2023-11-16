@@ -299,7 +299,7 @@ static bool read_result_from_subprocess(std::shared_ptr<controller::app::Relatio
                 case EINTR:
                     break;
                 default:
-                    std::cerr << "thread-controls.cpp:172:read(pipe[0]) failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "thread-controls.cpp:302:read(pipe[0]) failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         } else if(len == 0){
@@ -307,11 +307,14 @@ static bool read_result_from_subprocess(std::shared_ptr<controller::app::Relatio
         } else {
             val.append(buf.data(), len);
         }
-    }while(buf.back() != delimiter);
+    }while(buf[len] != delimiter);
     if(val.empty()){
-        relation->acquire_value() = "{}";
+        relation->acquire_value() = "{\"error\": \"no valid response received from action launcher.\"}";
         relation->release_value();
     } else {
+        if(val.back() == '\n'){
+            val.pop_back();
+        }
         relation->acquire_value() = val;
         relation->release_value();
     }

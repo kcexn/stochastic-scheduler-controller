@@ -1855,7 +1855,9 @@ namespace app{
                         nc
                     };
                 } else {
-                    auto& relation = ctx.manifest()[0];
+                    auto& manifest = ctx.manifest();
+                    auto& index = manifest.index();
+                    auto& relation = index.front();
                     std::string value = relation->acquire_value();
                     relation->release_value();
                     std::stringstream len;

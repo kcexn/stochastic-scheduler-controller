@@ -157,6 +157,9 @@ namespace sctp_transport{
                     fn(err);
                 }
             }
+        } else if(ec == boost::system::errc::connection_reset) {
+            std::error_code err(ec.value(), std::generic_category());
+            fn(err);
         } else {
             std::cerr << "sctp-session.cpp:214:sctp_session async wait_write error:" << ec.message() << std::endl;
             std::error_code err(ec.value(), std::generic_category());

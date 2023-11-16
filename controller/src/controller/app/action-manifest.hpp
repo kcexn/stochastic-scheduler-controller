@@ -28,6 +28,7 @@ namespace app{
         void emplace(const std::string& key, const boost::json::object& manifest);
         std::shared_ptr<Relation> next(const std::string& key, const std::size_t& idx);
         std::size_t& concurrency(){ return concurrency_; }
+        const std::vector<std::shared_ptr<Relation> >& index(){ return index_; }
 
         // Reexport the std::vector interface.
         std::vector<std::shared_ptr<Relation> >::iterator begin();
@@ -40,7 +41,7 @@ namespace app{
         std::vector<std::shared_ptr<Relation> >::const_reverse_iterator crend();
 
         std::shared_ptr<Relation>& operator[](std::vector<std::shared_ptr<Relation> >::size_type pos);
-
+        
         void push_back(const std::shared_ptr<Relation>& relation) { index_.push_back(relation); return; }
         void push_back(std::shared_ptr<Relation>&& relation) { index_.push_back(relation); return; }
 
