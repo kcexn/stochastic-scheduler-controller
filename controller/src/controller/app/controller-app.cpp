@@ -713,7 +713,7 @@ namespace app{
             server_session = std::shared_ptr<server::Session>();
             lk.lock();
             if(io_.mq_is_empty()){
-                io_cvp->wait_for(lk, std::chrono::milliseconds(1000), [&]{ 
+                io_cvp->wait_for(lk, std::chrono::milliseconds(10000), [&]{ 
                     return (!io_.mq_is_empty() || (io_signalp->load(std::memory_order::memory_order_relaxed) & ~CTL_TERMINATE_EVENT)); 
                 });
             }

@@ -100,7 +100,7 @@ int main(int argc, char* argv[])
         throw "What?";
     }
 
-    struct timespec ts = {1,0};
+    struct timespec ts = {100,0};
     while(!TERMINATED_){
         nanosleep(&ts, nullptr);
     }

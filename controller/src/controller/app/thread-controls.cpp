@@ -331,14 +331,36 @@ static void kill_subprocesses(pid_t pid){
                 std::cerr << "thread-controls.cpp:194:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                 throw "what?";
         }
+    } else if(kill(-pid, SIGCONT) == -1){
+        switch(errno)
+        {
+            case ESRCH:
+                break;
+            default:
+                std::cerr << "thread-controls.cpp:204:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                throw "what?";
+        }
     } else {
-        if(kill(-pid, SIGCONT) == -1){
+        struct timespec ts[2] = {};
+        ts[0] = {0, 50000000}; // 50ms
+        while(nanosleep(&ts[0], &ts[1]) < 0){
+            switch(errno)
+            {
+                case EINTR:
+                    ts[0] = ts[1];
+                    break;
+                default:
+                    std::cerr << "thread-controls.cpp:354:nanosleep() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
+        if(kill(-pid, SIGKILL) == -1){
             switch(errno)
             {
                 case ESRCH:
                     break;
                 default:
-                    std::cerr << "thread-controls.cpp:204:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "thread-controls.cpp:364:kill() failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
