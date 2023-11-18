@@ -301,11 +301,6 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
         url.append("/actions/");
         url.append(action_name.filename().string());
 
-        #ifdef OW_PROFILE
-        url.append("?caused_by=");
-        url.append(activation_id);
-        #endif
-
         std::vector<CURL*> handles;
         handles.reserve(concurrency);
         if(reusable_handles.empty()){
@@ -333,6 +328,12 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                 data_vec.emplace_back(boost::json::serialize(jctx));
                 suffix << '-' << (i+1);
                 url_replica.append(suffix.str());
+                
+                #ifdef OW_PROFILE
+                url_replica.append("?caused_by=");
+                url_replica.append(activation_id);
+                #endif
+
                 set_curl_handle_options(hnd, data_vec.back(), url_replica);
                 if(cmhp->add_handle(hnd) != CURLM_OK){
                     std::cerr << "controller-app.cpp:323:curl_multi_add_handle failed." << std::endl;
