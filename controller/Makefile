@@ -30,8 +30,8 @@ REL_CXX_FLAGS = -O3 \
 	-freschedule-modulo-scheduled-loops \
 	-fno-semantic-interposition \
 	-fipa-pta \
-	-march=x86-64-v2 \
-	-D OW_PROFILE
+	-march=x86-64-v2
+#-D OW_PROFILE
 # REL_CXX_FLAGS = -g -Og
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))

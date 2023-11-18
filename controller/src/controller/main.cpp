@@ -22,6 +22,7 @@ extern "C"{
 
 int main(int argc, char* argv[])
 {
+    std::ios_base::sync_with_stdio(false);
     int opt;
     const char* port = nullptr;
     const char* usock_path = nullptr;
