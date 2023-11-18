@@ -10,6 +10,22 @@
 
 static void subprocess(int* downstream, int* upstream, int efd, std::vector<const char*>& argv, std::map<std::string, std::string>& env) {
     int len = 0;
+    sigset_t sigmask = {};
+    int status = sigemptyset(&sigmask);
+    if(status == -1){
+        std::cerr << "thread-controls.cpp:16:sigemptyset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
+    status = sigaddset(&sigmask, SIGTERM);
+    if(status == -1){
+        std::cerr << "thread-controls.cpp:21:sigaddset failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
+    status = sigprocmask(SIG_UNBLOCK, &sigmask, nullptr);
+    if(status == -1){
+        std::cerr << "thread-controls.cpp:26:sigprocmask failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+        throw "what?";
+    }
     std::uint64_t notice = 1;
     std::size_t bytes_written = 0;
     if(setpgid(0,0) == -1){
@@ -342,7 +358,7 @@ static void kill_subprocesses(pid_t pid){
         }
     } else {
         struct timespec ts[2] = {};
-        ts[0] = {0, 50000000}; // 50ms
+        ts[0] = {0, 20000000}; // 20ms
         while(nanosleep(&ts[0], &ts[1]) < 0){
             switch(errno)
             {
