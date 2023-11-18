@@ -19,7 +19,7 @@ namespace app{
         const std::string& key() const { return kvp_.first; }
         std::string& acquire_value() { mtx_.lock(); return kvp_.second; }
         void release_value() { mtx_.unlock(); }
-        const std::size_t& depth() const { return depth_; }
+        std::size_t depth() const { return depth_; }
         const std::filesystem::path& path() const { return path_; }
 
         // Reexport the std::vector interface.

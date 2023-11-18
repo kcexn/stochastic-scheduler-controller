@@ -18,7 +18,8 @@ DEBUG_TARGET = $(addsuffix -dbg, $(addprefix $(BIN_DIR)/, $(TARGET)))
 DEBUG_OBJECTS = $(addsuffix -dbg.o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))
 
 # NORMAL SETTINGS
-REL_CXX_FLAGS = -O3 -D NDEBUG \
+REL_CXX_FLAGS = -O3 \
+	-D NDEBUG \
 	-flto=auto \
 	-fuse-linker-plugin \
 	-fmodulo-sched \
@@ -29,7 +30,8 @@ REL_CXX_FLAGS = -O3 -D NDEBUG \
 	-freschedule-modulo-scheduled-loops \
 	-fno-semantic-interposition \
 	-fipa-pta \
-	-march=x86-64-v2
+	-march=x86-64-v2 \
+	-D OW_PROFILE
 # REL_CXX_FLAGS = -g -Og
 REL_TARGET = $(addprefix $(BIN_DIR)/, $(TARGET))
 REL_OBJECTS = $(addsuffix .o, $(addprefix $(OBJ_DIR)/, $(OBJECTS)))

@@ -5,6 +5,11 @@
 #include "action-relation.hpp"
 #include <charconv>
 
+#ifdef OW_PROFILE
+#include <iostream>
+#include <ctime>
+#endif
+
 namespace controller{
 namespace app{
     // Execution Context
@@ -13,7 +18,11 @@ namespace app{
         execution_context_idx_stack_{0},
         execution_context_idx_array_{0},
         route_{controller::resources::Routes::INIT}
-    {}
+    {
+        #ifdef OW_PROFILE
+        start_ = std::chrono::steady_clock::now();
+        #endif
+    }
 
     ExecutionContext::ExecutionContext(ExecutionContext::Run, const std::map<std::string, std::string>& env)
       : execution_context_id_(UUID::Uuid(UUID::Uuid::v4)),
@@ -22,6 +31,9 @@ namespace app{
         route_{controller::resources::Routes::RUN},
         env_(env)
     {
+        #ifdef OW_PROFILE
+        start_ = std::chrono::steady_clock::now();
+        #endif
         const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
         if ( __OW_ACTIONS == nullptr ){
             std::cerr << "execution-context.cpp:26:__OW_ACTIONS not defined." << std::endl;
@@ -122,6 +134,9 @@ namespace app{
         route_{controller::resources::Routes::RUN},
         env_(env)
     {
+        #ifdef OW_PROFILE
+        start_ = std::chrono::steady_clock::now();
+        #endif
         /* Construct the peer table */
         for(auto& peer: peers){
             std::size_t pos = peer.find(':');

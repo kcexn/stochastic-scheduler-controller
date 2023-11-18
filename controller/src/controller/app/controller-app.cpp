@@ -234,6 +234,12 @@ static void populate_request_data(boost::json::object& jctx, const std::shared_p
 static void make_api_requests(const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val, const std::shared_ptr<libcurl::CurlMultiHandle> cmhp, int* num_running_handles){
     auto& manifest = ctxp->manifest();
     std::size_t concurrency = manifest.concurrency();
+
+    #ifdef OW_PROFILE
+    const auto& env = ctxp->env();
+    std::string activation_id = env.at("__OW_ACTIVATION_ID");
+    #endif
+
     if(concurrency > 1){
         CURLMcode mstatus;
         int msgq_len = 0;
@@ -294,6 +300,11 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
         url.append(action_name.relative_path().begin()->string());
         url.append("/actions/");
         url.append(action_name.filename().string());
+
+        #ifdef OW_PROFILE
+        url.append("?caused_by=");
+        url.append(activation_id);
+        #endif
 
         std::vector<CURL*> handles;
         handles.reserve(concurrency);
@@ -800,7 +811,13 @@ namespace app{
                         std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
                         next_session->set(rr);
                         next_session->write(
-                            [&, next_session](const std::error_code&){
+                            [&, next_session, ctxp](const std::error_code&){
+                                #ifdef OW_PROFILE
+                                const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - ctxp->start_);
+                                const auto& env = ctxp->env();
+                                std::string id = env.at("__OW_ACTIVATION_ID");
+                                std::cout << "controller-app.cpp:819:activation_id=" << id << ":run duration=" << duration.count() << "ms" << std::endl;
+                                #endif
                                 next_session->close();
                             }
                         );
@@ -1739,7 +1756,11 @@ namespace app{
                         }
                         session->write(
                             req_res,
-                            [&, session](const std::error_code&){
+                            [&, session, ctx_ptr](const std::error_code&){
+                                #ifdef OW_PROFILE
+                                const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - ctx_ptr->start_);
+                                std::cout << "controller-app.cpp:1762:init duration=" << duration.count() << "ms" << std::endl;
+                                #endif
                                 session->close();
                             }
                         );
@@ -1813,7 +1834,15 @@ namespace app{
                 std::filesystem::path manifest_path(path/"action-manifest.json");
                 if(std::filesystem::exists(manifest_path)){
                     boost::json::object jrel;
+                    std::size_t max_depth = 0;
                     for ( auto& relation: ctx.manifest() ){
+                        if(relation->depth() < max_depth){
+                            continue;
+                        }
+                        if(relation->depth() > max_depth){
+                            max_depth = relation->depth();
+                            jrel.clear();
+                        }
                         std::string value = relation->acquire_value();
                         relation->release_value();
                         boost::json::error_code ec;

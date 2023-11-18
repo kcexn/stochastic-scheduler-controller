@@ -8,6 +8,10 @@
 #include <transport-servers/server/server.hpp>
 #include <map>
 
+#ifdef OW_PROFILE
+#include <chrono>
+#endif
+
 namespace http{
     class HttpClientSession;
 }
@@ -30,6 +34,11 @@ namespace app{
         constexpr static struct Init{} init{};
         constexpr static struct Run{} run{};
        
+        #ifdef OW_PROFILE
+        // Profiling timers.
+        std::chrono::time_point<std::chrono::steady_clock> start_;
+        #endif
+
         ExecutionContext(): execution_context_id_(UUID::Uuid(UUID::Uuid::v4)), execution_context_idx_stack_{0} {}
         explicit ExecutionContext(Init init);
         explicit ExecutionContext(Run run, const std::map<std::string, std::string>& env);
