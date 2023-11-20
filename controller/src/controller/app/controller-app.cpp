@@ -224,7 +224,7 @@ static void populate_request_data(boost::json::object& jctx, const std::shared_p
         ja.push_back(boost::json::string(rtostr(peer)));
     }
     jo.emplace("peers", ja);
-    jo.emplace("value", val.at("value").as_object());
+    jo.emplace("value", val.at("value"));
     // Emplace the first context index.
     jo.emplace("idx", indices[1]);
     jctx.emplace("execution_context", jo);
@@ -456,19 +456,21 @@ static void reschedule_actions(
         std::shared_ptr<controller::app::Relation> start = manifest.next(start_key, i);
         if(start->key().empty()){
             // If the start key is empty, that means that all tasks in the schedule are complete.
+            // First set any missing values in the schedule to null to prevent any more updates.
+            for(auto& rel: manifest){
+                auto& value = rel->acquire_value();
+                if(value.empty()){
+                    value = "null";
+                }
+                rel->release_value();
+            }
+            // Mark all threads in the context as stopped.
             auto& thread_controls = ctxp->thread_controls();
             for(auto& thread_control: thread_controls){
                 thread_control.stop_thread();
             }
             // Yield to the initializer thread here to clean up the initializer.
             controller::app::ThreadControls::thread_sched_yield(false);
-            for(auto& rel: manifest){
-                auto& value = rel->acquire_value();
-                if(value.empty()){
-                    value = "{}";
-                }
-                rel->release_value();
-            }
             return;
         } else {
             // Find the index in the manifest of the starting relation.
@@ -901,50 +903,52 @@ namespace app{
                         std::string f_key(finished->key());
                         std::string f_val(finished->acquire_value());
                         finished->release_value();
-                        boost::json::object jo;
-                        boost::json::error_code ec;
-                        boost::json::value jv = boost::json::parse(f_val, ec);
-                        if(ec){
-                            std::cerr << "controller-app.cpp:779:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
-                            throw "This shouldn't happen.";
-                        }
-                        jo.emplace(f_key, jv);
-                        boost::json::object jf_val;
-                        jf_val.emplace("result", jo);
-                        std::string data(",");
-                        std::string jsonf_val = boost::json::serialize(jf_val);
-                        data.append(jsonf_val);
-                        for(auto& peer_session: ctxp->peer_client_sessions()){
-                            /* Update peers */
-                            http::HttpReqRes rr = peer_session->get();
-                            http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                            http::HttpChunk chunk = {};
-                            chunk.chunk_size = {data.size()};
-                            chunk.chunk_data = data;
-                            req.chunks.push_back(chunk);
-                            peer_session->set(rr);
-                            peer_session->write([&, peer_session](const std::error_code& ec){
-                                if(ec){
-                                    peer_session->close();
-                                }
-                                return;
-                            });
-                        }
-                        for(auto& peer_session: ctxp->peer_server_sessions()){
-                            /* Update peers */
-                            http::HttpReqRes rr = peer_session->get();
-                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                            http::HttpChunk chunk = {};
-                            chunk.chunk_size = {data.size()};
-                            chunk.chunk_data = data;
-                            res.chunks.push_back(chunk);
-                            peer_session->set(rr);
-                            peer_session->write([&, peer_session](const std::error_code& ec){
-                                if(ec){
-                                    peer_session->close();
-                                }
-                                return;
-                            });
+                        if(!f_val.empty() && !(f_val == "null")){
+                            boost::json::object jo;
+                            boost::json::error_code ec;
+                            boost::json::value jv = boost::json::parse(f_val, ec);
+                            if(ec){
+                                std::cerr << "controller-app.cpp:910:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                throw "This shouldn't happen.";
+                            }
+                            jo.emplace(f_key, jv);
+                            boost::json::object jf_val;
+                            jf_val.emplace("result", jo);
+                            std::string data(",");
+                            std::string jsonf_val = boost::json::serialize(jf_val);
+                            data.append(jsonf_val);
+                            for(auto& peer_session: ctxp->peer_client_sessions()){
+                                /* Update peers */
+                                http::HttpReqRes rr = peer_session->get();
+                                http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                                http::HttpChunk chunk = {};
+                                chunk.chunk_size = {data.size()};
+                                chunk.chunk_data = data;
+                                req.chunks.push_back(chunk);
+                                peer_session->set(rr);
+                                peer_session->write([&, peer_session](const std::error_code& ec){
+                                    if(ec){
+                                        peer_session->close();
+                                    }
+                                    return;
+                                });
+                            }
+                            for(auto& peer_session: ctxp->peer_server_sessions()){
+                                /* Update peers */
+                                http::HttpReqRes rr = peer_session->get();
+                                http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                http::HttpChunk chunk = {};
+                                chunk.chunk_size = {data.size()};
+                                chunk.chunk_data = data;
+                                res.chunks.push_back(chunk);
+                                peer_session->set(rr);
+                                peer_session->write([&, peer_session](const std::error_code& ec){
+                                    if(ec){
+                                        peer_session->close();
+                                    }
+                                    return;
+                                });
+                            }
                         }
                     }    
                     // Get the key of the action at this index+1 (mod thread_controls.size())
@@ -1021,17 +1025,17 @@ namespace app{
                         if(server_ctx != ctx_ptrs.end()){
                             auto& ctxp = *server_ctx;
                             auto& thread_controls = ctxp->thread_controls();
+                            for(auto& rel: (*server_ctx)->manifest()){
+                                auto& value = rel->acquire_value();
+                                if(value.empty()){
+                                    value = "null";
+                                }
+                                rel->release_value();
+                            }
                             for(auto& thread_control: thread_controls){
                                 thread_control.stop_thread();
                             }
                             controller::app::ThreadControls::thread_sched_yield(false);
-                            for(auto& rel: (*server_ctx)->manifest()){
-                                auto& value = rel->acquire_value();
-                                if(value.empty()){
-                                    value = "{}";
-                                }
-                                rel->release_value();
-                            }
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                             // We do not support HTTP/1.1 pipelining so the client session can only be closed after the ENTIRE server response
@@ -1053,7 +1057,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:925:JSON Parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:1058:JSON parsing failed:" << ec.message() <<":value:" << json_obj_str << std::endl;
                         throw "this shouldn't happen.";
                     }
                     auto ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& cp){
@@ -1069,7 +1073,13 @@ namespace app{
                         return;
                     } else {
                         if(res.pos == 0){
-                            boost::json::array& ja = val.as_object().at("peers").as_array();
+                            boost::json::array ja;
+                            try{
+                                ja = val.as_object().at("peers").as_array();
+                            } catch(std::invalid_argument& e){
+                                std::cerr << "controller-app.cpp:1077:val.peers is not an array." << boost::json::serialize(val) << std::endl;
+                                throw e;
+                            }
                             std::vector<std::string> peers;
                             for(auto& peer: ja){
                                 peers.emplace_back(peer.as_string());
@@ -1128,8 +1138,14 @@ namespace app{
                                     });
                                 }
                             }
-                        } 
-                        boost::json::object& jr = val.as_object().at("result").as_object();
+                        }
+                        boost::json::object jr;
+                        try{
+                            jr = val.as_object().at("result").as_object();
+                        } catch(std::invalid_argument& e){
+                            std::cerr << "controller-app.cpp:val is not an object:" << boost::json::serialize(val) << std::endl;
+                            throw e;
+                        }
                         for(auto& kvp: jr){
                             std::string k(kvp.key());
                             auto rel = std::find_if((*ctx)->manifest().begin(), (*ctx)->manifest().end(), [&](auto& r){
@@ -1142,7 +1158,7 @@ namespace app{
                             
                             std::string data = boost::json::serialize(kvp.value());
                             auto& value = (*rel)->acquire_value();
-                            if(value.empty()){
+                            if(value.empty() || value == "null"){
                                 value = data;
                             }
                             (*rel)->release_value();
@@ -1195,7 +1211,7 @@ namespace app{
                         auto& relation = ctx_ptr->manifest()[i];
                         auto& value = relation->acquire_value();
                         if(value.empty()){
-                            value = "{}";
+                            value = "null";
                         }
                         relation->release_value();
                         thread.stop_thread();
@@ -1268,17 +1284,17 @@ namespace app{
                         if(server_ctx != ctx_ptrs.end()){
                             auto& ctxp = *server_ctx;
                             auto& thread_controls = ctxp->thread_controls();
+                            for(auto& rel: (*server_ctx)->manifest()){
+                                auto& value = rel->acquire_value();
+                                if(value.empty()){
+                                    value = "null";
+                                }
+                                rel->release_value();
+                            }
                             for(auto& thread_control: thread_controls){
                                 thread_control.stop_thread();
                             }
                             controller::app::ThreadControls::thread_sched_yield(false);
-                            for(auto& rel: (*server_ctx)->manifest()){
-                                auto& value = rel->acquire_value();
-                                if(value.empty()){
-                                    value = "{}";
-                                }
-                                rel->release_value();
-                            }
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                             // clock_gettime(CLOCK_MONOTONIC, &tjson[1]);
@@ -1295,7 +1311,7 @@ namespace app{
                         ec
                     );
                     if(ec){
-                        std::cerr << "controller-app.cpp:1220:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
+                        std::cerr << "controller-app.cpp:1312:JSON parsing failed:" << ec.message() << ":value:" << json_obj_str << std::endl;
                         throw "Json Parsing failed.";
                     }
 
@@ -1308,7 +1324,14 @@ namespace app{
                             // std::cout << "controller-app.cpp:792:/run POST:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                             // struct timespec ts[2] = {};
                             // clock_gettime(CLOCK_MONOTONIC, &ts[0]);
-                            controller::resources::run::Request run(val.as_object());
+                            boost::json::object json_obj;
+                            try{
+                                json_obj = val.as_object();
+                            } catch(std::invalid_argument& e){
+                                std::cerr << "controller-app.cpp:1326:val is not an object:" << boost::json::serialize(val) << std::endl;
+                                throw e;
+                            }
+                            controller::resources::run::Request run(json_obj);
                             auto env = run.env();
                             // std::string __OW_ACTIVATION_ID = env["__OW_ACTIVATION_ID"];
                             // if(!__OW_ACTIVATION_ID.empty()){
@@ -1338,6 +1361,7 @@ namespace app{
                                     }
                                     ctx_ptrs.push_back(ctx_ptr);
                                     #ifndef DEBUG
+                                    try{
                                     if(val.get_object().at("value").as_object().contains("execution_context")){
                                         // If this is a new execution_context AND the function input parameters
                                         // are wrapped in an existing execution context AND the primary peer address in the 
@@ -1370,7 +1394,7 @@ namespace app{
                                             for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
                                                 auto& thread = ctx_ptr->thread_controls()[i];
                                                 auto& relation = ctx_ptr->manifest()[i];
-                                                relation->acquire_value() = "{}";
+                                                relation->acquire_value() = "null";
                                                 relation->release_value();
                                                 thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                                             }
@@ -1378,6 +1402,10 @@ namespace app{
                                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
                                             return;                   
                                         }
+                                    }
+                                    }catch(std::invalid_argument& e){
+                                        std::cerr << "controller-app.cpp:1401:val.value is not an object:" << boost::json::serialize(val) << std::endl;
+                                        throw e;
                                     }
                                     #endif
 
@@ -1571,7 +1599,14 @@ namespace app{
                             /* New Connections Go Here. */
                             if(req.pos == 0){
                                 /* A new incoming stream. */
-                                std::string uuid_str(val.as_object().at("execution_context").as_object().at("uuid").as_string());
+                                boost::json::string json_uuid;
+                                try{
+                                    json_uuid = val.as_object().at("execution_context").as_object().at("uuid").as_string();
+                                } catch( std::invalid_argument& e){
+                                    std::cerr << "controller-app.cpp:1599:expecting val to be an object at uuid to be a string:" << boost::json::serialize(val) << std::endl;
+                                    throw e;
+                                }
+                                std::string uuid_str(json_uuid);
                                 UUID::Uuid uuid(UUID::Uuid::v4, uuid_str);
                                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
                                     return (ctx_ptr->execution_context_id() == uuid);
@@ -1582,7 +1617,13 @@ namespace app{
 
                                     //[{"execution_context":{"uuid":"a70ea480860c45e19a5385c68188d1ff","peers":["127.0.0.1:5200"]}} 
                                     /* Merge peers in the peer list with the context peer list. */
-                                    const boost::json::array& remote_peers = val.as_object().at("execution_context").as_object().at("peers").as_array();
+                                    boost::json::array remote_peers;
+                                    try{
+                                        remote_peers = val.as_object().at("execution_context").as_object().at("peers").as_array();
+                                    } catch(std::invalid_argument& e){
+                                        std::cerr << "controller-app.cpp:1615:expecting val to be an object, and peers to be an array:" << boost::json::serialize(val) << std::endl;
+                                        throw e;
+                                    }
                                     std::vector<std::string> remote_peer_list;
                                     for(const auto& rpeer: remote_peers){
                                         remote_peer_list.emplace_back(rpeer.as_string());
@@ -1605,7 +1646,7 @@ namespace app{
                                             boost::json::error_code ec;
                                             boost::json::value jv = boost::json::parse(value, ec);
                                             if(ec){
-                                                std::cerr << "controller-app.cpp:1519:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                                std::cerr << "controller-app.cpp:1647:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                                                 throw "This shouldn't be possible.";
                                             }
                                             ro.emplace(relation->key(), jv);
@@ -1694,7 +1735,13 @@ namespace app{
                                 } else {
                                     //{"result":{"main":{"msg0":"Hello World!"}}}
                                     /* Extract the results by key, and update the values in the associated relations in the manifest. */
-                                    boost::json::object jo = val.as_object().at("result").as_object();
+                                    boost::json::object jo;
+                                    try{
+                                        jo = val.as_object().at("result").as_object();
+                                    } catch(std::invalid_argument& e){
+                                        std::cerr << "controller-app.cpp:1702:val is not an object:" << boost::json::serialize(val) << std::endl;
+                                        throw e;
+                                    }
                                     for(auto& kvp: jo){
                                         std::string k(kvp.key());
                                         auto relation = std::find_if((*server_ctx)->manifest().begin(), (*server_ctx)->manifest().end(), [&](auto& r){
@@ -1706,7 +1753,7 @@ namespace app{
                                         }
                                         std::string data = boost::json::serialize(kvp.value());
                                         auto& value = (*relation)->acquire_value();
-                                        if(value.empty()){
+                                        if(value.empty() || value == "null"){
                                             value = data;
                                         }
                                         (*relation)->release_value();
@@ -1734,7 +1781,14 @@ namespace app{
                         // std::cout << "controller-app.cpp:1348:/init POST:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                         // struct timespec ts[2] = {};
                         // clock_gettime(CLOCK_MONOTONIC, &ts[0]);
-                        controller::resources::init::Request init(val.as_object());
+                        boost::json::object request_object;
+                        try{
+                            request_object= val.as_object();
+                        } catch (std::invalid_argument& e){
+                            std::cerr << "controller-app.cpp:1747:val is not an object:" << boost::json::serialize(val) << std::endl;
+                            throw e;
+                        }
+                        controller::resources::init::Request init(request_object);
                         // It is not strictly necessary to construct a context for initialization requests.
                         // But it keeps the controller resource interface homogeneous and easy to follow.
                         // Also, since the initialization route is only called once, the cost to performance
@@ -1849,7 +1903,7 @@ namespace app{
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
-                            std::cerr << "controller-app.cpp:1793:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                            std::cerr << "controller-app.cpp:1904:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
                             throw "This shouldn't happen.";
                         }
                         jrel.emplace(relation->key(), jv);

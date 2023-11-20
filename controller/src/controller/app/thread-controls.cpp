@@ -243,8 +243,10 @@ static bool write_params_to_subprocess(std::shared_ptr<controller::app::Relation
         for (auto& dep: *relation){
             std::string value = dep->acquire_value();
             dep->release_value();
-            boost::json::object val = boost::json::parse(value).as_object();
-            jv.emplace(dep->key(), val);
+            if(value.empty() || value == "null"){
+                return false;
+            }
+            jv.emplace(dep->key(), boost::json::parse(value));
         }
         params = boost::json::serialize(jv);
         params.append("\n");
@@ -325,13 +327,19 @@ static bool read_result_from_subprocess(std::shared_ptr<controller::app::Relatio
         }
     }while(buf[len] != delimiter);
     if(val.empty()){
-        relation->acquire_value() = "{\"error\": \"no valid response received from action launcher.\"}";
+        auto& relval = relation->acquire_value();
+        if(relval.empty()){
+            relval = "null";
+        }
         relation->release_value();
     } else {
         if(val.back() == '\n'){
             val.pop_back();
         }
-        relation->acquire_value() = val;
+        auto& relval = relation->acquire_value();
+        if(relval.empty() || relval == "null"){
+            relval = val;
+        }
         relation->release_value();
     }
     return true;

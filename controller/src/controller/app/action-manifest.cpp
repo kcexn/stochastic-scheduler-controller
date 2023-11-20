@@ -18,7 +18,13 @@ namespace app{
         // If the key isn't in the manifest, loop through
         // all of the dependencies, and recursively insert them.
         if ( it == index_.end() ){
-            boost::json::array deps(manifest.at(key).as_object().at("depends").as_array());
+            boost::json::array deps;
+            try{
+                deps = manifest.at(key).as_object().at("depends").as_array();
+            }catch(std::invalid_argument& e){
+                std::cerr << "action-manifest.cpp:25:problem with manifest at key=" << key << ":" << boost::json::serialize(manifest.at(key)) << std::endl;
+                throw e;
+            }
             std::vector<std::shared_ptr<Relation> > dependencies;
             for (auto& dep: deps){
                 std::string dep_key(dep.as_string());
@@ -33,7 +39,13 @@ namespace app{
             }
             // This is the second recursive base case.
             // All of the dependencies have been emplaced, so this element can be constructed and emplaced now.
-            std::string fname(manifest.at(key).as_object().at("file").as_string());
+            std::string fname;
+            try{
+                fname = manifest.at(key).as_object().at("file").as_string();
+            }catch(std::invalid_argument& e){
+                std::cerr << "action-manifest.cpp:46:manifest at key=" << key << ":" << boost::json::serialize(manifest.at(key)) << std::endl;
+                throw e;
+            }
             const char* __OW_ACTIONS = getenv("__OW_ACTIONS");
             std::filesystem::path path(__OW_ACTIONS);
             path /= fname;
@@ -56,7 +68,7 @@ namespace app{
         auto tmp = std::find_if(index_.begin(), index_.end(), [&](auto& rel){
             std::string value = rel->acquire_value();
             rel->release_value();
-            if( value.empty() ){
+            if( value.empty() || value == "null" ){
                 return true;
             } else {
                 return false;

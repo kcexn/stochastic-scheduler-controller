@@ -45,7 +45,13 @@ namespace app{
             std::fstream f(manifest_path, std::ios_base::in);
             boost::json::error_code ec;
             boost::json::value tmp = boost::json::parse(f,ec);
-            boost::json::object& manifest = tmp.as_object();
+            boost::json::object manifest;
+            try{
+                manifest = tmp.as_object();
+            } catch(std::invalid_argument& e){
+                std::cerr << "execution-context.cpp:52:tmp is not an object:" << boost::json::serialize(tmp) << std::endl;
+                throw e;
+            }
             if (ec){
                 std::cerr << "execution-context.cpp:37:boost json parse failed." << std::endl;
                 throw "This shouldn't happen.";
@@ -183,7 +189,13 @@ namespace app{
                 std::cerr << "execution-context.cpp:150:" << ec.message() << std::endl;
                 throw "boost json parse failed.";
             }
-            boost::json::object& manifest = tmp.as_object();
+            boost::json::object manifest;
+            try{
+                manifest = tmp.as_object();
+            }catch(std::system_error& e){
+                std::cerr << "execution-context.cpp:196:tmp is not an object:" << boost::json::serialize(tmp) << std::endl;
+                throw e;
+            }
             // If the manifest is empty throw an exception.
             if(manifest.empty()){
                 std::cerr << "The action-manifest.json file can not be empty." << std::endl;
