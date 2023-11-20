@@ -1,5 +1,5 @@
 local cjson = require("cjson")
-print("launcher:", arg[1], arg[2])
+--print("launcher:", arg[1], arg[2])
 local main = require(arg[1])[arg[2]]
 
 local action_path = os.getenv("__OW_ACTIONS")
@@ -34,7 +34,7 @@ if(not input) then
         os.exit(false)
     end
 end
-print("launcher:", input)
+--print("launcher:", input)
 local params = cjson.decode(input)
 
 local res = main(params)
