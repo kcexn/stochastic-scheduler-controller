@@ -1887,6 +1887,7 @@ namespace app{
                 }
                 std::filesystem::path path(__OW_ACTIONS);
                 std::filesystem::path manifest_path(path/"action-manifest.json");
+                bool all_null = true;
                 if(std::filesystem::exists(manifest_path)){
                     boost::json::object jrel;
                     std::size_t max_depth = 0;
@@ -1897,9 +1898,13 @@ namespace app{
                         if(relation->depth() > max_depth){
                             max_depth = relation->depth();
                             jrel.clear();
+                            all_null = true;
                         }
                         std::string value = relation->acquire_value();
                         relation->release_value();
+                        if(!value.empty() && value != "null"){
+                            all_null = false;
+                        }
                         boost::json::error_code ec;
                         boost::json::value jv = boost::json::parse(value, ec);
                         if(ec){
@@ -1908,36 +1913,55 @@ namespace app{
                         }
                         jrel.emplace(relation->key(), jv);
                     }
-                    boost::json::object jres;
-                    jres.emplace("result", jrel);
+                    if(!all_null){
+                        boost::json::object jres;
+                        jres.emplace("result", jrel);
 
-                    UUID::Uuid uuid = ctx.execution_context_id();
-                    std::stringstream uuid_str;
-                    uuid_str << uuid;
-                    jres.emplace("uuid", uuid_str.str());
+                        UUID::Uuid uuid = ctx.execution_context_id();
+                        std::stringstream uuid_str;
+                        uuid_str << uuid;
+                        jres.emplace("uuid", uuid_str.str());
 
+                        boost::json::object jctx;
+                        jctx.emplace("execution_context", jres);
 
-                    boost::json::object jctx;
-                    jctx.emplace("execution_context", jres);
-
-                    std::string data = boost::json::serialize(jctx);
-                    std::stringstream len;
-                    len << data.size();
-                    res.version = req.version;
-                    res.status = http::HttpStatus::OK;
-                    http::HttpHeader content_length = {};
-                    content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
-                    content_length.field_value = len.str();
-                    res.headers = {
-                        content_length,
-                        CONTROLLER_APP_COMMON_HTTP_HEADERS
-                    };
-                    http::HttpChunk nc = {};
-                    nc.chunk_size = {data.size()};
-                    nc.chunk_data = data;
-                    res.chunks = {
-                        nc
-                    };
+                        std::string data = boost::json::serialize(jctx);
+                        std::stringstream len;
+                        len << data.size();
+                        res.version = req.version;
+                        res.status = http::HttpStatus::OK;
+                        http::HttpHeader content_length = {};
+                        content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                        content_length.field_value = len.str();
+                        res.headers = {
+                            content_length,
+                            CONTROLLER_APP_COMMON_HTTP_HEADERS
+                        };
+                        http::HttpChunk nc = {};
+                        nc.chunk_size = {data.size()};
+                        nc.chunk_data = data;
+                        res.chunks = {
+                            nc
+                        };
+                    } else {
+                        std::string error_object("{\"error\":\"preempted.\"}");
+                        std::stringstream len;
+                        len << error_object.size();
+                        res.status = http::HttpStatus::OK;
+                        http::HttpHeader content_length = {};
+                        content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                        content_length.field_value = len.str();
+                        res.headers = {
+                            content_length,
+                            CONTROLLER_APP_COMMON_HTTP_HEADERS
+                        };
+                        http::HttpChunk nc = {};
+                        nc.chunk_size = {error_object.size()};
+                        nc.chunk_data = error_object;
+                        res.chunks = {
+                            nc
+                        };
+                    }
                 } else {
                     auto& manifest = ctx.manifest();
                     auto& index = manifest.index();

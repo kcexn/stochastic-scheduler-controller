@@ -46,7 +46,7 @@ if(ow_activation_id and manifest_exists) then
 end
 
 
-if(res["error"] and manifest_exists) then
+if(res["error"] and manifest_exists and concurrency > 1) then
     return nil
 end
 local output = cjson.encode(res)
