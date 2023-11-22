@@ -7,6 +7,7 @@
 #include <charconv>
 #include <transport-servers/sctp-server/sctp-session.hpp>
 #include <sys/wait.h>
+#include <csignal>
 
 #define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
@@ -1633,19 +1634,24 @@ namespace app{
                                 }
                             } else {
                                 // invalidate the fibers.
-                                std::cerr << "controller-app.cpp:1460:/run route reached before initialization." << std::endl;
+                                std::cerr << "controller-app.cpp:1637:/run route reached before initialization." << std::endl;
                                 http::HttpReqRes rr;
+                                std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr);
                                 while(ctx_ptr->sessions().size() > 0)
                                 {
                                     std::shared_ptr<http::HttpSession>& next_session = ctx_ptr->sessions().back();
-                                    std::get<http::HttpResponse>(rr) = create_response(*ctx_ptr);
+                                    next_session->set(rr);
                                     next_session->write(
-                                        rr,
                                         [&, next_session](const std::error_code&){
                                             next_session->close();
                                         }
                                     );
                                     ctx_ptr->sessions().pop_back();
+                                }
+                                if(kill(getpid(), SIGTERM) < 0){
+                                    auto error = std::make_error_code(std::errc(errno));
+                                    std::cerr << "controller-app.cpp:1653:killing myself failed:" << error.message() << std::endl;
+                                    throw error;
                                 }
                             }
                             // clock_gettime(CLOCK_MONOTONIC, &ts[1]);
@@ -1926,7 +1932,7 @@ namespace app{
             http::HttpRequest& req = std::get<http::HttpRequest>(rr);
             if(!initialized_){
                 res.version = req.version;
-                res.status = http::HttpStatus::NOT_FOUND;
+                res.status = http::HttpStatus::SERVICE_UNAVAILABLE;
                 http::HttpHeader content_length = {};
                 content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
                 content_length.field_value = "0";
