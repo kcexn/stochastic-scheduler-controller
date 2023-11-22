@@ -955,6 +955,9 @@ namespace http
                 case HttpStatus::INTERNAL_SERVER_ERROR:
                     os << "500 Internal Server Error\r\n";
                     break;
+                case HttpStatus::SERVICE_UNAVAILABLE:
+                    os << "503 Service Unavailable\r\n";
+                    break;
                 case HttpStatus::CREATED:
                     os << "201 Created\r\n";
                     break;
@@ -1107,6 +1110,8 @@ namespace http
                             res.status = HttpStatus::METHOD_NOT_ALLOWED;
                         } else if (res.status_buf == "500"){
                             res.status = HttpStatus::INTERNAL_SERVER_ERROR;
+                        } else if (res.status_buf == "503") {
+                            res.status = HttpStatus::SERVICE_UNAVAILABLE;
                         } else if (res.status_buf == "201"){
                             res.status = HttpStatus::CREATED;
                         } else if (res.status_buf == "202"){

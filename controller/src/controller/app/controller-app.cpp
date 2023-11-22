@@ -762,11 +762,37 @@ namespace app{
                     if( http_session_it == hs_.end() ){
                         http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
                         http_session_ptr->read();
-                        if(std::get<http::HttpRequest>(*http_session_ptr).verb_started){
-                            hs_.push_back(http_session_ptr);
-                            route_request(http_session_ptr);
-                            // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
-                            // std::cout << "Server Routing time - new session:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
+                        if(!drain_.load(std::memory_order::memory_order_relaxed)){
+                            if(std::get<http::HttpRequest>(*http_session_ptr).verb_started){
+                                hs_.push_back(http_session_ptr);
+                                route_request(http_session_ptr);
+                                // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
+                                // std::cout << "Server Routing time - new session:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
+                            }
+                        } else {
+                            auto& session = *http_session_ptr;
+                            http::HttpRequest& req = std::get<http::HttpRequest>(session);
+                            http::HttpReqRes rr;
+                            http::HttpResponse res = {};
+                            res.version = req.version;
+                            res.status = http::HttpStatus::SERVICE_UNAVAILABLE;
+                            http::HttpHeader content_length = {};
+                            content_length.field_name = http::HttpHeaderField::CONTENT_LENGTH;
+                            content_length.field_value = "0";
+                            res.headers = {
+                                content_length,
+                                CONTROLLER_APP_COMMON_HTTP_HEADERS
+                            };
+                            res.chunks = {
+                                {}
+                            };
+                            std::get<http::HttpResponse>(rr) = res;
+                            http_session_ptr->write(
+                                rr,
+                                [&, http_session_ptr](const std::error_code&){
+                                    http_session_ptr->close();
+                                }
+                            );
                         }
                     } else {
                         // For our application all session pointers are http session pointers.
@@ -827,37 +853,70 @@ namespace app{
                         ctxp->sessions().pop_back();
                         flush_wsk_logs();
                     }
-                    // Finish and close all of the HTTP sessions.
-                    while(ctxp->peer_server_sessions().size() > 0){
-                        std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
-                        http::HttpReqRes rr = next_session->get();
-                        http::HttpResponse& res = std::get<http::HttpResponse>(rr);
-                        res.chunks.emplace_back();
-                        res.chunks.back().chunk_size = {1};
-                        res.chunks.back().chunk_data = "]"; // Close the JSON stream array.
-                        res.chunks.emplace_back(); // Close the HTTP stream.
-                        next_session->set(rr);
-                        next_session->write([&,next_session](const std::error_code&){
-                            next_session->close();
+
+                    if( (ctxp->peer_client_sessions().size() + ctxp->peer_server_sessions().size()) > 0 ){
+                        // Find the stopped relation.
+                        auto threadit = std::find_if(ctxp->thread_controls().begin(), ctxp->thread_controls().end(), [&](ThreadControls& thread){
+                            return thread.is_stopped() && thread.has_pending_idxs();
                         });
-                        ctxp->peer_server_sessions().pop_back();
-                    }
-                    while(ctxp->peer_client_sessions().size() > 0){
-                        std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
-                        http::HttpReqRes rr = next_session->get();
-                        http::HttpRequest& req = std::get<http::HttpRequest>(rr);
-                        req.chunks.emplace_back();
-                        req.chunks.back().chunk_size = {1};
-                        req.chunks.back().chunk_data = "]"; // Close the JSON stream array.
-                        req.chunks.emplace_back(); // Close the HTTP stream.
-                        next_session->set(rr);
-                        next_session->write([&,next_session](const std::error_code& ec){
+                        auto thread_idx = threadit - ctxp->thread_controls().begin();
+                        auto& manifest = ctxp->manifest();
+                        auto relation = manifest[thread_idx];
+
+                        // clear the active executions.
+                        threadit->pop_idxs();
+
+                        // Construct the http chunk.
+                        std::string f_key(relation->key());
+                        std::string f_val(relation->acquire_value());
+                        relation->release_value();
+                        boost::json::object jo;
+                        http::HttpChunk new_chunk = {};
+                        if(!f_val.empty() && f_val != "null"){
+                            boost::json::object jo;
+                            boost::json::error_code ec;
+                            boost::json::value jv = boost::json::parse(f_val, ec);
                             if(ec){
-                                next_session->close();
+                                std::cerr << "controller-app.cpp:852:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                throw "This shouldn't happen.";
                             }
-                            return;
-                        });
-                        ctxp->peer_client_sessions().pop_back();
+                            jo.emplace(f_key, jv);
+                            boost::json::object jf_val;
+                            jf_val.emplace("result", jo);
+                            std::string data(",");
+                            data.append(boost::json::serialize(jf_val));
+                            new_chunk.chunk_data.append(data);
+                        }
+                        new_chunk.chunk_data.append("]");  // Close the JSON stream array.
+                        new_chunk.chunk_size = {new_chunk.chunk_data.size()};
+                        // Finish and close all of the HTTP sessions.
+                        while(ctxp->peer_server_sessions().size() > 0){
+                            std::shared_ptr<http::HttpSession> next_session = ctxp->peer_server_sessions().back();
+                            http::HttpReqRes rr = next_session->get();
+                            http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                            res.chunks.push_back(new_chunk);
+                            res.chunks.emplace_back(); // Close the HTTP stream.
+                            next_session->set(rr);
+                            next_session->write([&,next_session](const std::error_code&){
+                                next_session->close();
+                            });
+                            ctxp->peer_server_sessions().pop_back();
+                        }
+                        while(ctxp->peer_client_sessions().size() > 0){
+                            std::shared_ptr<http::HttpClientSession> next_session = ctxp->peer_client_sessions().back();
+                            http::HttpReqRes rr = next_session->get();
+                            http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                            req.chunks.push_back(new_chunk);
+                            req.chunks.emplace_back(); // Close the HTTP stream.
+                            next_session->set(rr);
+                            next_session->write([&,next_session](const std::error_code& ec){
+                                if(ec){
+                                    next_session->close();
+                                }
+                                return;
+                            });
+                            ctxp->peer_client_sessions().pop_back();
+                        }
                     }
                     ctx_ptrs.erase(stopped); // This invalidates the iterator in the loop, so we have to perform the original search again.
                     // Find a context that has a stopped thread.
@@ -1362,47 +1421,47 @@ namespace app{
                                     ctx_ptrs.push_back(ctx_ptr);
                                     #ifndef DEBUG
                                     try{
-                                    if(val.get_object().at("value").as_object().contains("execution_context")){
-                                        // If this is a new execution_context AND the function input parameters
-                                        // are wrapped in an existing execution context AND the primary peer address in the 
-                                        // incoming execution context is equal to the local SCTP address; then this execution context has already
-                                        // completed. The correct behaviour here is to terminate the context.
+                                        if(val.get_object().at("value").as_object().contains("execution_context")){
+                                            // If this is a new execution_context AND the function input parameters
+                                            // are wrapped in an existing execution context AND the primary peer address in the 
+                                            // incoming execution context is equal to the local SCTP address; then this execution context has already
+                                            // completed. The correct behaviour here is to terminate the context.
 
-                                        // We don't want to execute this logic in debug builds as it guards against explicitly setting 
-                                        // the UUID for new execution contexts (new execution contexts MUST use a locally generated UUID).
-                                        boost::json::array& ja = val.get_object()["value"].get_object()["execution_context"].at("peers").as_array();
-                                        std::string p(ja[0].as_string());
-                                        std::size_t pos = p.find(':');
-                                        std::string_view pip(&p[0],pos);
-                                        std::string_view pport(&p[pos+1], p.size()-pos-1);
-                                        std::uint16_t portnum = 0;
-                                        std::from_chars_result fcres = std::from_chars(pport.data(), pport.data()+pport.size(), portnum,10);
-                                        if(fcres.ec != std::errc()){
-                                            std::cerr << "Converting: " << pport << " to uint16_t failed: " << std::make_error_code(fcres.ec).message() << std::endl;
-                                            throw "This shouldn't happen!";
-                                        }
-                                        struct sockaddr_in rip = {};
-                                        rip.sin_family = AF_INET;
-                                        rip.sin_port = htons(portnum);
-                                        std::string pip_str(pip);
-                                        int ec = inet_aton(pip_str.c_str(), &rip.sin_addr);
-                                        if(ec == 0){
-                                            std::cerr << "Converting: " << pip << " to struct in_addr failed." << std::endl;
-                                            throw "This shouldn't happen!";
-                                        }
-                                        if(rip.sin_addr.s_addr == io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr && rip.sin_port == io_.local_sctp_address.ipv4_addr.address.sin_port){
-                                            for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
-                                                auto& thread = ctx_ptr->thread_controls()[i];
-                                                auto& relation = ctx_ptr->manifest()[i];
-                                                relation->acquire_value() = "null";
-                                                relation->release_value();
-                                                thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                            // We don't want to execute this logic in debug builds as it guards against explicitly setting 
+                                            // the UUID for new execution contexts (new execution contexts MUST use a locally generated UUID).
+                                            boost::json::array& ja = val.get_object()["value"].get_object()["execution_context"].at("peers").as_array();
+                                            std::string p(ja[0].as_string());
+                                            std::size_t pos = p.find(':');
+                                            std::string_view pip(&p[0],pos);
+                                            std::string_view pport(&p[pos+1], p.size()-pos-1);
+                                            std::uint16_t portnum = 0;
+                                            std::from_chars_result fcres = std::from_chars(pport.data(), pport.data()+pport.size(), portnum,10);
+                                            if(fcres.ec != std::errc()){
+                                                std::cerr << "Converting: " << pport << " to uint16_t failed: " << std::make_error_code(fcres.ec).message() << std::endl;
+                                                throw "This shouldn't happen!";
                                             }
-                                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                                            return;                   
+                                            struct sockaddr_in rip = {};
+                                            rip.sin_family = AF_INET;
+                                            rip.sin_port = htons(portnum);
+                                            std::string pip_str(pip);
+                                            int ec = inet_aton(pip_str.c_str(), &rip.sin_addr);
+                                            if(ec == 0){
+                                                std::cerr << "Converting: " << pip << " to struct in_addr failed." << std::endl;
+                                                throw "This shouldn't happen!";
+                                            }
+                                            if(rip.sin_addr.s_addr == io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr && rip.sin_port == io_.local_sctp_address.ipv4_addr.address.sin_port){
+                                                for(std::size_t i=0; i < ctx_ptr->thread_controls().size(); ++i){
+                                                    auto& thread = ctx_ptr->thread_controls()[i];
+                                                    auto& relation = ctx_ptr->manifest()[i];
+                                                    relation->acquire_value() = "null";
+                                                    relation->release_value();
+                                                    thread.signal().store(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                }
+                                                io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
+                                                io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                                                return;                   
+                                            }
                                         }
-                                    }
                                     }catch(std::invalid_argument& e){
                                         std::cerr << "controller-app.cpp:1401:val.value is not an object:" << boost::json::serialize(val) << std::endl;
                                         throw e;
@@ -2040,6 +2099,8 @@ namespace app{
     }
 
     void Controller::stop(){
+        // mark the application for terminateion.
+        drain_.store(true, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_TERMINATE_EVENT, std::memory_order::memory_order_relaxed);
         io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
 

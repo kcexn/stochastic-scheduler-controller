@@ -83,8 +83,9 @@ namespace app{
         controller::io::IO io_;
         boost::asio::io_context& ioc_;
 
-        // Synchronization Flag for the destructor.
+        // Synchronization Flags for the destructor.
         std::atomic<bool> destruct_;
+        std::atomic<bool> drain_;
     };
 
 }// namespace app
