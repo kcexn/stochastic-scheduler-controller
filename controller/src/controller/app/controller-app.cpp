@@ -12,7 +12,6 @@
 #define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
 static std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
-    std::string_view obj;
     // Count the number of unclosed braces.
     std::size_t brace_count = 0;
     // Count the number of opened square brackets '['.
@@ -48,20 +47,25 @@ static std::string_view find_next_json_object(const std::string& data, std::size
             }
             case ',':
             {
-                if(next_closing_brace > next_opening_brace){
+                if(next_closing_brace > next_opening_brace && brace_count == 0){
                     // Once we find a trailing top level comma, then we know that we have reached the end of 
                     // a javascript object.
-                    goto exit_loop;
+                    ++pos;
+                    std::size_t sz = next_closing_brace - next_opening_brace + 1;
+                    return std::string_view(&data[next_opening_brace], sz);
                 }
                 break;
             }
             case ']':
             {
                 --bracket_count;
-                if(next_closing_brace >= next_opening_brace && brace_count == 0 && bracket_count <= 0){
-                    /* Function is complete. Terminate the execution context */
-                    obj = std::string_view(&c, 1);
-                    return obj;
+                if(bracket_count <= 0 && brace_count == 0){
+                    if(next_closing_brace > next_opening_brace){
+                        std::size_t sz = next_closing_brace - next_opening_brace + 1;
+                        return std::string_view(&data[next_opening_brace], sz);
+                    } else {
+                        return std::string_view(&c, 1);
+                    }
                 }
                 break;
             }
@@ -72,12 +76,14 @@ static std::string_view find_next_json_object(const std::string& data, std::size
             }
         }
     }
-    exit_loop: ;
-    if(next_closing_brace > next_opening_brace){
+    if(next_closing_brace > next_opening_brace && brace_count == 0){
+        // Once we find a trailing top level comma, then we know that we have reached the end of 
+        // a javascript object.
         std::size_t sz = next_closing_brace - next_opening_brace + 1;
-        obj = std::string_view(&data[next_opening_brace], sz);
+        return std::string_view(&data[next_opening_brace], sz);
+    } else {
+        return std::string_view();
     }
-    return obj;
 }
 
 static std::string rtostr(const server::Remote& raddr){
@@ -199,19 +205,14 @@ static void set_curl_handle_options(CURL* hnd, const std::string& data, const st
     return;
 }
 
-static void populate_indices(std::vector<std::size_t>& indices, std::size_t manifest_size, std::size_t concurrency){
-    // We do not include 0 since 0 is always the primary context.
+static std::vector<std::size_t> populate_indices(std::size_t concurrency){
+    std::vector<std::size_t> indices;
     indices.reserve(concurrency);
-    if(manifest_size < concurrency){
-        for (std::size_t i = 1; i < concurrency; ++i){
-            indices.push_back(i);
-        }
-    } else {
-        for (std::size_t i = 1; i < concurrency; ++i){
-            indices.push_back(i*(manifest_size/concurrency));
-        }
+    // We do not include 0 since 0 is always the primary context.
+    for(std::size_t i=1; i < concurrency; ++i){
+        indices.push_back(i);
     }
-    return;
+    return indices;
 }
 
 static void populate_request_data(boost::json::object& jctx, const std::shared_ptr<controller::app::ExecutionContext>& ctxp, const boost::json::value& val, const std::vector<std::size_t>& indices){
@@ -266,7 +267,6 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
             }
         }while(msgq_len > 0);
 
-        std::size_t manifest_size = manifest.size();
         const char* __OW_ACTION_NAME = getenv("__OW_ACTION_NAME");
         if(__OW_ACTION_NAME == nullptr){
             std::cerr << "controller-app.cpp:263:__OW_ACTION_NAME envvar is not set!" << std::endl;
@@ -283,9 +283,7 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
             throw "what?";
         }
         // Compute the index for each subsequent context by partitioning the manifest.
-        std::vector<std::size_t> indices;
-        populate_indices(indices, manifest_size, concurrency);
-
+        std::vector<std::size_t> indices = populate_indices(concurrency);
         // Initialize the request data for the context.
         boost::json::object jctx;
         populate_request_data(jctx, ctxp, val, indices);
@@ -1071,10 +1069,10 @@ namespace app{
                     session->close();
                     return;
                 }
-                while(http::HttpBigNum{next_comma} < chunk_size){
+                while(next_comma < chunk.chunk_data.size()){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:874:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:1067:json_obj_str is empty" << std::endl;
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -1327,13 +1325,12 @@ namespace app{
                     // We have to maintain the session until the entire HTTP response has been completely processed.
                     return;
                 }
-
-                while(http::HttpBigNum{next_comma} < chunk_size){
+                while(next_comma < chunk.chunk_data.size()){
                     // struct timespec tjson[2] = {};
                     // clock_gettime(CLOCK_MONOTONIC, &tjson[0]);
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:1173:json_obj_str is empty" << std::endl;
+                        std::cerr << "controller-app.cpp:1324:json_obj_str is empty" << std::endl;
                         continue;
                     } else if(json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
