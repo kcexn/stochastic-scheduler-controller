@@ -34,7 +34,15 @@ static std::string_view find_next_json_object(const std::string& data, std::size
                 }
                 --brace_count;
                 if(brace_count == 0){
+                    // A top level javascript object has been found.
                     next_closing_brace = pos;
+                    if(next_closing_brace > next_opening_brace){
+                        // Increment the position so that a subsequent call to find starts from
+                        // the first index AFTER the javascript object.
+                        ++pos;
+                        auto sz = next_closing_brace - next_opening_brace + 1;
+                        return std::string_view(&data[next_opening_brace], sz);
+                    }
                 }
                 break;
             }
@@ -856,37 +864,38 @@ namespace app{
                     }
 
                     if( (ctxp->peer_client_sessions().size() + ctxp->peer_server_sessions().size()) > 0 ){
+                        auto& thread_controls = ctxp->thread_controls();
                         // Find the stopped relation.
-                        auto threadit = std::find_if(ctxp->thread_controls().begin(), ctxp->thread_controls().end(), [&](ThreadControls& thread){
+                        auto threadit = std::find_if(thread_controls.begin(), thread_controls.end(), [&](ThreadControls& thread){
                             return thread.is_stopped() && thread.has_pending_idxs();
                         });
-                        auto thread_idx = threadit - ctxp->thread_controls().begin();
+                        auto thread_idx = threadit - thread_controls.begin();
                         auto& manifest = ctxp->manifest();
                         auto relation = manifest[thread_idx];
-
-                        // clear the active executions.
-                        threadit->pop_idxs();
-
-                        // Construct the http chunk.
-                        std::string f_key(relation->key());
-                        std::string f_val(relation->acquire_value());
-                        relation->release_value();
-                        boost::json::object jo;
                         http::HttpChunk new_chunk = {};
-                        if(!f_val.empty() && f_val != "null"){
+                        if(threadit != thread_controls.end()){
+                            // clear the active executions.
+                            threadit->pop_idxs();
+                            // Construct the http chunk.
+                            std::string f_key(relation->key());
+                            std::string f_val(relation->acquire_value());
+                            relation->release_value();
                             boost::json::object jo;
-                            boost::json::error_code ec;
-                            boost::json::value jv = boost::json::parse(f_val, ec);
-                            if(ec){
-                                std::cerr << "controller-app.cpp:852:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
-                                throw "This shouldn't happen.";
+                            if(!f_val.empty() && f_val != "null"){
+                                boost::json::object jo;
+                                boost::json::error_code ec;
+                                boost::json::value jv = boost::json::parse(f_val, ec);
+                                if(ec){
+                                    std::cerr << "controller-app.cpp:852:JSON parsing failed:" << ec.message() << ":value:" << f_val << std::endl;
+                                    throw "This shouldn't happen.";
+                                }
+                                jo.emplace(f_key, jv);
+                                boost::json::object jf_val;
+                                jf_val.emplace("result", jo);
+                                std::string data(",");
+                                data.append(boost::json::serialize(jf_val));
+                                new_chunk.chunk_data.append(data);
                             }
-                            jo.emplace(f_key, jv);
-                            boost::json::object jf_val;
-                            jf_val.emplace("result", jo);
-                            std::string data(",");
-                            data.append(boost::json::serialize(jf_val));
-                            new_chunk.chunk_data.append(data);
                         }
                         new_chunk.chunk_data.append("]");  // Close the JSON stream array.
                         new_chunk.chunk_size = {new_chunk.chunk_data.size()};
@@ -1074,7 +1083,6 @@ namespace app{
                 while(http::HttpBigNum{next_comma} < chunk_size){
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:874:json_obj_str is empty" << std::endl;
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
@@ -1333,7 +1341,6 @@ namespace app{
                     // clock_gettime(CLOCK_MONOTONIC, &tjson[0]);
                     std::string_view json_obj_str = find_next_json_object(chunk.chunk_data, next_comma);
                     if(json_obj_str.empty()){
-                        std::cerr << "controller-app.cpp:1173:json_obj_str is empty" << std::endl;
                         continue;
                     } else if(json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
