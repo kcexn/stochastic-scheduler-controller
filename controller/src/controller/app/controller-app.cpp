@@ -12,7 +12,6 @@
 #define CONTROLLER_APP_COMMON_HTTP_HEADERS {http::HttpHeaderField::CONTENT_TYPE, "application/json", "", false, false, false, false, false, false},{http::HttpHeaderField::CONNECTION, "close", "", false, false, false, false, false, false},{http::HttpHeaderField::END_OF_HEADERS, "", "", false, false, false, false, false, false}
 
 static std::string_view find_next_json_object(const std::string& data, std::size_t& pos){
-    std::string_view obj;
     // Count the number of unclosed braces.
     std::size_t brace_count = 0;
     // Count the number of opened square brackets '['.
@@ -54,22 +53,12 @@ static std::string_view find_next_json_object(const std::string& data, std::size
                 ++brace_count;
                 break;
             }
-            case ',':
-            {
-                if(next_closing_brace > next_opening_brace){
-                    // Once we find a trailing top level comma, then we know that we have reached the end of 
-                    // a javascript object.
-                    goto exit_loop;
-                }
-                break;
-            }
             case ']':
             {
                 --bracket_count;
                 if(next_closing_brace >= next_opening_brace && brace_count == 0 && bracket_count <= 0){
                     /* Function is complete. Terminate the execution context */
-                    obj = std::string_view(&c, 1);
-                    return obj;
+                    return std::string_view(&c, 1);;
                 }
                 break;
             }
@@ -80,12 +69,7 @@ static std::string_view find_next_json_object(const std::string& data, std::size
             }
         }
     }
-    exit_loop: ;
-    if(next_closing_brace > next_opening_brace){
-        std::size_t sz = next_closing_brace - next_opening_brace + 1;
-        obj = std::string_view(&data[next_opening_brace], sz);
-    }
-    return obj;
+    return std::string_view();
 }
 
 static std::string rtostr(const server::Remote& raddr){
@@ -1083,39 +1067,16 @@ namespace app{
                         continue;
                     } else if (json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
-                        auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                            auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
-                            return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
+                        std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctxp){
+                            auto it = std::find(ctxp->peer_client_sessions().begin(), ctxp->peer_client_sessions().end(), session);
+                            if(it != ctxp->peer_client_sessions().end()){
+                                ctxp->peer_client_sessions().erase(it);
+                                return true;
+                            } else {
+                                return false;
+                            }
                         });
-                        if(server_ctx != ctx_ptrs.end()){
-                            auto& ctxp = *server_ctx;
-                            auto& thread_controls = ctxp->thread_controls();
-                            for(auto& rel: (*server_ctx)->manifest()){
-                                auto& value = rel->acquire_value();
-                                if(value.empty()){
-                                    value = "null";
-                                }
-                                rel->release_value();
-                            }
-                            for(auto& thread_control: thread_controls){
-                                thread_control.stop_thread();
-                            }
-                            controller::app::ThreadControls::thread_sched_yield(false);
-                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                            // Since we hae received a termination event from a peer we can safely delete all of the peer sessions from the 
-                            // execution context.
-                            ctxp->peer_client_sessions().clear();
-                            ctxp->peer_server_sessions().clear();
-
-                            // We do not support HTTP/1.1 pipelining so the client session can only be closed after the ENTIRE server response
-                            // has been consumed.
-                            break;
-                        } else {
-                            // We do not support HTTP/1.1 pipelining, so the HTTP client session can only be closed after the ENTIRE 
-                            // server response has been consumed.
-                            break;
-                        }
+                        break;
                     } else if((it != req.headers.end()) || (req.chunks.size() > 0 && req.chunks.back().chunk_size == http::HttpBigNum{0})){
                         // We do not support HTTP/1.1 pipelining so we will only close the HTTP client stream after the ENTIRE server response has
                         // been consumed.
@@ -1139,7 +1100,11 @@ namespace app{
                     // std::cout << "controller-app.cpp:486:JSON parsed:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
 
                     if(ctx == ctx_ptrs.end()){
-                        session->close();
+                        // A response to a session that isn't bound to an execution context has arrived. This only occurs if the client
+                        // has terminated the event stream with the peer, and the peer sends an event before the stream termination arrives. 
+                        // Since HTTP semantics indicate that clients OPEN sessions, but servers CLOSE sessions, we should simply 
+                        // disregard all received server messages until the end of the framed HTTP data has been received from the server. (the 0 length chunk
+                        // arrives).
                         return;
                     } else {
                         if(res.pos == 0){
@@ -1355,38 +1320,26 @@ namespace app{
                         continue;
                     } else if(json_obj_str.front() == ']'){
                         /* Function is complete. Terminate the execution context */
-                        auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                            auto tmp = std::find(ctx_ptr->peer_server_sessions().begin(), ctx_ptr->peer_server_sessions().end(), session);
-                            return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
+                        std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctxp){
+                            auto it = std::find(ctxp->peer_server_sessions().begin(), ctxp->peer_server_sessions().end(), session);
+                            if(it != ctxp->peer_server_sessions().end()){
+                                http::HttpReqRes rr = session->get();
+                                http::HttpResponse& res = std::get<http::HttpResponse>(rr);
+                                res.chunks.emplace_back();
+                                res.chunks.back().chunk_size = {1};
+                                res.chunks.back().chunk_data = "]";
+                                res.chunks.emplace_back();
+                                session->set(rr);
+                                session->write([&,session](const std::error_code&){
+                                    session->close();
+                                });
+                                ctxp->peer_server_sessions().erase(it);
+                                return true;
+                            } else {
+                                return false;
+                            }
                         });
-                        if(server_ctx != ctx_ptrs.end()){
-                            auto& ctxp = *server_ctx;
-                            auto& thread_controls = ctxp->thread_controls();
-                            for(auto& rel: (*server_ctx)->manifest()){
-                                auto& value = rel->acquire_value();
-                                if(value.empty()){
-                                    value = "null";
-                                }
-                                rel->release_value();
-                            }
-                            for(auto& thread_control: thread_controls){
-                                thread_control.stop_thread();
-                            }
-                            controller::app::ThreadControls::thread_sched_yield(false);
-                            io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                            io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                            // Since we have received a termination event from a peer, we can safely remove all of the peer sessions from
-                            // the context.
-                            ctxp->peer_server_sessions().clear();
-                            ctxp->peer_client_sessions().clear();
-                            // clock_gettime(CLOCK_MONOTONIC, &tjson[1]);
-                            // std::cout << "route request ] termination time: " << (tjson[1].tv_sec*1000000 + tjson[1].tv_nsec/1000) - (tjson[0].tv_sec*1000000 + tjson[0].tv_nsec/1000) << std::endl;
-                            break;
-                        } else {
-                            // A termination event has been recieved from a peer for an execution context that has already been terminated.
-                            // We can safely just break from the loop here.
-                            break;
-                        }
+                        break;
                     }
 
                     boost::json::error_code ec;
@@ -1810,7 +1763,9 @@ namespace app{
                                     return (tmp == ctx_ptr->peer_server_sessions().end()) ? false : true;
                                 });
                                 if(server_ctx == ctx_ptrs.end()){
-                                    /* There has been an error, the execution context no longer exists. Simply terminate the stream. */
+                                    // Since HTTP semantics dictate that clients OPEN sessions, and servers CLOSE sessions.
+                                    // If the HTTP server receives data from a session that no longer exists it is obliged
+                                    // to gracefully close the connection.
                                     http::HttpReqRes rr = session->get();
                                     http::HttpResponse& res = std::get<http::HttpResponse>(rr);
                                     res.chunks.emplace_back();
