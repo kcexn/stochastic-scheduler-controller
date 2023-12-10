@@ -465,7 +465,7 @@ static void reschedule_actions(
         std::shared_ptr<controller::app::Relation> start = manifest.next(start_key, i);
         if(start->key().empty()){
             // If the start key is empty, that means that all tasks in the schedule are complete.
-            // First set any missing values in the schedule to null to prevent any more updates.
+            // Set any missing values to null.
             for(auto& rel: manifest){
                 auto& value = rel->acquire_value();
                 if(value.empty()){
@@ -823,9 +823,6 @@ namespace app{
                     }
                 }
             }
-
-            // if(status){
-
             if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
                 // clock_gettime(CLOCK_REALTIME, &ts);
                 // std::cout << "controller-app.cpp:233:sched end processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
@@ -1106,6 +1103,11 @@ namespace app{
                             controller::app::ThreadControls::thread_sched_yield(false);
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                            // Since we hae received a termination event from a peer we can safely delete all of the peer sessions from the 
+                            // execution context.
+                            ctxp->peer_client_sessions().clear();
+                            ctxp->peer_server_sessions().clear();
+
                             // We do not support HTTP/1.1 pipelining so the client session can only be closed after the ENTIRE server response
                             // has been consumed.
                             break;
@@ -1264,8 +1266,17 @@ namespace app{
                 return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
             });
             if(server_ctx == ctx_ptrs.end()){
-                // The doesn't belong to a context so just close it.
-                session->close();
+                // This session does not belong to an execution context, so we can simply terminate the stream.
+                http::HttpReqRes rr = session->get();
+                http::HttpRequest& req = std::get<http::HttpRequest>(rr);
+                req.chunks.emplace_back();
+                req.chunks.back().chunk_size = {1};
+                req.chunks.back().chunk_data = "]";
+                req.chunks.emplace_back();
+                session->set(rr);
+                session->write([&,session](const std::error_code&){
+                    session->close();
+                });
             } else {
                 auto& ctx_ptr = *server_ctx;
                 std::vector<server::Remote> peers = ctx_ptr->get_peers();
@@ -1364,10 +1375,16 @@ namespace app{
                             controller::app::ThreadControls::thread_sched_yield(false);
                             io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
                             io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
+                            // Since we have received a termination event from a peer, we can safely remove all of the peer sessions from
+                            // the context.
+                            ctxp->peer_server_sessions().clear();
+                            ctxp->peer_client_sessions().clear();
                             // clock_gettime(CLOCK_MONOTONIC, &tjson[1]);
                             // std::cout << "route request ] termination time: " << (tjson[1].tv_sec*1000000 + tjson[1].tv_nsec/1000) - (tjson[0].tv_sec*1000000 + tjson[0].tv_nsec/1000) << std::endl;
                             break;
                         } else {
+                            // A termination event has been recieved from a peer for an execution context that has already been terminated.
+                            // We can safely just break from the loop here.
                             break;
                         }
                     }
@@ -1683,7 +1700,7 @@ namespace app{
                                 auto it = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
                                     return (ctx_ptr->execution_context_id() == uuid);
                                 });
-                                if(it != ctx_ptrs.end()){                                      
+                                if(it != ctx_ptrs.end()){
                                     /* Bind the http session to an existing context. */
                                     (*it)->peer_server_sessions().push_back(session);
 
