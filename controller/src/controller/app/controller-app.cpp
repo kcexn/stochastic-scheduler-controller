@@ -1103,9 +1103,9 @@ namespace app{
                         // A response to a session that isn't bound to an execution context has arrived. This only occurs if the client
                         // has terminated the event stream with the peer, and the peer sends an event before the stream termination arrives. 
                         // Since HTTP semantics indicate that clients OPEN sessions, but servers CLOSE sessions, we should simply 
-                        // disregard all received server messages until the end of the framed HTTP data has been received from the server. (the 0 length chunk
+                        // consume and disregard all received server messages until the end of the framed HTTP data has been received from the server. (the 0 length chunk
                         // arrives).
-                        return;
+                        break;
                     } else {
                         if(res.pos == 0){
                             boost::json::array ja;
@@ -1319,7 +1319,7 @@ namespace app{
                     if(json_obj_str.empty()){
                         continue;
                     } else if(json_obj_str.front() == ']'){
-                        /* Function is complete. Terminate the execution context */
+                        /* Function is complete. Terminate the stream */
                         std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto& ctxp){
                             auto it = std::find(ctxp->peer_server_sessions().begin(), ctxp->peer_server_sessions().end(), session);
                             if(it != ctxp->peer_server_sessions().end()){
