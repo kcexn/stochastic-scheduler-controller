@@ -306,7 +306,6 @@ static bool wait_for_result_from_subprocess(std::array<int, 2>& pipe, std::uniqu
 
 static bool read_result_from_subprocess(std::shared_ptr<controller::app::Relation> relation, std::array<int, 2>& pipe){
     std::array<char, MAX_LENGTH> buf;
-    char delimiter = '\n';
     std::string val;
     int len = 0;
     do{
@@ -325,21 +324,12 @@ static bool read_result_from_subprocess(std::shared_ptr<controller::app::Relatio
         } else {
             val.append(buf.data(), len);
         }
-    }while(buf[len] != delimiter);
-    if(val.empty()){
-        auto& relval = relation->acquire_value();
-        if(relval.empty()){
-            relval = "null";
+    }while(true);
+    if(!val.empty()){
+        if(val == "null"){
+            return true;
         }
-        relation->release_value();
-    } else {
-        if(val.back() == '\n'){
-            val.pop_back();
-        }
-        auto& relval = relation->acquire_value();
-        if(relval.empty() || relval == "null"){
-            relval = val;
-        }
+        relation->acquire_value() = val;
         relation->release_value();
     }
     return true;

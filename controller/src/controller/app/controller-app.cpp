@@ -455,15 +455,15 @@ static void reschedule_actions(
         std::string start_key(relation->key());
         std::shared_ptr<controller::app::Relation> start = manifest.next(start_key, i);
         if(start->key().empty()){
-            // If the start key is empty, that means that all tasks in the schedule are complete.
-            // First set any missing values in the schedule to null to prevent any more updates.
-            for(auto& rel: manifest){
-                auto& value = rel->acquire_value();
-                if(value.empty()){
-                    value = "null";
-                }
-                rel->release_value();
-            }
+            // // If the start key is empty, that means that all tasks in the schedule are complete.
+            // // First set any missing values in the schedule to null to prevent any more updates.
+            // for(auto& rel: manifest){
+            //     auto& value = rel->acquire_value();
+            //     if(value.empty()){
+            //         value = "null";
+            //     }
+            //     rel->release_value();
+            // }
             // Mark all threads in the context as stopped.
             auto& thread_controls = ctxp->thread_controls();
             for(auto& thread_control: thread_controls){
@@ -1157,8 +1157,12 @@ namespace app{
                             }
                             
                             std::string data = boost::json::serialize(kvp.value());
+                            // std::cout << "controller-app.cpp:1160:data=" << data << std::endl;
+                            if(data == "null"){
+                                continue;
+                            }
                             auto& value = (*rel)->acquire_value();
-                            if(value.empty() || value == "null"){
+                            if(value.empty()){
                                 value = data;
                             }
                             (*rel)->release_value();
@@ -1752,6 +1756,10 @@ namespace app{
                                             throw "This should never happen.";
                                         }
                                         std::string data = boost::json::serialize(kvp.value());
+                                        // std::cout << "controller-app.cpp:1759:data=" << data << std::endl;
+                                        if(data == "null"){
+                                            continue;
+                                        }
                                         auto& value = (*relation)->acquire_value();
                                         if(value.empty() || value == "null"){
                                             value = data;
@@ -1902,14 +1910,16 @@ namespace app{
                         }
                         std::string value = relation->acquire_value();
                         relation->release_value();
-                        if(!value.empty() && value != "null"){
+                        // std::cout << "controller-app.cpp:1911:value=" << value << std::endl;
+                        boost::json::value jv;
+                        if(!value.empty()){
                             all_null = false;
-                        }
-                        boost::json::error_code ec;
-                        boost::json::value jv = boost::json::parse(value, ec);
-                        if(ec){
-                            std::cerr << "controller-app.cpp:1904:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
-                            throw "This shouldn't happen.";
+                            boost::json::error_code ec;
+                            jv = boost::json::parse(value, ec);
+                            if(ec){
+                                std::cerr << "controller-app.cpp:1904:JSON parsing failed:" << ec.message() << ":value:" << value << std::endl;
+                                throw "This shouldn't happen.";
+                            }
                         }
                         jrel.emplace(relation->key(), jv);
                     }
