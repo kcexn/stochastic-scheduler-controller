@@ -30,10 +30,24 @@ namespace sctp_transport{
     void SctpSession::write_(std::shared_ptr<std::vector<char> > write_data, const std::function<void(const std::error_code& ec)> fn, const boost::system::error_code& ec){
         if(!ec){
             using namespace transport::protocols;
-            sctp::iov iobuf= {
-                write_data->data(),
-                write_data->size()
-            };
+            static constexpr std::size_t MAX_BUF_SZ = 131071; // 128KB
+            std::vector<sctp::iov> msg_vec;
+            auto sz = write_data->size();
+            std::size_t length = sz / MAX_BUF_SZ + 1;
+            std::size_t bytes_to_be_allocated = sz;
+
+            for(std::size_t i=0; i < length; ++i){
+                sctp::iov buf = {};
+                buf.iov_base = write_data->data() + (i*MAX_BUF_SZ);
+                if(bytes_to_be_allocated > MAX_BUF_SZ){
+                    buf.iov_len = MAX_BUF_SZ;
+                    bytes_to_be_allocated -= MAX_BUF_SZ;
+                } else {
+                    buf.iov_len = bytes_to_be_allocated;
+                }
+                msg_vec.push_back(buf);
+            }
+            
             sctp::sndinfo sndinfo = {
                 id_.sid,
                 0,
@@ -49,7 +63,11 @@ namespace sctp_transport{
                 switch(errno)
                 {
                     case EINVAL:
+                    {
+                        std::error_code err(EINVAL, std::system_category());
+                        fn(err);
                         return;
+                    }
                     default:
                         std::cerr << "sctp-session.cpp:51:getsockopt failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                         throw "what?";
@@ -58,11 +76,19 @@ namespace sctp_transport{
             switch(status.sstat_state)
             {
                 case SCTP_CLOSED:
+                {
+                    std::error_code err(EINVAL, std::system_category());
+                    fn(err);
                     // std::cerr << "sctp-session.cpp:48:SCTP_CLOSED STATE" << std::endl;
                     return;
+                }
                 case SCTP_EMPTY:
+                {
+                    std::error_code err(EINVAL, std::system_category());
+                    fn(err);
                     // std::cerr << "sctp-session.cpp:51:SCTP_EMPTY STATE" << std::endl;
                     return;
+                }
                 case SCTP_COOKIE_WAIT:
                 {
                     // std::cerr << "sctp-session.cpp:54:SCTP_COOKIE_WAIT" << std::endl;
@@ -78,19 +104,33 @@ namespace sctp_transport{
                 case SCTP_ESTABLISHED:
                     break;
                 case SCTP_SHUTDOWN_PENDING:
+                {
                     // std::cerr << "sctp-session.cpp:77:SCTP_SHUTDOWN_PENDING" << std::endl;
+                    std::error_code err(EINVAL, std::system_category());
+                    fn(err);
                     return;
+                }
                 case SCTP_SHUTDOWN_SENT:
+                {
                     // std::cerr << "sctp-session.cpp:80:SCTP_SHUTDOWN_SENT" << std::endl;
+                    std::error_code err(EINVAL, std::system_category());
+                    fn(err);
                     return;
+                }
                 case SCTP_SHUTDOWN_RECEIVED:
                 {   
                     // std::cerr << "sctp-session.cpp:83:SCTP_SHUTDOWN_RECEIVED" << std::endl;
+                    std::error_code err(EINVAL, std::system_category());
+                    fn(err);
                     return;
                 }
                 case SCTP_SHUTDOWN_ACK_SENT:
+                {
                     // std::cerr << "sctp-session.cpp:86:SCTP_SHUTDOWN_ACK_SENT" << std::endl;
+                    std::error_code err(EINVAL, std::system_category());
+                    fn(err);
                     return;
+                }
                 default:
                     std::cerr << "sctp-session.cpp:115:unrecognized status.sstat_state value:" << status.sstat_state << std::endl;
                     throw "what?";
@@ -105,8 +145,8 @@ namespace sctp_transport{
             sctp::msghdr msg = {
                 nullptr,
                 0,
-                &iobuf,
-                1,
+                msg_vec.data(),
+                msg_vec.size(),
                 u.cbuf_.data(),
                 u.cbuf_.size(),
                 0        
@@ -131,8 +171,8 @@ namespace sctp_transport{
                         boost::asio::const_buffer buf(write_data->data(), write_data->size());
                         return async_write(buf, fn);
                     }
-                    case EINVAL:
-                        return;
+                    // case EINVAL:
+                    //     return;
                     default:
                     {
                         struct timespec ts = {};
@@ -141,9 +181,13 @@ namespace sctp_transport{
                         if(status == -1){
                             std::cerr << "sctp-session.cpp:183:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                             std::cerr << "sctp-session.cpp:184:sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                            std::error_code err(errno, std::system_category());
+                            fn(err);
                             return;
                         }
                         std::cerr << "sctp-session.cpp:187:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                        std::error_code err(errno, std::system_category());
+                        fn(err);
                         return;
                     }
                 }

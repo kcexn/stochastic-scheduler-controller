@@ -29,9 +29,10 @@ namespace UnixServer{
             std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
             std::memcpy(write_data_ptr->data(), write_buffer.data(), write_data_ptr->size());
             boost::asio::const_buffer buf(write_data_ptr->data(), write_data_ptr->size());
+            auto self = shared_from_this();
             socket_.async_write_some(
                 buf,
-                [&, buf, write_data_ptr, fn](const boost::system::error_code& ec, std::size_t bytes_transferred){
+                [&, buf, write_data_ptr, fn, self](const boost::system::error_code& ec, std::size_t bytes_transferred){
                     if (!ec){
                         std::size_t remaining_bytes = write_data_ptr->size() - bytes_transferred;
                         if ( remaining_bytes > 0 ){

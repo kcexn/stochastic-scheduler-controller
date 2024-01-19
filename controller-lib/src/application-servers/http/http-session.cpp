@@ -37,11 +37,15 @@ namespace http{
         res.next_header = res.headers.size();
         res.next_chunk = res.chunks.size();
         std::string data_buf(ss.str());
-        release_lock();
+
+        auto self = shared_from_this();
         t_session_->async_write(
-            boost::asio::const_buffer(data_buf.data(), data_buf.size()), 
-            fn
+            boost::asio::const_buffer(data_buf.data(), data_buf.size()),
+            [&,fn,self](const std::error_code& ec){
+                fn(ec);
+            }
         );
+        release_lock();
     }
 
     void HttpSession::write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn)
@@ -49,7 +53,7 @@ namespace http{
         std::stringstream ss;
         ss << std::get<HttpResponse>(req_res);
         std::string data_buf(ss.str());
-        // std::cerr << "http-session.cpp:52:log_res=" << data_buf << std::endl;
+
         t_session_->async_write(
             boost::asio::const_buffer(data_buf.data(), data_buf.size()),
             fn
@@ -98,11 +102,15 @@ namespace http{
         req.next_header = req.headers.size();
         req.next_chunk = req.chunks.size();
         std::string data_buf(ss.str());
-        release_lock();
+        
+        auto self = shared_from_this();
         t_session_->async_write(
-            boost::asio::const_buffer(data_buf.data(), data_buf.size()), 
-            fn
+            boost::asio::const_buffer(data_buf.data(), data_buf.size()),
+            [&, fn, self](const std::error_code& ec){
+                fn(ec);
+            }
         );
+        release_lock();
     }
     
     void HttpClientSession::write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn)
@@ -110,7 +118,7 @@ namespace http{
         std::stringstream ss;
         ss << std::get<HttpRequest>(req_res);
         std::string data_buf(ss.str());
-        // std::cerr << "http-session.cpp:113:log_req=" << data_buf << std::endl;
+
         t_session_->async_write(
             boost::asio::const_buffer(data_buf.data(), data_buf.size()),
             fn

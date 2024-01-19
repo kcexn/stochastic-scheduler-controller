@@ -46,7 +46,7 @@ namespace http{
             if(t_session_){
                 t_session_->erase();
             }
-        }        
+        }
     };
 }
 #endif
