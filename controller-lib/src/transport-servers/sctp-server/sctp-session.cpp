@@ -141,15 +141,14 @@ namespace sctp_transport{
                 std::array<char, CMSG_SPACE(sizeof(sctp::sndinfo))> cbuf_;
                 sctp::cmsghdr align;
             } u;
-
             sctp::msghdr msg = {
                 nullptr,
                 0,
-                msg_vec.data(),
-                msg_vec.size(),
+                nullptr,
+                0,
                 u.cbuf_.data(),
                 u.cbuf_.size(),
-                0        
+                0
             };
             sctp::cmsghdr* cmsg;
             cmsg = CMSG_FIRSTHDR(&msg);
@@ -157,50 +156,54 @@ namespace sctp_transport{
             cmsg->cmsg_type = SCTP_SNDINFO;
             cmsg->cmsg_len = CMSG_LEN(sizeof(sndinfo));
             std::memcpy(CMSG_DATA(cmsg), &sndinfo, sizeof(sndinfo));
-            int len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL);
-            if(len == -1){
-                switch(errno)
-                {
-                    case EWOULDBLOCK:
+
+            std::size_t remaining_bytes = write_data->size();
+            int len = 0;
+            do{
+                sctp::iov msgbuf = {
+                    write_data.data() + (write_data->size() - remaining_bytes),
+                    (remaining_bytes > MAX_BUF_SZ) ? MAX_BUF_SZ : remaining_bytes
+                };
+                msg.msg_iov = msgbuf;
+                msg.msg_iovlen = 1;
+
+                len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL);
+                if(len == -1){
+                    switch(errno)
                     {
-                        boost::asio::const_buffer buf(write_data->data(), write_data->size());
-                        return async_write(buf, fn);
-                    }
-                    case EINTR:
-                    {
-                        boost::asio::const_buffer buf(write_data->data(), write_data->size());
-                        return async_write(buf, fn);
-                    }
-                    // case EINVAL:
-                    //     return;
-                    default:
-                    {
-                        struct timespec ts = {};
-                        int errsv = errno;
-                        int status = clock_gettime(CLOCK_REALTIME, &ts);
-                        if(status == -1){
-                            std::cerr << "sctp-session.cpp:183:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "sctp-session.cpp:184:sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                        case EWOULDBLOCK:
+                        {
+                            boost::asio::const_buffer buf(write_data->data() + (write_data->size() - remaining_bytes), remaining_bytes);
+                            return async_write(buf, fn);
+                        }
+                        case EINTR:
+                        {
+                            boost::asio::const_buffer buf(write_data->data() + (write_data->size() - remaining_bytes), remaining_bytes);
+                            return async_write(buf, fn);
+                        }
+                        default:
+                        {
+                            struct timespec ts = {};
+                            int errsv = errno;
+                            int status = clock_gettime(CLOCK_REALTIME, &ts);
+                            if(status == -1){
+                                std::cerr << "sctp-session.cpp:183:clock_gettime failed:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                                std::cerr << "sctp-session.cpp:184:sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
+                                std::error_code err(errno, std::system_category());
+                                fn(err);
+                                return;
+                            }
+                            std::cerr << "sctp-session.cpp:187:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
                             std::error_code err(errno, std::system_category());
                             fn(err);
                             return;
                         }
-                        std::cerr << "sctp-session.cpp:187:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":sendmsg failed:" << std::make_error_code(std::errc(errsv)).message() << std::endl;
-                        std::error_code err(errno, std::system_category());
-                        fn(err);
-                        return;
                     }
                 }
-            } else {
-                std::size_t remaining_bytes = write_data->size() - len;
-                if(remaining_bytes > 0){
-                    boost::asio::const_buffer buf(write_data->data() + len, remaining_bytes);
-                    return async_write(buf, fn);
-                } else {
-                    std::error_code err;
-                    fn(err);
-                }
-            }
+                remaining_bytes -= len;
+            } while(remaining_bytes > 0);
+            std::error_code err;
+            fn(err);
         } else if(ec == boost::system::errc::connection_reset) {
             std::error_code err(ec.value(), std::generic_category());
             fn(err);
