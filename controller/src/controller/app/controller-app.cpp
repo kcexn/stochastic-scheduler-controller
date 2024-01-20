@@ -1058,34 +1058,6 @@ namespace app{
                             }
                         }
                         break;
-                        // auto server_ctx = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](auto ctx_ptr){
-                        //     auto tmp = std::find(ctx_ptr->peer_client_sessions().begin(), ctx_ptr->peer_client_sessions().end(), session);
-                        //     return (tmp == ctx_ptr->peer_client_sessions().end()) ? false : true;
-                        // });
-                        // if(server_ctx != ctx_ptrs.end()){
-                        //     auto& ctxp = *server_ctx;
-                        //     auto& thread_controls = ctxp->thread_controls();
-                        //     for(auto& rel: (*server_ctx)->manifest()){
-                        //         auto& value = rel->acquire_value();
-                        //         if(value.empty()){
-                        //             value = "null";
-                        //         }
-                        //         rel->release_value();
-                        //     }
-                        //     for(auto& thread_control: thread_controls){
-                        //         thread_control.stop_thread();
-                        //     }
-                        //     controller::app::ThreadControls::thread_sched_yield(false);
-                        //     io_mbox_ptr_->sched_signal_ptr->fetch_or(CTL_IO_SCHED_END_EVENT, std::memory_order::memory_order_relaxed);
-                        //     io_mbox_ptr_->sched_signal_cv_ptr->notify_one();
-                        //     // We do not support HTTP/1.1 pipelining so the client session can only be closed after the ENTIRE server response
-                        //     // has been consumed.
-                        //     break;
-                        // } else {
-                        //     // We do not support HTTP/1.1 pipelining, so the HTTP client session can only be closed after the ENTIRE 
-                        //     // server response has been consumed.
-                        //     break;
-                        // }
                     } else if((it != req.headers.end()) || (req.chunks.size() > 0 && req.chunks.back().chunk_size == http::HttpBigNum{0})){
                         // We do not support HTTP/1.1 pipelining so we will only close the HTTP client stream after the ENTIRE server response has
                         // been consumed.
