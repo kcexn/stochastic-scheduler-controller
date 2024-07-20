@@ -1,6 +1,10 @@
 #include "http-session.hpp"
 #include <iostream>
 
+#ifdef DEBUG
+#include <sys/wait.h>
+#endif
+
 namespace http{
     void HttpSession::read()
     {
@@ -24,22 +28,24 @@ namespace http{
 
     void HttpSession::write(const std::function<void(const std::error_code& ec)>& fn)
     {
+        #ifdef DEBUG
+        struct timespec ts;
+        #endif
+
         std::stringstream ss;
-        {
-            acquire_lock();
-            HttpResponse& res = std::get<HttpResponse>(*this);
-            res.status_line_finished = true;
-            res.next_header = res.headers.size();
-            res.next_chunk = res.chunks.size();
-            // HttpResponse log_res = res;
-            // log_res.status_line_finished = false;
-            // log_res.next_header = 0;
-            // log_res.next_chunk = 0;
-            // std::cerr << "http-session.cpp:34:log_res=" << log_res << ",res_next_header=" << res.next_header << ",res_next_chunk=" << res.next_chunk << std::endl;
-            ss << res;
-            release_lock();
-        }
+        acquire_lock();
+        HttpResponse& res = std::get<HttpResponse>(*this);
+        ss << res;
         std::string data_buf(ss.str());
+
+        #ifdef DEBUG
+        clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "http-session.cpp:32:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":HTTP_RESPONSE_DATA:" << data_buf << std::endl;
+        #endif
+
+        res.status_line_finished = true;
+        res.next_header = res.headers.size();
+        res.next_chunk = res.chunks.size();
+
         auto self = shared_from_this();
         t_session_->async_write(
             boost::asio::const_buffer(data_buf.data(), data_buf.size()),
@@ -47,6 +53,7 @@ namespace http{
                 fn(ec);
             }
         );
+        release_lock();
     }
 
     void HttpSession::write(const HttpReqRes& req_res, const std::function<void(const std::error_code& ec)>& fn)

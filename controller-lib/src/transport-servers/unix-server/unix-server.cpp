@@ -1,6 +1,10 @@
 #include "unix-server.hpp"
 #include <filesystem>
 
+#ifdef DEBUG
+#include <sys/wait.h>
+#endif
+
 namespace UnixServer{
     void unix_session::async_read(std::function<void(boost::system::error_code ec, std::size_t length)> fn){
         socket_.async_read_some(
@@ -26,46 +30,52 @@ namespace UnixServer{
     }
 
     void unix_session::async_write(const boost::asio::const_buffer& write_buffer, const std::function<void(const std::error_code& ec)>& fn){
-            std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
-            std::memcpy(write_data_ptr->data(), write_buffer.data(), write_data_ptr->size());
-            boost::asio::const_buffer buf(write_data_ptr->data(), write_data_ptr->size());
-            auto self = shared_from_this();
-            socket_.async_write_some(
-                buf,
-                [&, buf, write_data_ptr, fn, self](const boost::system::error_code& ec, std::size_t bytes_transferred){
-                    if (!ec){
-                        std::size_t remaining_bytes = write_data_ptr->size() - bytes_transferred;
-                        if ( remaining_bytes > 0 ){
-                            async_write(buf + bytes_transferred, fn);
-                        } else {
-                            // Once the write is complete execute the completion
-                            // handler.
-                            std::error_code err;
-                            fn(err);
-                        }
-                    } else if (ec == boost::asio::error::would_block){
-                        async_write(buf,fn);
-                    } else if (ec == boost::asio::error::broken_pipe){
-                        /* I'm not sure that this is recoverable since it is likely caused by an NGINX gateway timeout.*/
-                        throw boost::asio::error::broken_pipe;
+        #ifdef DEBUG
+        struct timespec ts = {0,0};
+        #endif
+        std::shared_ptr<std::vector<char> > write_data_ptr = std::make_shared<std::vector<char> >(write_buffer.size());
+        std::memcpy(write_data_ptr->data(), write_buffer.data(), write_data_ptr->size());
+        boost::asio::const_buffer buf(write_data_ptr->data(), write_data_ptr->size());
+        auto self = shared_from_this();
+        socket_.async_write_some(
+            buf,
+            [&, buf, write_data_ptr, fn, self](const boost::system::error_code& ec, std::size_t bytes_transferred){
+                if (!ec){
+                    #ifdef DEBUG
+                    clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "unix-server.cpp:39:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":WRITE_UNIX_SOCKET_DATA:" << std::string((const char*)buf.data(), buf.size()) << std::endl;
+                    #endif
+                    std::size_t remaining_bytes = write_data_ptr->size() - bytes_transferred;
+                    if ( remaining_bytes > 0 ){
+                        async_write(buf + bytes_transferred, fn);
                     } else {
-                        std::error_code err(ec.value(), std::system_category());
-                        struct timespec ts = {};
-                        int status = clock_gettime(CLOCK_REALTIME, &ts);
-                        if(status == -1){
-                            std::cerr << "unix-server.cpp:41:clock_gettime error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
-                            std::cerr << "unix-server.cpp:42:unix socket write error:" << ec.message() << \
-                                ":value=" << std::string(write_data_ptr->begin(), write_data_ptr->end()) << \
-                                ",len=" << write_data_ptr->size() << std::endl;
-                        } else {
-                            std::cerr << "unix-server.cpp:44:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unix socket write error:" << ec.message() \
-                                << ":value=" << std::string(write_data_ptr->begin(), write_data_ptr->end()) \
-                                << ",len=" << write_data_ptr->size() << std::endl;
-                        }
+                        // Once the write is complete execute the completion
+                        // handler.
+                        std::error_code err;
+                        fn(err);
+                    }
+                } else if (ec == boost::asio::error::would_block){
+                    async_write(buf,fn);
+                } else if (ec == boost::asio::error::broken_pipe){
+                    /* I'm not sure that this is recoverable since it is likely caused by an NGINX gateway timeout.*/
+                    throw boost::asio::error::broken_pipe;
+                } else {
+                    std::error_code err(ec.value(), std::system_category());
+                    struct timespec ts = {};
+                    int status = clock_gettime(CLOCK_REALTIME, &ts);
+                    if(status == -1){
+                        std::cerr << "unix-server.cpp:41:clock_gettime error:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                        std::cerr << "unix-server.cpp:42:unix socket write error:" << ec.message() << \
+                            ":value=" << std::string(write_data_ptr->begin(), write_data_ptr->end()) << \
+                            ",len=" << write_data_ptr->size() << std::endl;
+                    } else {
+                        std::cerr << "unix-server.cpp:44:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":unix socket write error:" << ec.message() \
+                            << ":value=" << std::string(write_data_ptr->begin(), write_data_ptr->end()) \
+                            << ",len=" << write_data_ptr->size() << std::endl;
                     }
                 }
-            );
-        }
+            }
+        );
+    }
 
     void unix_session::close(){
         erase();

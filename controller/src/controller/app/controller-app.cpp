@@ -330,8 +330,8 @@ static void make_api_requests(const std::shared_ptr<controller::app::ExecutionCo
                 std::stringstream suffix;
                 std::string url_replica(url);
                 data_vec.emplace_back(boost::json::serialize(jctx));
-                suffix << '-' << (i+1);
-                url_replica.append(suffix.str());
+                // suffix << '-' << (i+1);
+                // url_replica.append(suffix.str());
                 
                 #ifdef OW_PROFILE
                 url_replica.append("?caused_by=");
@@ -709,13 +709,21 @@ namespace app{
         std::unique_lock<std::mutex> lk(io_mtx, std::defer_lock);
         std::uint16_t thread_local_signal;
         std::shared_ptr<server::Session> server_session;
+
         // struct timespec troute[2] = {};
         // struct timespec tschedend[2] = {};
         // struct timespec ts[2] = {};
-        // struct timespec ts = {};
+        #ifdef DEBUG
+        struct timespec ts = {0,0};
+        #endif
+
         // Scheduling Loop.
         // The TERMINATE signal once set, will never be cleared, so memory_order_relaxed synchronization is a sufficient check for this. (I'm pretty sure.)
         while(true){
+            #ifdef DEBUG
+            clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:721:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":TOP_OF_LOOP:" << std::endl;
+            #endif
+
             server_session = std::shared_ptr<server::Session>();
             lk.lock();
             if(io_.mq_is_empty()){
@@ -731,19 +739,19 @@ namespace app{
                     server_session = msg->session;
                 }
                 io_cvp->notify_one();
-            }
-            // if(status){
-            //     clock_gettime(CLOCK_REALTIME, &ts);
-            //     std::cout << "controller-app.cpp:165:msg_flag read:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-            // }
-            lk.unlock();   
+            }                 
+            lk.unlock();
             if(thread_local_signal & CTL_TERMINATE_EVENT){
                 if(hs_.empty() && ctx_ptrs.empty() && hcs_.empty()){
                     destruct_.store(true, std::memory_order::memory_order_relaxed);
                     controller_signalp->notify_all();
                     break;
                 }
-            }        
+            }
+            #ifdef DEBUG
+            clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:746:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":MQ_READ:" << std::endl; 
+            #endif
+
             if(server_session){
                 // clock_gettime(CLOCK_MONOTONIC, &troute[0]);
                 std::shared_ptr<http::HttpSession> http_session_ptr;
@@ -751,13 +759,13 @@ namespace app{
                     return *hc == server_session;
                 });
                 if(http_client != hcs_.end()){
-                    
+                    #ifdef DEBUG
+                    clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:754:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":ROUTE_HTTP_CLIENT_RESPONSE:" << std::endl; 
+                    #endif 
                     /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
                     std::shared_ptr<http::HttpClientSession> http_client_ptr = std::static_pointer_cast<http::HttpClientSession>(*http_client);
                     http_client_ptr->read();
                     route_response(http_client_ptr);
-                    // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
-                    // std::cout << "Client Routing time:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
                 } else {
                     /* Otherwise by default any read request must be a server session. */
                     auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
@@ -767,10 +775,11 @@ namespace app{
                         http_session_ptr = std::make_shared<http::HttpSession>(hs_, server_session);
                         http_session_ptr->read();
                         if(std::get<http::HttpRequest>(*http_session_ptr).verb_started){
+                            #ifdef DEBUG
+                            clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:768:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":ROUTE_HTTP_CLIENT_REQUEST:" << std::endl;
+                            #endif
                             hs_.push_back(http_session_ptr);
                             route_request(http_session_ptr);
-                            // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
-                            // std::cout << "Server Routing time - new session:" << (troute[1].tv_sec*1000000 + troute[1].tv_nsec/1000) - (troute[0].tv_sec*1000000 + troute[0].tv_nsec/1000) << std::endl;
                         }
                     } else {
                         // For our application all session pointers are http session pointers.
@@ -784,6 +793,9 @@ namespace app{
                             return (header.field_name == http::HttpHeaderField::CONTENT_LENGTH);
                         });
                         if((it != server_res.headers.end()) || (server_res.chunks.size() > 0 && server_res.chunks.back().chunk_size != http::HttpBigNum{0})){
+                            #ifdef DEBUG
+                            clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:784:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":ROUTE_HTTP_CLIENT_REQUEST:" << std::endl;
+                            #endif
                             http_session_ptr->read();
                             route_request(http_session_ptr);
                             // clock_gettime(CLOCK_MONOTONIC, &troute[1]);
@@ -792,13 +804,10 @@ namespace app{
                     }
                 }
             }
-
-            // if(status){
-
             if (thread_local_signal & CTL_IO_SCHED_END_EVENT){
-                // clock_gettime(CLOCK_REALTIME, &ts);
-                // std::cout << "controller-app.cpp:233:sched end processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-
+                #ifdef DEBUG
+                clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:794:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":SCHED_ENTER:" << std::endl;
+                #endif
                 // Some administration.
                 while(waitpid(-1, nullptr, WNOHANG) > 0){}
                 // Find stopped contexts:
@@ -806,11 +815,11 @@ namespace app{
                     return (ctxp->is_stopped());
                 });
                 while(stopped != ctx_ptrs.end()){
+                    #ifdef DEBUG
+                    clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:802:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":PROCESS_STOPPED_CTXS:" << std::endl;
+                    #endif
                     auto& ctxp = *stopped;
                     std::string data;
-                    // clock_gettime(CLOCK_REALTIME, &ts);
-                    // std::cout << "controller-app.cpp:243:stopped context processing started:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
-
                     // Find threads that still have pending scheduling indices so haven't been handled.
                     std::size_t i = 0;
                     for(auto& thread: ctxp->thread_controls()){
@@ -846,6 +855,7 @@ namespace app{
                     while(ctxp->sessions().size() > 0 ){
                         std::shared_ptr<http::HttpSession> next_session = ctxp->sessions().back();
                         next_session->set(rr);
+                        // clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:840:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":HTTP_RESPONSE_DATA:" << std::get<http::HttpResponse>(next_session->get()) << std::endl;
                         next_session->write(
                             [&, next_session, ctxp](const std::error_code&){
                                 #ifdef OW_PROFILE
@@ -901,7 +911,6 @@ namespace app{
                     // clock_gettime(CLOCK_REALTIME, &ts);
                     // std::cout << "controller-app.cpp:296:stopped context processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                 }
-
                 // Find contexts that have stopped threads but are not stopped.
                 auto updated = std::find_if(ctx_ptrs.begin(), ctx_ptrs.end(), [&](std::shared_ptr<ExecutionContext>& ctx_ptr){
                     auto tmp = std::find_if(ctx_ptr->thread_controls().begin(), ctx_ptr->thread_controls().end(), [&](ThreadControls& thread){
@@ -910,6 +919,9 @@ namespace app{
                     return (tmp == ctx_ptr->thread_controls().end())? false : true;
                 });
                 while(updated != ctx_ptrs.end()){
+                    #ifdef DEBUG
+                    clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:903:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":PROCESS_UPDATED_CTXS:" << std::endl;
+                    #endif
                     auto& ctxp = *updated;
                     // Check to see if the context is stopped.
                     // std::string __OW_ACTIVATION_ID = (*it)->env()["__OW_ACTIVATION_ID"];
@@ -1004,15 +1016,11 @@ namespace app{
                         });
                         return (tmp == ctx_ptr->thread_controls().end())? false : true;
                     });
-                    
-                    // clock_gettime(CLOCK_REALTIME, &ts);
-                    // std::cout << "controller-app.cpp:393:stopped thread processing finished:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << std::endl;
                 }
             }
-            // if(status){
-            //     clock_gettime(CLOCK_MONOTONIC, &ts[1]);
-            //     std::cout << "controller-app.cpp:407:loop time:" << (ts[1].tv_sec*1000000 + ts[1].tv_nsec/1000) - (ts[0].tv_sec*1000000 + ts[0].tv_nsec/1000) << std::endl;
-            // }
+            #ifdef DEBUG
+            clock_gettime(CLOCK_REALTIME, &ts); std::cerr << "controller-app.cpp:902:" << (ts.tv_sec*1000 + ts.tv_nsec/1000000) << ":LOOP_BOTTOM:" << std::endl;
+            #endif
         }
         return;
     }

@@ -46,13 +46,14 @@ if(status) then
     end
     --]]
 
-    if(res["error"] and manifest_exists and concurrency > 1) then
-        return nil
+    if(res["error"] and concurrency > 1) then
+        os.exit(134)
+    else
+        out:write(cjson.encode(res))
     end
-    local output = cjson.encode(res)
-    out:write(
-        output
-    )
+    out:flush()
+elseif(concurrency == 1) then
+    out:write(cjson.encode({["error"]=res}))
     out:flush()
 else
     os.exit(134)
