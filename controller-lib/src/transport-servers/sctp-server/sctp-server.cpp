@@ -129,20 +129,21 @@ namespace sctp_transport{
                 transport::protocols::sctp::sid_t s_offset = 0;
                 bool s_overflow = false;
                 acquire();
-                for(auto& pending_connect: pending_connects_){
-                    struct sockaddr_in* addr = (struct sockaddr_in*)(&pending_connect.addr);
-                    if(addr->sin_port == rmt.ipv4_addr.address.sin_port && addr->sin_addr.s_addr == rmt.ipv4_addr.address.sin_addr.s_addr){
+                for(s_offset = 0; s_offset < MAX_SCTP_STREAMS; ++s_offset){
+                    auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](auto& pc){
+                        return (pc.session->get_sid() == next_stream_num_);
+                    });
+                    if(it == pending_connects_.cend()){
+                        break;
+                    } else {
                         next_stream_num_ = (next_stream_num_ + 1)%MAX_SCTP_STREAMS;
-                        if(s_offset == MAX_SCTP_STREAMS){
-                            s_overflow = true;
-                        }
                     }
                 }
                 transport::protocols::sctp::stream_t stream = {
                     SCTP_FUTURE_ASSOC,
                     next_stream_num_
                 };
-                if(s_overflow){
+                if(s_offset == MAX_SCTP_STREAMS){
                     std::cerr << "sctp-server.cpp:139:SCTP_OUT_OF_STREAMS:" << next_stream_num_ << std::endl;
                     release();
                     fn(boost::system::error_code(EADDRNOTAVAIL, boost::system::system_category()), session);
