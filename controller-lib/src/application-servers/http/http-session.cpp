@@ -87,7 +87,7 @@ namespace http{
             // log_res.next_chunk = 0;
             // std::cerr << "http-session.cpp:76:response=" << log_res << ",res_next_header=" << res.next_header << ",res_next_chunk=" << res.next_chunk << std::endl;
         } catch(...){
-            std::cerr << "http-session.cpp:78:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
+            std::cerr << "http-session.cpp:90:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
             throw "what?";
         }
         t_session_->release_stream();

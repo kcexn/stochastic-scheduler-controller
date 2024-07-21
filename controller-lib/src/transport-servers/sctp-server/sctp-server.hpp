@@ -32,6 +32,7 @@ namespace sctp_transport{
         std::array<char, SERVER_SESSION_MAX_BUFLEN> buf_;
         std::array<char, SERVER_SESSION_MAX_BUFLEN> cbuf_;
         transport::protocols::sctp::socket socket_;
+        transport::protocols::sctp::sid_t next_stream_num_;
     };
 }
 #endif
