@@ -39,6 +39,7 @@ namespace sctp_transport{
                 id_.assoc
             };
             transport::protocols::sctp::status status = {};
+            struct sockaddr_storage paddr = {};
             status.sstat_assoc_id = id_.assoc;
             socklen_t optsize = sizeof(status);
             int ec = getsockopt(socket_.native_handle(), IPPROTO_SCTP, SCTP_STATUS, &status, &optsize);
@@ -118,6 +119,7 @@ namespace sctp_transport{
                     std::cerr << "sctp-session.cpp:115:unrecognized status.sstat_state value:" << status.sstat_state << std::endl;
                     throw "what?";
             }
+            paddr = status.sstat_primary.spinfo_address;
             // The union guarantees that the cmsghdr will have enough
             // space for byte alignment requirements.
             union {
@@ -125,10 +127,10 @@ namespace sctp_transport{
                 sctp::cmsghdr align;
             } u;
             sctp::msghdr msg = {
+                &(paddr),
+                sizeof(paddr),
                 nullptr,
                 0,
-                nullptr,
-                1,
                 u.cbuf_.data(),
                 u.cbuf_.size(),
                 0
@@ -141,13 +143,14 @@ namespace sctp_transport{
             std::memcpy(CMSG_DATA(cmsg), &sndinfo, sizeof(sndinfo));
             std::size_t remaining_bytes = write_data->size();
             int len = 0;
-            if( remaining_bytes > 0 ){
+            if(remaining_bytes > 0){
                 do{
                     sctp::iov msgbuf = {
                         write_data->data() + (write_data->size() - remaining_bytes),
                         (remaining_bytes > MAX_BUF_SZ) ? MAX_BUF_SZ : remaining_bytes
                     };
                     msg.msg_iov = &msgbuf;
+                    msg.msg_iovlen = 1;
                     len = sendmsg(socket_.native_handle(), &msg, MSG_NOSIGNAL);
                     if(len == -1){
                         switch(errno)
@@ -173,7 +176,11 @@ namespace sctp_transport{
                             }
                             case EINVAL:
                             {
-                                // Assume an ungrateful shutdown and just fail the stream.
+                                std::cerr << "sctp-session.cpp:180:sendmsg failed with code EINVAL:"
+                                    << "Message:" << std::string(write_data->begin(), write_data->end()) 
+                                    << ":Assoc ID:" << id_.assoc
+                                    << ":Stream ID:" << id_.sid
+                                    << std::endl;
                                 std::error_code err(EINVAL, std::system_category());
                                 fn(err);
                                 return;

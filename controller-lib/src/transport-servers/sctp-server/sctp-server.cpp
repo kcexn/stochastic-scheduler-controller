@@ -2,8 +2,11 @@
 #include "sctp-session.hpp"
 #include <cerrno>
 #include <iostream>
+#include <cstdint>
 
 namespace sctp_transport{
+    static const std::uint16_t MAX_SCTP_STREAMS = UINT16_MAX;
+
     SctpServer::SctpServer(boost::asio::io_context& ioc)
       : server::Server(ioc),
         socket_(ioc)
@@ -27,12 +30,13 @@ namespace sctp_transport{
                     throw "what?";
             }
         }
+
         static constexpr int so_reuseaddr = 1;
         if(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &so_reuseaddr, sizeof(so_reuseaddr)) == -1){
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:35:SO_REUSEADDR socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:38:SO_REUSEADDR socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
@@ -41,7 +45,7 @@ namespace sctp_transport{
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:44:SCTP_RECVRCVINFO socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:47:SCTP_RECVRCVINFO socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
@@ -54,7 +58,21 @@ namespace sctp_transport{
             switch(errno)
             {
                 default:
-                    std::cerr << "sctp-server.cpp:57:SCTP_EVENT socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    std::cerr << "sctp-server.cpp:60:SCTP_EVENT socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
+                    throw "what?";
+            }
+        }
+        static constexpr transport::protocols::sctp::sockopt_initmsg initmsg = {
+            MAX_SCTP_STREAMS,
+            MAX_SCTP_STREAMS, 
+            0,
+            3000
+        };
+        if(setsockopt(sockfd, IPPROTO_SCTP, SCTP_INITMSG, &initmsg, sizeof(initmsg)) == -1){
+            switch(errno)
+            {
+                default:
+                    std::cerr << "sctp-server.cpp:74:SCTP_INITMSG socket option failed to set:" << std::make_error_code(std::errc(errno)).message() << std::endl;
                     throw "what?";
             }
         }
@@ -111,18 +129,24 @@ namespace sctp_transport{
                 for(auto& pending_connect: pending_connects_){
                     struct sockaddr_in* addr = (struct sockaddr_in*)(&pending_connect.addr);
                     if(addr->sin_port == rmt.ipv4_addr.address.sin_port && addr->sin_addr.s_addr == rmt.ipv4_addr.address.sin_addr.s_addr){
-                        ++stream_number;
+                        stream_number = stream_number + 2;
                     }
                 }
                 transport::protocols::sctp::stream_t stream = {
                     SCTP_FUTURE_ASSOC,
                     stream_number
                 };
-                session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
-                PendingConnect connection = {session, fn, {}};
-                std::memcpy(&connection.addr, (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
-                pending_connects_.push_back(connection);
-                release();
+                if(stream_number >= MAX_SCTP_STREAMS){
+                    std::cerr << "sctp-server.cpp:125:SCTP_OUT_OF_STREAMS:" << stream_number << std::endl;
+                    release();
+                    fn(boost::system::error_code(EADDRNOTAVAIL, boost::system::system_category()), session);
+                } else {
+                    session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
+                    PendingConnect connection = {session, fn, {}};
+                    std::memcpy(&connection.addr, (const struct sockaddr*)(&rmt.ipv4_addr.address), sizeof(rmt.ipv4_addr.address));
+                    pending_connects_.push_back(connection);
+                    release();
+                }
                 if(stream_number == 1){
                     socket_.async_wait(
                         transport::protocols::sctp::socket::wait_type::wait_write,
@@ -184,7 +208,7 @@ namespace sctp_transport{
             /* Remote address is in the peer address table. */
             transport::protocols::sctp::assoc_t assoc_id = paddrinfo.spinfo_assoc_id;
             /* Look for the next available stream*/
-            std::vector<transport::protocols::sctp::sid_t> used_stream_nums;
+            std::vector<transport::protocols::sctp::sid_t> used_stream_nums(MAX_SCTP_STREAMS);
             acquire();
             // Append all of the streams in the server.
             for(auto& session_ptr: *this){
@@ -199,26 +223,27 @@ namespace sctp_transport{
                     used_stream_nums.push_back(pc.session->get_sid());
                 }
             }
-            release();
-            std::sort(used_stream_nums.begin(), used_stream_nums.end());           
             transport::protocols::sctp::sid_t last_stream_num = 0;
-            for(auto sid: used_stream_nums){
-                if(sid == last_stream_num){
-                    ++last_stream_num;
-                } else {
+            for(last_stream_num = 0; last_stream_num < MAX_SCTP_STREAMS; last_stream_num = last_stream_num+2){
+                auto it = std::find(used_stream_nums.cbegin(), used_stream_nums.cend(), last_stream_num);
+                if(it == used_stream_nums.cend()){
                     break;
                 }
             }
-            transport::protocols::sctp::stream_t stream = {
-                assoc_id,
-                last_stream_num
-            };
-            session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
-            acquire();
-            push_back(session);
+            boost::system::error_code err;
+            if(last_stream_num >= MAX_SCTP_STREAMS){
+                std::cerr << "sctp-server.cpp:234:SCTP_OUT_OF_STREAMS:" << last_stream_num << std::endl;
+                err.assign(EADDRNOTAVAIL, boost::system::system_category());
+            } else {
+                transport::protocols::sctp::stream_t stream = {
+                    assoc_id,
+                    last_stream_num
+                };
+                session = std::make_shared<sctp_transport::SctpSession>(*this, stream, socket_);
+                push_back(session);
+            }
             release();
-            boost::system::error_code ec;
-            fn(ec, session);
+            fn(err, session);
         }
         return;
     }

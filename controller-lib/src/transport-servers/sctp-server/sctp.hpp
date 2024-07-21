@@ -30,6 +30,7 @@ namespace protocols{
         };
 
         /* Socket Options */
+        typedef struct sctp_initmsg sockopt_initmsg;
         struct recvrcvinfo {
             // Settable and Gettable
             static int level(const sctp&){ return IPPROTO_SCTP; }
@@ -45,7 +46,6 @@ namespace protocols{
             recvrcvinfo(){}
             int value(){ return optval; }
         };
-
         // typedef struct sctp_event event;
         // struct event_opt {
         //     event optval;

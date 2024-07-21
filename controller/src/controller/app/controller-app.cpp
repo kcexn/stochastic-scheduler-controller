@@ -1365,7 +1365,7 @@ namespace app{
                                         ctx_ptr->peer_addresses().push_back(io_.local_sctp_address);
                                     }
                                     ctx_ptrs.push_back(ctx_ptr);
-                                    #ifndef DEBUG
+                                    #ifndef NDEBUG
                                     try{
                                     if(val.get_object().at("value").as_object().contains("execution_context")){
                                         // If this is a new execution_context AND the function input parameters
