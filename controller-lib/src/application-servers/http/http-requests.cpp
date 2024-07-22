@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <algorithm>
 #include <iostream>
+#include <stdexcept>
 
 namespace http
 {
@@ -28,7 +29,7 @@ namespace http
             std::from_chars_result res = std::from_chars(it->data(), it->data()+it->size(), num, 16);
             if(res.ec != std::errc{}){
                 std::cerr << "http-requests.cpp:31:std::from_chars failed:" << std::make_error_code(std::errc(res.ec)).message() << ":value:" << *it << std::endl;
-                throw "char conversion failed.";
+                throw std::domain_error("http-requests.cpp:32:std::from_chars failed.");
             }
             push_back(num);
         }

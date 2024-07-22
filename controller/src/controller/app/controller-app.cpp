@@ -764,8 +764,14 @@ namespace app{
                     #endif 
                     /* if it is in the http client server list, then we treat this as an incoming response to a client session. */
                     std::shared_ptr<http::HttpClientSession> http_client_ptr = std::static_pointer_cast<http::HttpClientSession>(*http_client);
-                    http_client_ptr->read();
-                    route_response(http_client_ptr);
+                    try{
+                        http_client_ptr->read();
+                        route_response(http_client_ptr);
+                    } catch(...){
+                        /* A race condition where a second client response session clobbers an existing client response out of order before it has been fully ingested. 
+                           I can't for the life of me figure out why this is occuring. So for the time being just synchronously close the client ptr.*/
+                        http_client_ptr->close();
+                    }
                 } else {
                     /* Otherwise by default any read request must be a server session. */
                     auto http_session_it = std::find_if(hs_.begin(), hs_.end(), [&](auto& ptr){
@@ -1144,10 +1150,18 @@ namespace app{
                                 if(it == old_peers.end()){
                                     io_.async_connect(peer, [&, nreq, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                         if(!ec){
+                                            /* Creating a new session so need to clear the old transport session stream if there is anything in it. */
+                                            t_session->acquire_stream() = std::stringstream();
+                                            t_session->release_stream();
+
                                             std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
+                                            hcs_.acquire();
                                             hcs_.push_back(client_session);
+                                            hcs_.release();
+                                            ctx_ptr->acquire();
                                             ctx_ptr->peer_client_sessions().push_back(client_session);  
-                                            std::get<http::HttpRequest>(*client_session) = nreq;                                         
+                                            ctx_ptr->release();
+                                            client_session->set(http::HttpReqRes({nreq,{}}));
                                             client_session->write([&, client_session](const std::error_code& ec){ 
                                                 if(ec){
                                                     client_session->close();
@@ -1458,10 +1472,18 @@ namespace app{
                                             if(peer.ipv4_addr.address.sin_addr.s_addr != io_.local_sctp_address.ipv4_addr.address.sin_addr.s_addr || peer.ipv4_addr.address.sin_port != io_.local_sctp_address.ipv4_addr.address.sin_port){   
                                                 io_.async_connect(peer, [&, ctx_ptr, nreq](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                                     if(!ec){
+                                                        /* Creating a new client session with a potentially reused transport session, so need to clear the old buffers first.*/
+                                                        t_session->acquire_stream() = std::stringstream();
+                                                        t_session->release_stream();
+
                                                         std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
+                                                        hcs_.acquire();
                                                         hcs_.push_back(client_session);
+                                                        hcs_.release();
+                                                        ctx_ptr->acquire();
                                                         ctx_ptr->peer_client_sessions().push_back(client_session);
-                                                        std::get<http::HttpRequest>(*client_session) = nreq;
+                                                        ctx_ptr->release();
+                                                        client_session->set(http::HttpReqRes({nreq,{}}));
                                                         client_session->write([&, client_session](const std::error_code& ec){
                                                             if(ec){
                                                                 client_session->close();

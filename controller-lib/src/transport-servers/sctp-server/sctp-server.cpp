@@ -244,7 +244,7 @@ namespace sctp_transport{
                 next_stream_num_ = (next_stream_num_ + 1)%MAX_SCTP_STREAMS;
             }
             boost::system::error_code err;
-            if(s_offset >= MAX_SCTP_STREAMS){
+            if(s_offset == MAX_SCTP_STREAMS){
                 std::cerr << "sctp-server.cpp:234:SCTP_OUT_OF_STREAMS:" << next_stream_num_ << std::endl;
                 err.assign(EADDRNOTAVAIL, boost::system::system_category());
             } else {

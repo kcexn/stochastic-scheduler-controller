@@ -1,5 +1,6 @@
 #include "http-session.hpp"
 #include <iostream>
+#include <stdexcept>
 
 #ifdef DEBUG
 #include <sys/wait.h>
@@ -87,8 +88,8 @@ namespace http{
             // log_res.next_chunk = 0;
             // std::cerr << "http-session.cpp:76:response=" << log_res << ",res_next_header=" << res.next_header << ",res_next_chunk=" << res.next_chunk << std::endl;
         } catch(...){
-            std::cerr << "http-session.cpp:90:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
-            throw "what?";
+            std::cerr << "http-session.cpp:91:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
+            throw std::domain_error("http-session.cpp:92:HttpClientSession.read() failed.");
         }
         t_session_->release_stream();
         release_lock();
