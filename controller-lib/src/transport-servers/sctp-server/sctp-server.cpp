@@ -126,18 +126,23 @@ namespace sctp_transport{
         if(ec == -1){
             if(errno == EINVAL){
                 /* remote address is not in the peer address table. */
+                std::vector<transport::protocols::sctp::sid_t> used_stream_nums(MAX_SCTP_STREAMS);
                 transport::protocols::sctp::sid_t s_offset = 0;
-                bool s_overflow = false;
                 acquire();
-                for(s_offset = 0; s_offset < MAX_SCTP_STREAMS; ++s_offset){
-                    auto it = std::find_if(pending_connects_.cbegin(), pending_connects_.cend(), [&](auto& pc){
-                        return (pc.session->get_sid() == next_stream_num_);
-                    });
-                    if(it == pending_connects_.cend()){
-                        break;
-                    } else {
-                        next_stream_num_ = (next_stream_num_ + 1)%MAX_SCTP_STREAMS;
+                // Append all of the streams in pending connects.
+                for(auto& pc: pending_connects_){
+                    auto addr_in = (struct sockaddr_in*)(&pc.addr);
+                    if(rmt.ipv4_addr.address.sin_addr.s_addr == addr_in->sin_addr.s_addr && rmt.ipv4_addr.address.sin_port == addr_in->sin_port){
+                        used_stream_nums.push_back(pc.session->get_sid());
                     }
+                }
+                // Find an unused stream number.
+                for(s_offset = 0; s_offset < MAX_SCTP_STREAMS; ++s_offset){
+                    auto it = std::find(used_stream_nums.cbegin(), used_stream_nums.cend(), next_stream_num_);
+                    if(it == used_stream_nums.cend()){
+                        break;
+                    }
+                    next_stream_num_ = (next_stream_num_ + 1)%MAX_SCTP_STREAMS;
                 }
                 transport::protocols::sctp::stream_t stream = {
                     SCTP_FUTURE_ASSOC,
@@ -232,11 +237,11 @@ namespace sctp_transport{
             }
             transport::protocols::sctp::sid_t s_offset = 0;
             for(s_offset = 0; s_offset < MAX_SCTP_STREAMS; ++s_offset){
-                next_stream_num_ = (next_stream_num_ + 1)%MAX_SCTP_STREAMS;
                 auto it = std::find(used_stream_nums.cbegin(), used_stream_nums.cend(), next_stream_num_);
                 if(it == used_stream_nums.cend()){
                     break;
                 }
+                next_stream_num_ = (next_stream_num_ + 1)%MAX_SCTP_STREAMS;
             }
             boost::system::error_code err;
             if(s_offset >= MAX_SCTP_STREAMS){
