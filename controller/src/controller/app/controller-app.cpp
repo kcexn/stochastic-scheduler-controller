@@ -1151,7 +1151,7 @@ namespace app{
                                     io_.async_connect(peer, [&, nreq, ctx_ptr](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                         if(!ec){
                                             /* Creating a new session so need to clear the old transport session stream if there is anything in it. */
-                                            t_session->acquire_stream() = std::stringstream();
+                                            t_session->acquire_stream().str(std::string());
                                             t_session->release_stream();
 
                                             std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);
@@ -1473,7 +1473,7 @@ namespace app{
                                                 io_.async_connect(peer, [&, ctx_ptr, nreq](const boost::system::error_code& ec, const std::shared_ptr<server::Session>& t_session){
                                                     if(!ec){
                                                         /* Creating a new client session with a potentially reused transport session, so need to clear the old buffers first.*/
-                                                        t_session->acquire_stream() = std::stringstream();
+                                                        t_session->acquire_stream().str(std::string());
                                                         t_session->release_stream();
 
                                                         std::shared_ptr<http::HttpClientSession> client_session = std::make_shared<http::HttpClientSession>(hcs_, t_session);

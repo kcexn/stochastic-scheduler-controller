@@ -77,6 +77,7 @@ namespace http{
     //Http client sessions reverse the http server session logic.
     void HttpClientSession::read()
     {
+        bool err = false;
         acquire_lock();
         HttpResponse& res = std::get<HttpResponse>(*this);
         auto& stream = t_session_->acquire_stream();
@@ -87,13 +88,14 @@ namespace http{
             // log_res.next_header = 0;
             // log_res.next_chunk = 0;
             // std::cerr << "http-session.cpp:76:response=" << log_res << ",res_next_header=" << res.next_header << ",res_next_chunk=" << res.next_chunk << std::endl;
-            t_session_->release_stream();
-            release_lock();
         } catch(...){
-            std::cerr << "http-session.cpp:91:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
-            t_session_->release_stream();
-            release_lock();
-            throw std::domain_error("http-session.cpp:92:HttpClientSession.read() failed.");
+            std::cerr << "http-session.cpp:92:HttpClientSession.read() failed - current stream value is: " << stream.str() << std::endl;
+            err = true;
+        }
+        t_session_->release_stream();
+        release_lock();
+        if(err){
+            throw std::domain_error("http-session.cpp:98:HttpClientSession.read() failed.");
         }
         return;
     }
